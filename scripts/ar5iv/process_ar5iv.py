@@ -46,7 +46,7 @@ def to_markdown(html):
     # cleanup: replace nbsp as space
     # this isn't quite right if we preserve html in places, but we currently are not doing that
     text = text.replace("\xa0", " ")
-    return text
+    return text, html.find('title').text
 
 with open("/juice4/scr4/nlp/crfm/markweb/ar5iv/error/0003/nlin0003055.html", "r") as f:
     s = f.read()
