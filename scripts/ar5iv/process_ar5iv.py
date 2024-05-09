@@ -42,17 +42,33 @@ class Ar5ivMarkdownConverter(markdown.MyMarkdownConverter):
 def to_markdown(html):
     if isinstance(html, str):
         html = BeautifulSoup(html, "html.parser")
-    html.find('div', id="ltx_authors").decompose()
+    authors = html.find('div', {'class': 'ltx_authors'})
+    if authors:
+        authors.decompose()
+    title_page = html.find('div', {'class': 'ltx_titlepage'})
+    if title_page:
+        title_page.decompose()
     html.find('title').decompose()
     text = Ar5ivMarkdownConverter().convert_soup(html)
     # cleanup: replace nbsp as space
     # this isn't quite right if we preserve html in places, but we currently are not doing that
-    text = text.replace("\xa0", " ")
+    text = text.replace("\xa0", " ").strip()
     return text
+import glob
+import os
 
-with open("/juice4/scr4/nlp/crfm/markweb/ar5iv/error/0003/nlin0003055.html", "r") as f:
-    s = f.read()
+for file in glob.glob('/juice4/scr4/nlp/crfm/markweb/ar5iv/error/0003/*'):
+    with open(file, "r") as f:
+        s = f.read()
+    print(f"reading {file}")
     title = re.search(r"<title>\n*\s*(.*)\s*\n*<\/title>", s).group(1)
-    match = re.search(r"""<h(.)*>References""", s)
-    s = s[:match.start()]
-    print(to_markdown(s))
+    match = re.search(r"""<section.*class="ltx_bibliography">""", s)
+    if match:
+        s = s[:match.start()]
+    else:
+        s = s[:s.find("References")]
+    s = to_markdown(s)
+    print(f"saving {file}")
+    with open(os.path.basename(file).split(".")[0]+".md", "w") as f:
+        f.write(s)
+    # Pull date and title from arxiv
