@@ -1,1 +1,1 @@
-from .markdown import mathml_to_markdown, minimal_markdown_escape, to_markdown, _global_html2text
+from .markdown import mathml_to_markdown, minimal_markdown_escape, to_markdown, _global_html2text, MyMarkdownConverter
