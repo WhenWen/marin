@@ -82,11 +82,7 @@ if __name__ == "__main__":
     
     with open(os.path.basename(domain), "r") as f:
         html = f.read()
-    title = html.split("<title>")
-    if len(title) == 1:
-        title = "Unknown Title"
-    else:
-        title = title[1].split("</title>")[0].strip()
+    title = re.search(r"<title>\n*\s*(.*)\s*\n*<\/title>", html).group(1)
     for start_marker in TEXT_START_MARKERS:
         match = re.search(start_marker, html)
         if match:

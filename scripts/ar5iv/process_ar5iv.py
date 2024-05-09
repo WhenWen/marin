@@ -42,15 +42,17 @@ class Ar5ivMarkdownConverter(markdown.MyMarkdownConverter):
 def to_markdown(html):
     if isinstance(html, str):
         html = BeautifulSoup(html, "html.parser")
+    html.find('div', id="ltx_authors").decompose()
+    html.find('title').decompose()
     text = Ar5ivMarkdownConverter().convert_soup(html)
     # cleanup: replace nbsp as space
     # this isn't quite right if we preserve html in places, but we currently are not doing that
     text = text.replace("\xa0", " ")
-    return text, html.find('title').text
+    return text
 
 with open("/juice4/scr4/nlp/crfm/markweb/ar5iv/error/0003/nlin0003055.html", "r") as f:
     s = f.read()
-    s = s.split("</head>")[1]
+    title = re.search(r"<title>\n*\s*(.*)\s*\n*<\/title>", s).group(1)
     match = re.search(r"""<h(.)*>References""", s)
     s = s[:match.start()]
     print(to_markdown(s))
