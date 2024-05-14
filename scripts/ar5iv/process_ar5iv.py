@@ -42,18 +42,20 @@ import json
 
 # for file in ["/juice4/scr4/nlp/crfm/markweb/ar5iv/error/0003/math0003131.html"]:
 def process_file(file):
-    with open(file, "r") as f:
-        s = f.read()
-    print(f"reading {file}")
-    paper = os.path.basename(file).split(".")[0]
+    paper = os.path.basename(file)[:-5]
+    print(paper)
     parent_dir = file.split("/")[-2]
-    output = f"/juice4/scr4/nlp/crfm/markweb/ar5iv/no-problem/{parent_dir}/{paper}.json"
+    output = f"/juice4/scr4/nlp/crfm/markweb/ar5iv/no-problem/{paper}.json"
     if os.path.exists(output):
         print(f"{output} already exists")
         return
+    with open(file, "r") as f:
+        s = f.read()
+    print(f"reading {file}")
     letters = re.search(r"^([A-Za-z])*",paper)
     numbers = re.search(r"[0-9\.]*$", paper)
     url = f"https://arxiv.org/abs/{letters.group(0)}/{numbers.group(0)}"
+    print(url)
     title = "]".join(BeautifulSoup(urlopen(url), "html.parser").title.string.split("] ")[1:])
     print(title)
     match = re.search(r"""<section.*class="ltx_bibliography">""", s)
@@ -85,7 +87,7 @@ def process_file(file):
     output["metadata"]["length"] = len(s)
     output["id"] = hash(s)
     output["source"] = "ar5iv"
-    with open(f"/juice4/scr4/nlp/crfm/markweb/ar5iv/no-problem/{parent_dir}/{paper}.json", "w") as f:
+    with open(output, "w") as f:
         json.dump(output, f)
 
 if __name__ == "__main__":
