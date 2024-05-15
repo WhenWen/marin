@@ -4,7 +4,7 @@ This script downloads a HuggingFace dataset and uploads it to Google Cloud Stora
 It can be run locally, but for large datasets it is recommended to run it on a VM on GCP for faster transfer speeds.
 
 How to run this file?
-1. Create a VM on GCP
+1. Create a VM on GCP (make sure to set "Allow full access to all Cloud APIs")
 2. Connect to the VM
 3. Install Git: `sudo apt-get install git`
 4. Clone the repository: https://github.com/stanford-crfm/marin
@@ -32,7 +32,9 @@ sudo apt-get install tmux
 tmux
 ```
 7. Run the file and specify the dataset to be downloaded:
-```python3 save_hf_dataset_to_gcp.py tiiuae/falcon-refinedweb```
+```
+python3 save_hf_dataset_to_gcp.py tiiuae/falcon-refinedweb
+```
 """
 
 import argparse
