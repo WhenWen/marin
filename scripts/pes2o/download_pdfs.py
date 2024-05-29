@@ -11,7 +11,9 @@ import time
 import gzip
 import json
 import logging
+import random
 import requests
+import concurrent.futures
 from dotenv import load_dotenv
 from tqdm import tqdm
 from thefuzz import fuzz
@@ -30,39 +32,62 @@ logging.basicConfig(
 
 # PES2O_FILEPATH = "data/sample.json.gz"  # single file for debugging
 
-DEBUG = 0
+DEBUG = 1
 
 
 @sleep_and_retry
-@limits(calls=1, period=2)  # 1 call per second + eps=1 to be safe
+@limits(calls=1, period=1.5)  # 1 call per second + eps=0.5 to be safe
 def check_limit():
     # empty call to check rate limit b/c ratelimit doesn't work globally (sigh)
-    return
+    if DEBUG:
+        logging.info("Rate limit check")
 
 
-def _find_closest_match(abstract):
+def _backoff_request(request, max_retries=10, backoff=2):
+    retries = 0
+    while retries < max_retries:
+        try:
+            response = request()
+            return response
+        except Exception as e:
+            retries += 1
+            delay = (2**retries) * backoff + random.uniform(0, 1)  # exp backoff with jitter
+            if retries < max_retries:
+                logging.warning(
+                    f"Request failed (attempt {retries}/{max_retries}): {e}. Retrying in {delay:.2f} seconds..."
+                )
+                time.sleep(delay)
+            else:
+                logging.error(f"Max retries exceeded. Giving up.")
+                raise e
+
+
+def _find_closest_match(first_line):
     """
     Some Semantic Scholar papers seem to have had their IDs changed.
     E.g., 239601370 -> 244347457, 123884760->263121666
-    This lookup fuzzes the abstracts (the only other ID info in pes2o) to find the closest match.
+    This lookup fuzzes the titles (found in pes2o text) to find the closest match.
     """
-    first_line = abstract.split("\n")[0]
     check_limit()
-    response = requests.get(
-        "https://api.semanticscholar.org/graph/v1/paper/search",
-        headers={"x-api-key": api_key},
-        params={
-            "query": first_line,
-            "fields": "corpusId,title,abstract,externalIds,isOpenAccess,openAccessPdf",
-            "limit": 10,
-        },
-        hooks={"response": lambda r, *args, **kwargs: r.raise_for_status()},
-    ).json()
-    if response and response["total"] > 0:
+    response = _backoff_request(
+        lambda: requests.get(
+            "https://api.semanticscholar.org/graph/v1/paper/search",
+            headers={"x-api-key": api_key},
+            params={
+                "query": first_line,
+                "fields": "corpusId,title,authors,externalIds,isOpenAccess,openAccessPdf",
+                "limit": 10,
+            },
+            hooks={"response": lambda r, *args, **kwargs: r.raise_for_status()},
+        ).json(),
+        max_retries=5,
+        backoff=1,
+    )
+    if (response is not None) and (response["total"] > 0) and ("data" in response):
         for paper in response["data"]:
             if DEBUG:
                 logging.info(f"Fuzzy match for: {paper['title']}")
-            if fuzz.ratio(abstract, paper["abstract"]) > 90:
+            if fuzz.ratio(first_line, paper["title"]) > 90:
                 return paper
     if DEBUG:
         logging.info(f"No fuzzy match found. Discarding record entry.")
@@ -76,13 +101,17 @@ def _batch_query(batch):
     check_limit()
     if DEBUG:
         logging.info(f"Submitting batch request of size {len(batch)}...")
-    response = requests.post(
-        "https://api.semanticscholar.org/graph/v1/paper/batch",
-        headers={"x-api-key": api_key},
-        params={"fields": "corpusId,title,abstract,externalIds,isOpenAccess,openAccessPdf"},
-        json={"ids": batch},  # manually validated this matches
-        hooks={"response": lambda r, *args, **kwargs: r.raise_for_status()},
-    ).json()
+    response = _backoff_request(
+        lambda: requests.post(
+            "https://api.semanticscholar.org/graph/v1/paper/batch",
+            headers={"x-api-key": api_key},
+            params={"fields": "corpusId,title,authors,externalIds,isOpenAccess,openAccessPdf"},
+            json={"ids": batch},  # manually validated this matches
+            hooks={"response": lambda r, *args, **kwargs: r.raise_for_status()},
+        ).json(),
+        max_retries=5,
+        backoff=1,
+    )
     return response
 
 
@@ -98,6 +127,18 @@ def process_response(response, url_file, no_url_json_list, nopen_json_list):
 
 
 def extract_pdf_urls(pes2o_file, out_dir):
+    """
+    Takes a file from the pes2o dataset and splits entries into: - open access
+    papers with pdf urls given in Semantic Scholar - open access papers without
+    pdf urls (to be processed later) - non-open access papers
+
+    It writes the results to various files. All metadata for papers with URLs
+    is stripped aside from the Semantic Scholar CorpusId. However, one can
+    recover the metadata by querying their API.
+    - open access w/ url -> pdf_urls.csv: (only corpusId, url)
+    - open access w/o url -> open_no_urls.json
+    - non-open access -> nopen.json
+    """
     # list of open accesspdf urls
     url_filepath = os.path.join(out_dir, "pdf_urls.csv")
     url_file = open(url_filepath, "w")
@@ -109,14 +150,23 @@ def extract_pdf_urls(pes2o_file, out_dir):
 
     # first pull CorpusIds from pes2o data
     pes2o_ids = []
-    pes2o_abstracts = []
+    pes2o_titles = []
     with gzip.open(open(pes2o_file, "rb"), "rt", encoding="utf-8") as f:
-        for line in f:
+        for line in tqdm(f):
             if line:
                 example = json.loads(line)
                 pes2o_ids.append(example["id"])
-                # TODO: need to revisit when move from s2ag
-                pes2o_abstracts.append(example["text"])  # for fuzzy matching
+                # for fuzzy matching
+                text = example["text"].split("\n")
+                # find the first line that is not empty
+                it = 0
+                while it < len(text):
+                    if text[it].strip() != "":
+                        pes2o_titles.append(text[it])
+                        break
+                    it += 1
+                if it == len(text):
+                    pes2o_titles.append("")
     logging.info(f"Collected {len(pes2o_ids)} ids")
 
     # query Semantic Scholar API for paper metadata
@@ -129,12 +179,13 @@ def extract_pdf_urls(pes2o_file, out_dir):
             try:
                 process_response(paper, url_file, no_url_json_list, nopen_json_list)
             except:
-                pes2o_abstract = pes2o_abstracts[i + idx]
-                closest_match = _find_closest_match(pes2o_abstract)
+                closest_match = _find_closest_match(pes2o_titles[i + idx])
                 if closest_match is not None:
                     process_response(closest_match, url_file, no_url_json_list, nopen_json_list)
                 else:
-                    logging.error(f"Error processing paper with pes2o id: {batch[idx]}. Server response: {paper}")
+                    logging.error(
+                        f"Error processing paper with pes2o id: {batch[idx]}. Server response: {paper}"
+                    )
 
         if DEBUG:
             logging.info("Debug mode. Exiting.")
@@ -150,12 +201,44 @@ def extract_pdf_urls(pes2o_file, out_dir):
         json.dump(nopen_json_list, f)
 
 
-def download_open_access_pdf(id, url):
+def process_open_access_files(file, out_dir, num_threads=10):
+    # set up executor
+    with open(file, "r") as f:
+        lines = f.readlines()
+        # skip csv header
+        lines = lines[1:]
+
+    futures = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
+        for line in lines:
+            corpus_id, url = line.strip().split(",")
+            futures.append(
+                executor.submit(download_open_access_pdf, url, f"{out_dir}/{corpus_id}.pdf")
+            )
+
+        for future in tqdm(futures):
+            url = future.result()
+            if DEBUG:
+                logging.info(f"Processed URL: {url}")
+
+
+def download_open_access_pdf(url, outfile):
     # should be as simple as a wget...
-    check_limit()
-    response = requests.get(url)
-    with open(f"data/pdfs/{id}.pdf", "wb") as f:
-        f.write(response.content)
+    response = requests.get(
+        url,
+        headers={
+            "User-Agent": "Mozilla/8.8 (Macintosh; Intel Mac OS X 8888_8888) AppleWebKit/888.8.88 (KHTML, like Gecko) Version/88.8.8 Safari/888.8.88",
+            # referer policy
+            "Referrer-Policy": "strict-origin-when-cross-origin",
+        },
+    )
+    if response.status_code != 200:
+        logging.error(f"Failed to download {url}. Response: {response.status_code}")
+    else:
+        with open(outfile, "wb") as f:
+            f.write(response.content)
+
+    return url
 
 
 def run_analytics(out_dir):
@@ -173,20 +256,17 @@ def run_analytics(out_dir):
         return
 
     logging.info(f"Total records: {total_len}")
-    logging.info(f"Open access with URL: {open_with_url_count}. Percentage: {open_with_url_count*100/total_len:.2f}%")
-    logging.info(f"Open access without URL: {open_no_url_count}. Percentage: {open_no_url_count*100/total_len:.2f}%")
+    logging.info(
+        f"Open access with URL: {open_with_url_count}. Percentage: {open_with_url_count*100/total_len:.2f}%"
+    )
+    logging.info(
+        f"Open access without URL: {open_no_url_count}. Percentage: {open_no_url_count*100/total_len:.2f}%"
+    )
     logging.info(f"Non-open access: {nopen_count}. Percentage: {nopen_count*100/total_len:.2f}%")
 
 
 if __name__ == "__main__":
-    # files are stored in dir data/raw/s2orc
-    s2orc_files = os.listdir("data/raw/s2orc")
-    for file in tqdm(s2orc_files):
-        if file.endswith(".json.gz"):
-            logging.info(f"Processing file: {file}. Writing to data/processed/{file.split('.')[0]}")
-            file_path = os.path.join("data/raw/s2orc", file)
-            out_dir = os.path.join("data/processed", file.split(".")[0])
-            os.makedirs(out_dir, exist_ok=True)
-            extract_pdf_urls(file_path, out_dir)
-            logging.info("Finished processing file.")
-            run_analytics(out_dir)
+    url_file = "data/processed/peS2o_train_00010/pdf_urls.csv"
+    out_dir = "data/pdfs/peS2o_train_00010"
+    os.makedirs(out_dir, exist_ok=True)
+    process_open_access_files(url_file, out_dir)
