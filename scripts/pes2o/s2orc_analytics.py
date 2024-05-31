@@ -65,8 +65,12 @@ def eval_nopen_external_ids(dir_paths, print_subdir_info=False):
     def print_counts(src_count, comb_count):
         print(f"Individual sources (n={src_count['total']}):")
         # sort by descending order of value
-        src_count = {k: v for k, v in sorted(src_count.items(), key=lambda item: item[1], reverse=True)}
-        comb_count = {k: v for k, v in sorted(comb_count.items(), key=lambda item: item[1], reverse=True)}
+        src_count = {
+            k: v for k, v in sorted(src_count.items(), key=lambda item: item[1], reverse=True)
+        }
+        comb_count = {
+            k: v for k, v in sorted(comb_count.items(), key=lambda item: item[1], reverse=True)
+        }
 
         for src, count in src_count.items():
             if src != "total":
@@ -113,4 +117,5 @@ if __name__ == "__main__":
         # if dir contains a nopen.json file
         if os.path.exists(f"data/processed/{dir}/nopen.json"):
             dirs.append(f"data/processed/{dir}")
+    eval_open_access(dirs)
     eval_nopen_external_ids(dirs)

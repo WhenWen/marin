@@ -1,0 +1,84 @@
+"""
+file: pdf2md.py
+----------------
+Uses the Marker tool to convert PDFs to Markdown.
+For more info about Marker, see https://github.com/VikParuchuri/marker
+"""
+
+import os
+import sys
+import subprocess
+import argparse
+import re
+from tqdm import tqdm
+
+DEBUG = 0
+
+
+def pdf2md_conversion(pdf_filepaths, args):
+    dir_pairs = set()  # (pdf_dir, md_dir) pairs
+    for pdf_file in pdf_filepaths:  # TODO: parallelizable
+        basename = os.path.basename(pdf_file)[:-4]  # remove .pdf extension
+        pdf_dir, _ = os.path.split(pdf_file)
+        rel_path = os.path.relpath(pdf_dir, args.pdf_root_dir)
+        md_dir = os.path.join(args.md_root_dir, rel_path, basename)
+        os.makedirs(md_dir, exist_ok=True)
+        dir_pairs.add((pdf_dir, md_dir))
+        if DEBUG:
+            print(f"basename: {basename}")
+            print(f"pdf_dir: {pdf_dir}")
+            print(f"rel_path: {rel_path}")
+            print(f"md_dir: {md_dir}")
+
+        # copy pdf file to new dir
+        new_pdf_file = os.path.join(md_dir, f"{basename}.pdf")
+        subprocess.run(["cp", pdf_file, new_pdf_file])
+
+    # convert pdf to markdown
+    for pdf_dir, md_dir in tqdm(dir_pairs):
+        if DEBUG:
+            print(f"Converting {pdf_dir} to {md_dir}...")
+        md_dir = pdf_dir.replace(args.pdf_root_dir, args.md_root_dir)
+        subprocess.run(
+            [
+                "marker",
+                pdf_dir,
+                md_dir,
+                "--workers",
+                str(args.num_workers),
+            ]
+        )
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    # FILEPATH ARGS
+    parser.add_argument(
+        "--pdf_root_dir",
+        help="Directory containing PDF files to convert to Markdown",
+        default="data/pdfs/",
+    )
+    parser.add_argument(
+        "--md_root_dir",
+        help="Directory to save Markdown files",
+        default="data/md/",
+    )
+    # MARKER ARGS
+    parser.add_argument(
+        "--num_workers", type=int, default=5, help="Number of worker processes to use"
+    )
+    # TODO: consider whether we need to overwrite settings with env variables
+    # (esp on GPU)
+    args = parser.parse_args()
+
+    pdf_files = [
+        os.path.join(dp, f)
+        for dp, dn, filenames in os.walk(args.pdf_root_dir)
+        for f in filenames
+        if f.endswith(".pdf")
+    ]
+    if len(pdf_files) == 0:
+        print(f"No PDF files found in {args.pdf_root_dir}")
+        sys.exit(1)
+
+    pdf2md_conversion(pdf_files, args)
