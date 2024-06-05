@@ -21,8 +21,8 @@ def pdf2md_conversion(pdf_filepaths, args):
         basename = os.path.basename(pdf_file)[:-4]  # remove .pdf extension
         pdf_dir, _ = os.path.split(pdf_file)
         rel_path = os.path.relpath(pdf_dir, args.pdf_root_dir)
-        md_dir = os.path.join(args.md_root_dir, rel_path, basename)
-        os.makedirs(md_dir, exist_ok=True)
+        md_dir = os.path.join(args.md_root_dir, rel_path)
+        os.makedirs(os.path.join(md_dir, basename), exist_ok=True)
         dir_pairs.add((pdf_dir, md_dir))
         if DEBUG:
             print(f"basename: {basename}")
@@ -30,24 +30,35 @@ def pdf2md_conversion(pdf_filepaths, args):
             print(f"rel_path: {rel_path}")
             print(f"md_dir: {md_dir}")
 
+        if args.single_file:
+            subprocess.run(
+                [
+                    "marker_single",
+                    pdf_file,
+                    md_dir,
+                    "--batch_multiplier",
+                    "2",
+                ]
+            )
+
         # copy pdf file to new dir
-        new_pdf_file = os.path.join(md_dir, f"{basename}.pdf")
+        new_pdf_file = os.path.join(md_dir, basename, f"{basename}.pdf")
         subprocess.run(["cp", pdf_file, new_pdf_file])
 
     # convert pdf to markdown
-    for pdf_dir, md_dir in tqdm(dir_pairs):
-        if DEBUG:
-            print(f"Converting {pdf_dir} to {md_dir}...")
-        md_dir = pdf_dir.replace(args.pdf_root_dir, args.md_root_dir)
-        subprocess.run(
-            [
-                "marker",
-                pdf_dir,
-                md_dir,
-                "--workers",
-                str(args.num_workers),
-            ]
-        )
+    if not args.single_file:
+        for pdf_dir, md_dir in tqdm(dir_pairs):
+            if DEBUG:
+                print(f"Converting {pdf_dir} to {md_dir}...")
+            subprocess.run(
+                [
+                    "marker",
+                    pdf_dir,
+                    md_dir,
+                    "--workers",
+                    str(args.num_workers),
+                ]
+            )
 
 
 if __name__ == "__main__":
@@ -67,6 +78,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--num_workers", type=int, default=5, help="Number of worker processes to use"
     )
+    # MISC ARGS
+    parser.add_argument(
+        "--single_file", action="store_true", help="single file conversion"
+    )  # my CPU has a memory leak with batch conversion
     # TODO: consider whether we need to overwrite settings with env variables
     # (esp on GPU)
     args = parser.parse_args()
@@ -76,6 +91,13 @@ if __name__ == "__main__":
         for dp, dn, filenames in os.walk(args.pdf_root_dir)
         for f in filenames
         if f.endswith(".pdf")
+        and not os.path.exists(
+            os.path.join(
+                args.md_root_dir,
+                os.path.relpath(dp, args.pdf_root_dir),
+                f"{os.path.basename(f)[:-4]}/{os.path.basename(f)[:-4]}.md",
+            )
+        )
     ]
     if len(pdf_files) == 0:
         print(f"No PDF files found in {args.pdf_root_dir}")
