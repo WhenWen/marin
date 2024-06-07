@@ -22,6 +22,9 @@ def pdf2md_conversion(pdf_filepaths, args):
         pdf_dir, _ = os.path.split(pdf_file)
         rel_path = os.path.relpath(pdf_dir, args.pdf_root_dir)
         md_dir = os.path.join(args.md_root_dir, rel_path)
+        if os.path.exists(os.path.join(md_dir, basename)):
+            print(f"Skipping {pdf_file} as {basename} already exists")
+            continue
         os.makedirs(os.path.join(md_dir, basename), exist_ok=True)
         dir_pairs.add((pdf_dir, md_dir))
         if DEBUG:
@@ -40,6 +43,15 @@ def pdf2md_conversion(pdf_filepaths, args):
                     "2",
                 ]
             )
+
+        # if period in name, copy str.split(".")[0] to new dir
+        # Marker seemingly pulls filename with .split(".")[0]
+        if "." in basename:
+            incorrect_pdf_dir = os.path.join(md_dir, basename.split(".")[0])
+            correct_pdf_dir = os.path.join(md_dir, basename)
+            if os.path.exists(incorrect_pdf_dir):
+                print(f"Moving {incorrect_pdf_dir} to {correct_pdf_dir}")
+                subprocess.run(["mv", incorrect_pdf_dir, correct_pdf_dir])
 
         # copy pdf file to new dir
         new_pdf_file = os.path.join(md_dir, basename, f"{basename}.pdf")
