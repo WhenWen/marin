@@ -10,6 +10,7 @@ import sys
 import os
 import json
 import gzip
+import argparse
 import logging
 import random
 import requests
@@ -66,21 +67,20 @@ def extract_pdf_urls(pes2o_file, out_dir):
     papers with pdf urls given in Semantic Scholar - open access papers without
     pdf urls (to be processed later) - non-open access papers
 
-    It writes the results to various files. All metadata for papers with URLs
-    is stripped aside from the Semantic Scholar CorpusId. However, one can
-    recover the metadata by querying their API.
-    - open access w/ url -> pdf_urls.csv: (only corpusId, url)
-    - open access w/o url -> open_no_urls.json
-    - non-open access -> nopen.json
+    It writes the results to various files.
+    - open access w/ url -> pdf_urls.jsonl: (full metadata)
+    - open access w/o url -> open_no_urls.jsonl
+    - non-open access -> nopen.jsonl
     """
     # list of open accesspdf urls
-    url_filepath = os.path.join(out_dir, "pdf_urls.csv")
+    url_filepath = os.path.join(out_dir, "pdf_urls.jsonl")
     url_file = open(url_filepath, "w")
-    url_file.write("corpusId,url\n")  # header
 
-    # stores json records
-    no_url_json_list = []  # list of open access papers without urls
-    nopen_json_list = []  # list of non-open access papers
+    no_url_filepath = os.path.join(out_dir, "open_no_urls.jsonl")
+    no_url_file = open(no_url_filepath, "w")
+
+    nopen_filepath = os.path.join(out_dir, "nopen.jsonl")
+    nopen_file = open(nopen_filepath, "w")
 
     # first pull CorpusIds from pes2o data
     pes2o_ids = []
@@ -111,11 +111,11 @@ def extract_pdf_urls(pes2o_file, out_dir):
 
         for idx, paper in enumerate(response):
             try:
-                process_response(paper, url_file, no_url_json_list, nopen_json_list)
+                process_response(paper, url_file, no_url_file, nopen_file)
             except:
                 closest_match = _find_closest_match(pes2o_titles[i + idx])
                 if closest_match is not None:
-                    process_response(closest_match, url_file, no_url_json_list, nopen_json_list)
+                    process_response(closest_match, url_file, no_url_file, nopen_file)
                 else:
                     logging.error(
                         f"Error processing paper with pes2o id: {batch[idx]}. Server response: {paper}"
@@ -124,15 +124,6 @@ def extract_pdf_urls(pes2o_file, out_dir):
         if DEBUG:
             logging.info("Debug mode. Exiting.")
             break
-
-    # write jsons to files
-    url_file.close()
-    no_url_filepath = os.path.join(out_dir, "open_no_urls.json")
-    with open(no_url_filepath, "w") as f:
-        json.dump(no_url_json_list, f)
-    nopen_filepath = os.path.join(out_dir, "nopen.json")
-    with open(nopen_filepath, "w") as f:
-        json.dump(nopen_json_list, f)
 
 
 def _find_closest_match(first_line):
@@ -188,12 +179,30 @@ def _batch_query(batch):
     return response
 
 
-def process_response(response, url_file, no_url_json_list, nopen_json_list):
+def process_response(response, url_file, no_url_file, nopen_file):
     if response["isOpenAccess"]:
         if response["openAccessPdf"]:
-            pdf_url = response["openAccessPdf"]["url"]
-            url_file.write(f"{response['corpusId']},{pdf_url}\n")
+            f = url_file
         else:
-            no_url_json_list.append(response)
+            f = no_url_file
     else:
-        nopen_json_list.append(response)
+        f = nopen_file
+
+    f.write(json.dumps(response) + "\n")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--pes2o_file",
+        type=str,
+        help="Path to the pes2o file to extract pdf urls from",
+    )
+    parser.add_argument(
+        "--out_dir",
+        type=str,
+        help="Directory to write the output files to",
+    )
+    args = parser.parse_args()
+
+    extract_pdf_urls(args.pes2o_file, args.out_dir)
