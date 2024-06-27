@@ -12,7 +12,6 @@ def convert_page(html: str, url: str | None = None) -> dict[str, str]:
 
     tree = doc.summary()
 
-    tree = htmlmin.minify(tree, remove_empty_space=True, keep_pre=True)
     tree = BeautifulSoup(tree, "html.parser")
     if url:
         tree = make_links_absolute(tree, url)
