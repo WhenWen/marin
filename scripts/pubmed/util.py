@@ -1,7 +1,8 @@
 """
 file: util.py
 -------------
-Mpdifications of pubmed_parser functions to handle our different file formats (compressed, multiple XML files)
+Modifications of pubmed_parser (https://pypi.org/project/pubmed-parser/)
+functions to handle different formats (i.e., compressed, multiple XML files)
 
 Original functions in pubmed_parser.pubmed_oa_parser.py
 """
