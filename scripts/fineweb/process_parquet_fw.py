@@ -86,6 +86,7 @@ def process_one_warc_file(input_file_path, output_file):
 
                         num_urls_processed += 1
                     except Exception as e:
+                        df.drop(index=url_idx_in_df, inplace=True)
                         # We are just ignoring the error and moving forward as these errors are generally not a lot
                         print(f"Error processing {url} in {s3_url} for {input_file_path}: {e}")
                         traceback.print_exc()
