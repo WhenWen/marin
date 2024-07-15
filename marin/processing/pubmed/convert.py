@@ -1,21 +1,43 @@
-import pubmed_parser
 import re
+import sys
 
+from lxml import etree
+
+# cleaning_regexes
+number_bracket = re.compile("( \[[0-9][0-9,\s-]*\])")
+author_list = re.compile("( \([A-Z][A-Za-z;\,\.\-\s]+ [12][0-9]{3}\))")
+
+def clean_text(text):
+    new_text = re.sub(number_bracket, "", text)
+    new_text = re.sub(author_list, "", new_text)
+    return new_text
 
 def xml2md(xml_str):
-    article_info = pubmed_parser.parse_pubmed_xml(xml_str)
-    paragraphs = pubmed_parser.parse_pubmed_paragraph(xml_str)
+    # Set up return text
     text = ""
-    text += "# " + article_info["full_title"] + "\n\n"
-    text += "## Abstract" + "\n\n"
-    text += article_info["abstract"]
-    current_section_title = ""
-    if not paragraphs:
-        return None
-    for paragraph in paragraphs:
-        section_title = paragraph["section"]
-        if section_title != current_section_title and section_title.strip():
-            text += "\n\n## " + section_title
-            current_section_title = section_title
-        text += "\n\n" + paragraph["text"].strip()
+    # Parse the XML file
+    root = etree.fromstring(xml_str)
+    #root = tree.getroot()
+    # Get the title
+    title = root.xpath('//article-title')
+    if len(title) > 0:
+        title_text = ''.join(title[0].itertext())
+        text += ("# " + title_text + "\n")
+    # Find all titles and paragraphs    
+    titles_and_paragraphs = root.xpath('//title | //p[not(ancestor::table-wrap)] | //abstract')
+    # Iterate through titles and paragraphs interleaved
+    for element in titles_and_paragraphs:
+        if element.tag == 'title':
+            title_text = ''.join(element.itertext())
+            text += ('\n\n## ' + title_text)
+        elif element.tag == 'p':
+            paragraph_text = ''.join(element.itertext())
+            text += ('\n\n' + paragraph_text)
+        elif element.tag == "abstract":
+            text += ('\n\n' + "## Abstract")
+    # Standardize newlines
+    text = re.sub("[\n]{2,}", "\n\n", text)
+    # Clean text of references and author list
+    text = clean_text(text)
     return text
+
