@@ -9,7 +9,9 @@ def evaluate_model(gcs_path, task, output_path=None):
             "--tasks", {task}, "--batch_size", "auto"]
     if output_path:
         args += ["--output_path", output_path]
-    subprocess.run(args)
+    proc = subprocess.run(args, capture_output=True)
+    print(proc.stdout)
+    print(proc.stderr)
     
 
 if __name__ == '__main__':
