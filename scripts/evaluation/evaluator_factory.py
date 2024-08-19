@@ -1,9 +1,11 @@
 from scripts.evaluation.evaluator import Evaluator
 from scripts.evaluation.simple_evaluator import SimpleEvaluator
+from scripts.evaluation.eleuther_tpu_evaluator import EleutherTpuEvaluator
 
 # Supported evaluators
 NAME_TO_EVALUATOR = {
     "simple": SimpleEvaluator,
+    "eleuther": EleutherTpuEvaluator,
 }
 
 

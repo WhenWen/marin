@@ -54,7 +54,7 @@ if __name__ == "__main__":
         "--output-path",
         type=str,
         help="The location of the output path (filesystem path or URL)",
-        default="output",
+        default="",
     )
     args = parser.parse_args()
 
