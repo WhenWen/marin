@@ -54,7 +54,9 @@ provider:
 initialization_commands:
   - sudo apt-get update
   - sudo NEEDRESTART_MODE=a DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
-  - sudo NEEDRESTART_MODE=a DEBIAN_FRONTEND=noninteractive apt-get install -y python3-pip python-is-python3 pandoc
+  - sudo NEEDRESTART_MODE=a DEBIAN_FRONTEND=noninteractive apt-get install -y python3-pip python-is-python3 pandoc libopenblas-dev
+  - mkdir -p ~/miniconda3 && wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda3/miniconda.sh && bash ~/miniconda3/miniconda.sh -b -u -p ~/miniconda3 && rm -rf ~/miniconda3/miniconda.sh
+  - ~/miniconda3/bin/conda create --name evaluate --yes python=3.10
 
 
 setup_commands:
@@ -84,7 +86,11 @@ setup_commands:
     "trafilatura==1.8.1"
     "tqdm"
     "warcio==1.7.4"
-
+  - ~/miniconda3/envs/evaluate/bin/pip install https://storage.googleapis.com/pytorch-xla-releases/wheels/tpuvm/torch-nightly+20240601-cp310-cp310-linux_x86_64.whl https://storage.googleapis.com/pytorch-xla-releases/wheels/tpuvm/torch_xla-nightly+20240601-cp310-cp310-linux_x86_64.whl
+  - ~/miniconda3/envs/evaluate/bin/pip install pip install torch_xla[tpu] -f https://storage.googleapis.com/libtpu-releases/index.html
+  - ~/miniconda3/envs/evaluate/bin/pip install pip install torch_xla[pallas] -f https://storage.googleapis.com/jax-releases/jax_nightly_releases.html -f https://storage.googleapis.com/jax-releases/jaxlib_nightly_releases.html
+  - ~/miniconda3/envs/evaluate/bin/pip install git+https://github.com/TheQuantumFractal/OLMo.git
+  - git clone https://github.com/vllm-project/vllm.git && cd vllm && git checkout tags/v0.5.0.post1 && ~/miniconda3/envs/evaluate/bin/pip install -r requirements-tpu.txt && VLLM_TARGET_DEVICE="tpu" ~/miniconda3/envs/evaluate/bin/pip pip install -e .
 
 # Set Head Node == `ray_head_default`
 head_node_type: head_default
