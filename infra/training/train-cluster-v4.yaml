@@ -10,8 +10,7 @@ available_node_types:
     resources: {"CPU": 0}
 
     node_config:
-      # note that this is more efficient than n2
-      machineType: e2-standard-8
+      machineType: n2-standard-8
 
       # create a persistent disk w/ 200 GBs
       disks:
