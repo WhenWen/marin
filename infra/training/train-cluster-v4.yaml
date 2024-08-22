@@ -1,0 +1,63 @@
+# name for the cluster, as well as the prefix for the name of the resources that will be created
+cluster_name: marin-train
+
+max_workers: 1024
+
+available_node_types:
+  head_default:
+    min_workers: 0
+    max_workers: 0
+    resources: {"CPU": 0}
+
+    node_config:
+      # note that this is more efficient than n2
+      machineType: e2-standard-8
+
+      # create a persistent disk w/ 200 GBs
+      disks:
+        - boot: true
+          autoDelete: true
+          type: PERSISTENT
+          initializeParams:
+            diskSizeGb: 200
+            sourceImage: projects/ubuntu-os-cloud/global/images/family/ubuntu-2204-lts
+
+  tpu_worker:
+    # Preemptible TPU v4-256 VMs
+    min_workers: 4
+    max_workers: 1024
+    resources: {"CPU": 7168, "TPU": 128}
+
+    node_config:
+      acceleratorType: v4-256
+      runtimeVersion: tpu-ubuntu2204-base
+
+      schedulingConfig:
+        preemptible: true
+
+# Configure GCP
+provider:
+  type: gcp
+  region: us-central2
+  availability_zone: us-central2-b
+  project_id: hai-gcp-models
+
+initialization_commands:
+  - sudo apt-get update
+  - sudo NEEDRESTART_MODE=a DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
+  - sudo NEEDRESTART_MODE=a DEBIAN_FRONTEND=noninteractive apt-get install -y python3-pip python-is-python3 pandoc
+  # Install OpenBLAS, OpenMPI, and OpenMP for eval dependencies
+  - sudo NEEDRESTART_MODE=a DEBIAN_FRONTEND=noninteractive apt-get install -y libopenblas-base libopenmpi-dev libomp-dev 
+
+
+setup_commands:
+  # Add Rust for DOLMA
+  - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && source $HOME/.cargo/env
+  - echo 'source $HOME/.cargo/env' >> $HOME/.bashrc  # or .bash_profile, depending on your system
+  - pip install --upgrade pip
+  - >
+    pip install "levanter"
+    "cryptography"
+
+# Set Head Node == `ray_head_default`
+head_node_type: head_default
