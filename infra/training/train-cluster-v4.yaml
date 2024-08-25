@@ -54,9 +54,10 @@ setup_commands:
   - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && source $HOME/.cargo/env
   - echo 'source $HOME/.cargo/env' >> $HOME/.bashrc  # or .bash_profile, depending on your system
   - pip install --upgrade pip
+  - pip install "cryptography"
+worker_start_ray_commands:
   - >
-    pip install "cryptography"
-    git+https://github.com/stanford-crfm/levanter.git
+    pip install git+https://github.com/stanford-crfm/levanter.git
     git+https://github.com/stanford-crfm/haliax.git
     "jax[tpu]" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
 
