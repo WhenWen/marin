@@ -1,5 +1,5 @@
 # name for the cluster, as well as the prefix for the name of the resources that will be created
-cluster_name: marin-train
+cluster_name: marin-train-v4
 
 max_workers: 1024
 
@@ -23,7 +23,7 @@ available_node_types:
 
   tpu_worker:
     # Preemptible TPU v4-256 VMs
-    min_workers: 4
+    min_workers: 1
     max_workers: 1024
     resources: {"CPU": 7168, "TPU": 128}
 
@@ -55,8 +55,10 @@ setup_commands:
   - echo 'source $HOME/.cargo/env' >> $HOME/.bashrc  # or .bash_profile, depending on your system
   - pip install --upgrade pip
   - >
-    pip install "levanter"
-    "cryptography"
+    pip install "cryptography"
+    git+https://github.com/stanford-crfm/levanter.git
+    git+https://github.com/stanford-crfm/haliax.git
+    "jax[tpu]" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
 
 # Set Head Node == `ray_head_default`
 head_node_type: head_default
