@@ -1,5 +1,5 @@
 # name for the cluster, as well as the prefix for the name of the resources that will be created
-cluster_name: marin-train-v4
+cluster_name: marin-train-v4-small
 
 max_workers: 1024
 
@@ -23,12 +23,14 @@ available_node_types:
 
   tpu_worker:
     # Preemptible TPU v4-256 VMs
-    min_workers: 1
+    min_workers: 4
     max_workers: 1024
-    resources: {"CPU": 7168, "TPU": 128}
+    # resources: {"CPU": 7168, "TPU": 128}
+    resources: {"CPU": 448, "TPU": 8}
 
     node_config:
-      acceleratorType: v4-256
+      # acceleratorType: v4-256
+      acceleratorType: v4-16
       runtimeVersion: tpu-ubuntu2204-base
 
       schedulingConfig:
@@ -54,12 +56,16 @@ setup_commands:
   - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && source $HOME/.cargo/env
   - echo 'source $HOME/.cargo/env' >> $HOME/.bashrc  # or .bash_profile, depending on your system
   - pip install --upgrade pip
-  - pip install "cryptography"
-worker_start_ray_commands:
-  - >
-    pip install git+https://github.com/stanford-crfm/levanter.git
-    git+https://github.com/stanford-crfm/haliax.git
-    "jax[tpu]" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+  - > 
+    pip install "cryptography"
+    "ray[default]"
+# head_start_ray_commands:
+#   - pip install "git+https://github.com/stanford-crfm/levanter.git"
+# worker_start_ray_commands:
+  # - >
+  #   pip install "git+https://github.com/stanford-crfm/levanter.git"
+  #   "git+https://github.com/stanford-crfm/haliax.git"
+  #   "jax[tpu]" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
 
 # Set Head Node == `ray_head_default`
 head_node_type: head_default
