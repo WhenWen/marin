@@ -33,6 +33,7 @@ class EleutherEvaluator(VllmTpuEvaluator):
             output_path (str): The path to save the evaluation results.
             max_eval_instances (int | None): The maximum number of evaluation instances to run.
         """
+        super().run(model, evals, output_path, max_eval_instances)
 
         # Download the model from GCS or HuggingFace
         model.ensure_downloaded(local_path=os.path.join(VllmTpuEvaluator.CACHE_PATH, model.name))

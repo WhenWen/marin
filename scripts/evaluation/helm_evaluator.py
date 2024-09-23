@@ -106,6 +106,7 @@ class HELMEvaluator(VllmTpuEvaluator):
             output_path (str): The path to save the evaluation results.
             max_eval_instances (int | None): The maximum number of evaluation instances to run.
         """
+        super().run(model, evals, output_path, max_eval_instances)
 
         is_successful: bool = False
         try:

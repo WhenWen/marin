@@ -122,6 +122,8 @@ class SimpleEvaluator(VllmTpuEvaluator):
     def run(
         self, model: ModelConfig, evals: List[str], output_path: str, max_eval_instances: int | None = None
     ) -> None:
+        super().run(model, evals, output_path, max_eval_instances)
+
         try:
             from vllm import LLM, SamplingParams
 

@@ -1,4 +1,4 @@
-from abc import ABC
+from abc import ABC, abstractmethod
 from typing import Dict, List, Optional
 import os
 import requests
@@ -8,7 +8,7 @@ import time
 import ray
 
 from scripts.evaluation.evaluator import Evaluator, Dependency, ModelConfig
-from scripts.evaluation.utils import kill_process_on_port
+from scripts.evaluation.utils import kill_process_on_port, run_bash_command
 
 
 class VllmTpuEvaluator(Evaluator, ABC):
@@ -29,6 +29,10 @@ class VllmTpuEvaluator(Evaluator, ABC):
 
     # Where to store checkpoints, cache inference results, etc.
     CACHE_PATH: str = "/tmp"
+
+    # GCSFuse mount path and where to store the vLLM XLA cache
+    GCSFUSE_PATH: str = "/opt/gcsfuse_mount"
+    VLLM_XLA_CACHE_PATH: str = os.path.join(GCSFUSE_PATH, "vllm")
 
     @staticmethod
     def download_model(model: ModelConfig) -> str:
@@ -128,6 +132,22 @@ class VllmTpuEvaluator(Evaluator, ABC):
             runtime_env["py_modules"] = [str(module) for module in self._py_modules]
 
         return runtime_env
+
+    @abstractmethod
+    def run(
+        self, model: ModelConfig, evals: List[str], output_path: str, max_eval_instances: int | None = None
+    ) -> None:
+        """
+        What actually runs on the Ray cluster for evaluation.
+        """
+        if os.path.exists(VllmTpuEvaluator.GCSFUSE_PATH):
+            # Assume that GCSFuse is mounted at this point
+            os.makedirs(VllmTpuEvaluator.VLLM_XLA_CACHE_PATH, exist_ok=True)
+
+            # Set environment VLLM_XLA_CACHE_PATH, which controls where the XLA cache is stored for vLLM
+            os.environ["VLLM_XLA_CACHE_PATH"] = VllmTpuEvaluator.VLLM_XLA_CACHE_PATH
+            print(f"Set XLA cache path to {os.getenv('VLLM_XLA_CACHE_PATH')}.")
+            run_bash_command(["ls", "-la", VllmTpuEvaluator.VLLM_XLA_CACHE_PATH])
 
     def evaluate(
         self, model: ModelConfig, evals: List[str], output_path: str, max_eval_instances: int | None = None
