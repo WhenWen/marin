@@ -16,7 +16,6 @@ class NGramConfig:
     length: int = 8
     stride: int | None = None
     threshold: float = 0.7
-    use_ngram: bool = True
 
 
 @dataclass
@@ -32,7 +31,12 @@ class DedupeConfig:
     processes: int = 1
     decontaminate: bool = False
     decontaminate_path: str | None = None
-    ngram: NGramConfig | None = NGramConfig()
+    ngram: NGramConfig | None = None
+
+    def __post_init__(self):
+        # if in decontaminate mode, set up NGram settings
+        if self.decontaminate:
+            self.ngram = NGramConfig() 
 
 
 def copy_files_in(input_path, local_base_dir):
@@ -111,7 +115,7 @@ def do_dedup(
             ]
         )
 
-    if isinstance(ngram, NGramConfig) and ngram.use_ngram:
+    if isinstance(ngram, NGramConfig):
         command.extend(
             [
                 "--dedupe.paragraphs.by_ngram.ngram_length",
@@ -121,6 +125,7 @@ def do_dedup(
             ]
         )
         if ngram.stride:
+            # note: stride = 0 is same as not using this feature
             command.extend(["--dedupe.paragraphs.by_ngram.stride", str(ngram.stride)])
 
     # for decontamination bloom filter is read only
@@ -276,6 +281,7 @@ def dolma_dedup(
                     estimated_doc_count,
                     false_positive_rate,
                     processes,
+                    ngram
                 )
                 copy_files_out(tmpdir, output_path, attribute_name)
         except Exception as e:
