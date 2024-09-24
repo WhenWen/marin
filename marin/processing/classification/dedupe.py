@@ -12,6 +12,14 @@ from marin.utils import fsspec_glob, fsspec_mkdirs, fsspec_rm, rebase_file_path
 
 
 @dataclass
+class NGramConfig:
+    length: int = 8
+    stride: int | None = None
+    threshold: float = 0.7
+    use_ngram: bool = True
+
+
+@dataclass
 class DedupeConfig:
     input_path: str
     output_path: str
@@ -24,6 +32,7 @@ class DedupeConfig:
     processes: int = 1
     decontaminate: bool = False
     decontaminate_path: str | None = None
+    ngram: NGramConfig | None = NGramConfig()
 
 
 def copy_files_in(input_path, local_base_dir):
@@ -66,6 +75,7 @@ def do_dedup(
     estimated_doc_count,
     false_positive_rate,
     processes,
+    ngram,
     read_only=False,
     bloom_filter_file="deduper_bloom_filter.bin",
 ):
@@ -100,6 +110,18 @@ def do_dedup(
                 str(false_positive_rate),
             ]
         )
+
+    if isinstance(ngram, NGramConfig) and ngram.use_ngram:
+        command.extend(
+            [
+                "--dedupe.paragraphs.by_ngram.ngram_length",
+                str(ngram.length),
+                "--dedupe.paragraphs.by_ngram.threshold",
+                str(ngram.threshold),
+            ]
+        )
+        if ngram.stride:
+            command.extend(["--dedupe.paragraphs.by_ngram.stride", str(ngram.stride)])
 
     # for decontamination bloom filter is read only
     command.append("--bloom_filter.read_only" if read_only else "--no-bloom_filter.read_only")
@@ -203,6 +225,7 @@ def dolma_dedup(
     processes,
     decomtaminate_dir,
     decontaminate,
+    ngram,
 ):
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -219,6 +242,7 @@ def dolma_dedup(
                     estimated_doc_count,
                     false_positive_rate,
                     processes,
+                    ngram,
                     read_only=False,
                     bloom_filter_file="decotaminated_bloom_filter.bin",
                 )
@@ -236,6 +260,7 @@ def dolma_dedup(
                     estimated_doc_count,
                     false_positive_rate,
                     processes,
+                    ngram,
                     read_only=True,
                     bloom_filter_file="decotaminated_bloom_filter.bin",
                 )
@@ -279,6 +304,7 @@ def dedupe(config: DedupeConfig):
             config.processes,
             config.decontaminate_path,
             config.decontaminate,
+            config.ngram,
         )
     )
     print(result)
