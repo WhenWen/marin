@@ -5,14 +5,16 @@ import os
 import yaml
 import fsspec
 from collections import defaultdict
+from typing import List
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import draccus
 
 @dataclass
 class DatasetConfig:
     dataset_name: str
     file_names: list
+    file_type: str
     path: str
     hf_path: str
     output_prefix: str
@@ -20,8 +22,8 @@ class DatasetConfig:
     prompt_key: str = ""
     answer_text_key: str = ""
     answer_idx_key: str = ""
-    output_choices: list
-    options_key: str
+    output_choices: List[str] = field(default_factory=list)
+    options_key: str = ""
     output_format: str = ""
     
 
@@ -31,9 +33,9 @@ def load_datasets(config):
     This function returns all data for the given split (rather than subject specific data).
     """
     datasets = []
-    path = config["path"]
-    hf_path = config["hf_path"]
-    for file_name in config["file_names"]:
+    path = config.path
+    hf_path = config.hf_path
+    for file_name in config.file_names:
         datasets.append(load_dataset(hf_path, path, split=file_name))
     return datasets
     
@@ -106,4 +108,3 @@ def main(cfg: DatasetConfig):
     
 if __name__ == "__main__":
     main()
-    
