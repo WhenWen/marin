@@ -11,12 +11,12 @@ from scripts.fineweb.process_parquet_fw import process_fw_dump, ParquetFWConfig 
 raw_data = "gs://marin-us-central2/raw/fineweb/cd85054/CC-MAIN-2024-18"
 
 transform_trafilatura_step = ExecutorStep(
-    name="processed/fw_trafilatura",
+    name="document/fineweb_trafilatura",
     fn=process_fw_dump,
     config=ParquetFWConfig(
         input_path=raw_data,
-        output_path_md=os.path.join(this_output_path(), "md"),
-        output_path_text=os.path.join(this_output_path(), "text"),
+        output_path_md=this_output_path("md"),
+        output_path_text=this_output_path("text"),
         extract_method=versioned("trafilatura"),
         config=TrafilaturaConfig(
             favor_precision=versioned(False),
@@ -28,23 +28,23 @@ transform_trafilatura_step = ExecutorStep(
 )
 
 transform_resiliparse_step = ExecutorStep(
-    name="processed/fw_resiliparse",
+    name="document/fineweb_resiliparse",
     fn=process_fw_dump,
     config=ParquetFWConfig(
         input_path=raw_data,
-        output_path_md=os.path.join(this_output_path(), "md"),
-        output_path_text=os.path.join(this_output_path(), "text"),
+        output_path_md=this_output_path("md"),
+        output_path_text=this_output_path("text"),
         extract_method=versioned("resiliparse"),
     ),
 )
 
 transform_readability_step = ExecutorStep(
-    name="processed/fw_readability",
+    name="document/fineweb_readability",
     fn=process_fw_dump,
     config=ParquetFWConfig(
         input_path=raw_data,
-        output_path_md=os.path.join(this_output_path(), "md"),
-        output_path_text=os.path.join(this_output_path(), "text"),
+        output_path_md=this_output_path("md"),
+        output_path_text=this_output_path("text"),
         extract_method=versioned("readability"),
     ),
 )
