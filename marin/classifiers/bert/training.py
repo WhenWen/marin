@@ -12,14 +12,14 @@ from datetime import datetime
 import ray
 import torch
 import torch_xla.core.xla_model as xm
-import torch_xla.distributed.parallel_loader as pl
 import torch_xla.distributed.xla_multiprocessing as xmp
-from torch.utils.data import DataLoader
-from transformers import AdamW, BertForSequenceClassification, BertTokenizer
+from transformers import BertForSequenceClassification
 
-from marin.classifiers.bert.utils import BertDataset, format_example
+from marin.classifiers.bert.utils import format_example
 from marin.classifiers.utils import format_dataset, merge_shards, shuffle, split_dataset
-from marin.utils import fsspec_cpdir, fsspec_exists, fsspec_glob, fsspec_rm
+from marin.utils import fsspec_cpdir, fsspec_exists, fsspec_glob, fsspec_rm, remove_tpu_lockfile_on_exit
+
+logger = logging.getLogger("ray")
 
 
 def train_epochs(
@@ -42,8 +42,11 @@ def train_epochs(
     """
     model.train()
     for epoch in range(num_epochs):
+        logger.info("Training epoch %d", epoch)
         total_loss = 0
         for batch in data_loader:
+            logger.info("next batch...")
+
             input_ids = batch["input_ids"]
             attention_mask = batch["attention_mask"]
             labels = batch["labels"]
@@ -76,22 +79,28 @@ def _mp_fn(index, hf_model, train_path, save_path, lr, batch_size, num_epochs):
     Returns:
         bool: True if the process is successful.
     """
-    tokenizer = BertTokenizer.from_pretrained(hf_model)
-    train_dataset = BertDataset(train_path, tokenizer)
-    train_loader = DataLoader(train_dataset, batch_size=batch_size)
+    logger.info(f"Training on TPU device {index}")
 
-    device = xm.xla_device()
-    device_loader = pl.MpDeviceLoader(train_loader, device)
+    # tokenizer = BertTokenizer.from_pretrained(hf_model)
+    # train_dataset = BertDataset(train_path, tokenizer)
+    # train_loader = DataLoader(train_dataset, batch_size=batch_size)
 
-    model = BertForSequenceClassification.from_pretrained(hf_model, num_labels=train_dataset.num_labels).to(device)
-    optimizer = AdamW(model.parameters(), lr=lr)
-    xm.broadcast_master_param(model)
+    # logger.info("Loading model and optimizer")
 
-    train_epochs(model, optimizer, device_loader, num_epochs)
+    # device = xm.xla_device()
+    # device_loader = pl.MpDeviceLoader(train_loader, device)
 
-    if index == 0:
-        xm.save(model.state_dict(), save_path)
-    return True
+    # model = BertForSequenceClassification.from_pretrained(hf_model, num_labels=train_dataset.num_labels).to(device)
+    # optimizer = AdamW(model.parameters(), lr=lr)
+    # xm.broadcast_master_param(model)
+
+    # logger.info("Model loaded")
+
+    # train_epochs(model, optimizer, device_loader, num_epochs)
+
+    # if index == 0:
+    #     xm.save(model.state_dict(), save_path)
+    xm.rendezvous("checking_out")
 
 
 def train_model(
@@ -122,7 +131,6 @@ def train_model(
     Returns:
         None: No return value.
     """
-    logger = logging.getLogger("bert")
 
     logger.info(f"Training BERT model for experiment {output_path}")
     datetime_start = datetime.utcnow()
@@ -132,10 +140,10 @@ def train_model(
         memory=memory_req * 1024 * 1024 * 1024,
         resources={"TPU": 4},
     )
+    @remove_tpu_lockfile_on_exit
     def run():
         if fsspec_exists(f"{output_path}/model.bin"):
             logger.info(f"Model already exists at {output_path}/model.bin. Skipping training.")
-            return True
 
         shard_paths = fsspec_glob(os.path.join(input_path, "**/*.jsonl.gz"))
         logger.info(f"Received input paths: {shard_paths}")
@@ -151,7 +159,11 @@ def train_model(
             split_dataset(merge_path, train_path, val_path, val_frac, seed)
             shuffle(train_path, train_path, seed)
 
+            logger.info("About to spawn XMP processes")
+            logger.info(f"TPU ENV: {[env for env in os.environ if 'TPU' in env]}")
             xmp.spawn(_mp_fn, args=(hf_model, train_path, model_path, lr, batch_size, num_epochs))
+
+            logger.info("Spawning XMP processes complete")
 
             fsspec_rm(merge_path)
             fsspec_cpdir(tmp_dir, output_path)
