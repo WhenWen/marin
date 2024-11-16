@@ -99,7 +99,7 @@ def process_file_with_quality_classifier_and_comp_ratio(input_filename: str, out
             # Add compression ratio attribute meta-data for this doc
             compression_ratio: float = len(row['text']) / len(compressor.compress(row['text']))
             # Merge dicts with provided (1st arg) overwrites default (2nd arg)
-            row = row["attributes"] | {'compression_ratio': compression_ratio}
+            row = row["attributes"] | {'compression_ratio': compression_ratio, 'compressor': compressor}
             res = {"id": row["id"], "source": row["source"], "attributes": row["attributes"]}
             json_row = json.dumps(res)
             f_out.write(json_row + "\n")
