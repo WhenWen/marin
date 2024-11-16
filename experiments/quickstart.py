@@ -99,8 +99,7 @@ def create_steps(prefix: str, synth_data: str) -> list[ExecutorStep]:
 
     inference_hq_step = ExecutorStep(
         name=os.path.join(prefix, "hq-inference"),
-        # fn=run_inference,
-        fn=run_inference, # TODO: David said to change this, likely what we need to do is give the InferenceConfig the pointer to our process_file_with_quality_classifier_and_comp_ratio at /lfs/ampere8/0/brando9/Compel/marin/marin/processing/classification/inference.py
+        fn=run_inference,
         config=InferenceConfig(
             input_path=output_path_of(transform_hq_data_step),
             output_path=this_output_path(),
