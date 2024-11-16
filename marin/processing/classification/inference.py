@@ -76,6 +76,33 @@ def process_file_with_quality_classifier(input_filename: str, output_filename: s
 
     write_dataset(dataset, output_filename)
 
+@cached_or_construct_output(success_suffix="SUCCESS")
+def process_file_with_quality_classifier_and_comp_ratio(input_filename: str, output_filename: str, quality_classifier: BaseClassifier, compressor: str = 'zstd'):
+    assert compressor == 'zstd'
+    import datasets
+
+    json_list = []
+    with fsspec.open(input_filename, "rt", compression="gzip") as f_in:
+        for line in f_in:
+            json_list.append(json.loads(line))
+
+    dataset = datasets.Dataset.from_list(json_list)
+
+    dataset = dataset.select_columns(["text", "id", "source"])
+    predicted_dataset = dataset.map(lambda batch: quality_classifier(batch), batched=True, batch_size=512)
+
+    # Create meta-data with attributes file for doc (instead of duplicating a huge doc) ref: https://github.com/allenai/dolma/blob/main/docs/data-format.md#dolma-toolkit-attributes-format
+    import zstandard as zstd
+    zstd.ZstdCompressor()
+    with fsspec.open(output_filename, "wt", compression="gzip") as f_out:
+        for row in predicted_dataset:
+            # Add compression ratio attribute meta-data for this doc
+            compression_ratio: float = len(row['text']) / len(compressor.compress(row['text']))
+            # Merge dicts with provided (1st arg) overwrites default (2nd arg)
+            row = row["attributes"] | {'compression_ratio': compression_ratio}
+            res = {"id": row["id"], "source": row["source"], "attributes": row["attributes"]}
+            json_row = json.dumps(res)
+            f_out.write(json_row + "\n")
 
 @ray.remote
 def process_file_ray(
