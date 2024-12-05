@@ -92,14 +92,14 @@ def process_file_with_quality_classifier_and_comp_ratio(input_filename: str, out
     predicted_dataset = dataset.map(lambda batch: quality_classifier(batch), batched=True, batch_size=512)
 
     # Create meta-data with attributes file for doc (instead of duplicating a huge doc) ref: https://github.com/allenai/dolma/blob/main/docs/data-format.md#dolma-toolkit-attributes-format
-    import zstandard as zstd
+    import zstandard as zstd # TODO: change to lz4 or take an if stmt and put the alg we want
     zstd.ZstdCompressor()
     with fsspec.open(output_filename, "wt", compression="gzip") as f_out:
         for row in predicted_dataset:
             # Add compression ratio attribute meta-data for this doc
-            compression_ratio: float = len(row['text']) / len(compressor.compress(row['text']))
+            compression_ratio: float = len(row['text']) / len(compressor.compress(row['text'])) 
             # Merge dicts with provided (1st arg) overwrites default (2nd arg)
-            row = row["attributes"] | {'compression_ratio': compression_ratio, 'compressor': compressor}
+            row = row["attributes"] | {'compression_ratio': compression_ratio, 'compressor': compressor} # TODO keep? ask david compressor should be in the meta data, 
             res = {"id": row["id"], "source": row["source"], "attributes": row["attributes"]}
             json_row = json.dumps(res)
             f_out.write(json_row + "\n")
