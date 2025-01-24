@@ -64,6 +64,7 @@ def tokenize_dolma_steps(
         data_files = None
         if substitute is not None and dataset in substitute:
             data_files = substitute[dataset]
+
             dataset = f"{dataset}-subbed-{prefix}"
         else:
             data_files = [f"{BASE_DIR_DOLMA}/{file}" for file in files]

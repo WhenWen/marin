@@ -34,7 +34,7 @@ arxiv_no_problem_readability_subbed_dolma_llama3_tokenized = lm_mixture_data_con
 )
 
 arxiv_no_problem_readablity_1_4b_subbed_dolma_model = default_train(
-    name="dolma-arxiv_no_problem-subbed-1.4b-readablity-no-references",
+    name="dolma-arxiv-no-problem-subbed-1.4b-readablity-no-references",
     tokenized=arxiv_no_problem_readability_subbed_dolma_llama3_tokenized,
     model_config=llama_1_4b,
     train_config=llama_1_4b_train_config,
@@ -58,7 +58,7 @@ arxiv_no_problem_resiliparse_with_preserve_formatting_subbed_dolma_llama3_tokeni
     weights=DOLMA_OLMO_MIXTURE_WEIGHTS
 )
 arxiv_no_problem_resiliparse_with_preserve_formatting_subbed_dolma_1_4b_model = default_train(
-    name="dolma-arxiv_no_problem-subbed-1.4b-resiliparse-with-preserving-formatting-no-references",
+    name="dolma-arxiv-no-problem-subbed-1.4b-resiliparse-with-preserving-formatting-no-references",
     tokenized=arxiv_no_problem_resiliparse_with_preserve_formatting_subbed_dolma_llama3_tokenized,
     model_config=llama_1_4b,
     train_config=llama_1_4b_train_config,
