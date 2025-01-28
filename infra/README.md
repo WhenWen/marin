@@ -288,7 +288,8 @@ Ray only supports on demand and preemptible TPUs. For reserved nodes, we need to
 We have a modified version of the Levanter launch script that mostly automates this process. For example:
 
 ```bash
-python infra/manual_ray_worker_launch_gce._py --head <IP of ray head> --cluster_yaml infra/marin-us-central2.yaml --machine_type m1-ultramem-80
+python infra/manual_ray_worker_launch_gce.py --head <IP of ray head> --cluster_yaml infra/marin-us-central2.yaml --machine_type n2-highmem-128
+python infra/manual_ray_worker_launch_gce.py --head 10.130.1.78 --cluster_yaml infra/marin-us-central2.yaml --machine_type n2-highmem-128
 ```
 
 This command will take a couple of minutes to run and then exit. You don't need to run this in a tmux or anything like

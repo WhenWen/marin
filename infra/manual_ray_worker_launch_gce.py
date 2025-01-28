@@ -43,6 +43,7 @@ def gcloud_compute_create_vm(
         f"--machine-type={machine_type}",
         f"--project={project}",
         f"--zone={zone}",
+        "--boot-disk-size=100GB",
         f"--image={image}",
     ]
 
@@ -94,7 +95,13 @@ def main():
 
     cli.add_arg(parser, config, ["--project"], default=cli.gcloud_config()["project"])
     cli.add_arg(parser, config, ["--vm_name"], required=False, default=None)
-    cli.add_arg(parser, config, ["--image"], default="ubuntu-2004-focal-v20250111", help="Name of GCE disk image")
+    cli.add_arg(
+        parser,
+        config,
+        ["--image"],
+        default="projects/ubuntu-os-cloud/global/images/ubuntu-2004-focal-v20250111",
+        help="Name of GCE disk image",
+    )
     cli.add_arg(parser, config, ["--zone"], default=None, type=str, required=False, help="GCP zone for the VM")
     cli.add_arg(parser, config, ["--scopes"], default="cloud-platform", help="Scopes for the instance")
 
