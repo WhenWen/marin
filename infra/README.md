@@ -280,3 +280,18 @@ If you want to change that to, say, two v4-64s, you need to delete the TPU node 
 command again with the new TPU type.
 
 To get the IP of the ray head, it's easiest (to me) to go to the GCP console and find the VM and gets its *internal* IP.
+
+### Adding GCE VMs Manually to the Cluster
+
+Ray only supports on demand and preemptible TPUs. For reserved nodes, we need to add them manually to the cluster.
+
+We have a modified version of the Levanter launch script that mostly automates this process. For example:
+
+```bash
+python infra/manual_ray_worker_launch_gce._py --head <IP of ray head> --cluster_yaml infra/marin-us-central2.yaml --machine_type m1-ultramem-80
+```
+
+This command will take a couple of minutes to run and then exit. You don't need to run this in a tmux or anything like
+that. You can run it from your laptop.
+
+To get the IP of the ray head, it's easiest (to me) to go to the GCP console and find the VM and gets its *internal* IP.
