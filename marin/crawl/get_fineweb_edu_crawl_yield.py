@@ -20,15 +20,15 @@ Running on FineWeb-Edu:
 python marin/run/ray_run.py \
     --pip_deps '--find-links https://storage.googleapis.com/jax-releases/libtpu_releases.html,w3lib,trafilatura,jax[tpu],flax,transformers,requests,warcio[all],resiliparse' \
     --no_wait -- \
-    python scripts/crawl/get_fineweb_edu_crawl_yield.py \
-    --urls_input_directory gs://marin-us-central2/scratch/nfliu/outlinks/fineweb-edu-1M/ \
-    --crawl_input_directory gs://marin-us-central2/scratch/nfliu/fetched_outlinks/fineweb-edu-1M/ \
-    --data_source fineweb-edu-1M \
-    --text_output_directory gs://marin-us-central2/scratch/nfliu/text/fineweb-edu-1M/ \
-    --urls_and_scores_output_directory gs://marin-us-central2/scratch/nfliu/urls_and_scores/fineweb-edu-1M/ \
-    --statistics_output_path gs://marin-us-central2/scratch/nfliu/fetched_outlinks/fineweb-edu-1M/yield_statistics.json.gz
+    python marin/crawl/get_fineweb_edu_crawl_yield.py \
+    --urls_input_directory gs://marin-us-central2/scratch/nfliu/outlinks/fineweb-edu-10M/ \
+    --crawl_input_directory gs://marin-us-central2/scratch/nfliu/fetched_outlinks/fineweb-edu-10M/ \
+    --data_source fineweb-edu-10M \
+    --text_output_directory gs://marin-us-central2/scratch/nfliu/text/fineweb-edu-10M/ \
+    --urls_and_scores_output_directory gs://marin-us-central2/scratch/nfliu/urls_and_scores/fineweb-edu-10M/ \
+    --statistics_output_path gs://marin-us-central2/scratch/nfliu/fetched_outlinks/fineweb-edu-10M/yield_statistics.json.gz
 ```
-"""
+"""  # noqa: E501
 import json
 import logging
 import math
@@ -79,9 +79,9 @@ class GetCrawlYieldConfig:
 
 
 def batched(iterable, n=1):
-    l = len(iterable)
-    for ndx in range(0, l, n):
-        yield iterable[ndx : min(ndx + n, l)]
+    length = len(iterable)
+    for ndx in range(0, length, n):
+        yield iterable[ndx : min(ndx + n, length)]
 
 
 def decode_html(html: bytes) -> str | None:
@@ -270,7 +270,7 @@ def get_shard_quality_classifier_scores(
     for (
         example,
         example_score,
-    ) in zip(examples_to_classify, examples_scores):
+    ) in zip(examples_to_classify, examples_scores, strict=True):
         if example_score >= 3.0:
             num_records_passing += 1
         urls_and_scores_output_records.append(
@@ -293,6 +293,7 @@ def get_shard_quality_classifier_scores(
             },
             fout,
         )
+    logger.info(f"{num_records_passing} URLs passed the quality filtering pipeline")
     return num_records_passing
 
 
@@ -306,7 +307,7 @@ def write_examples_to_parquet(examples: list[dict], output_path: str):
 def get_shard_indices_to_process(urls_input_directory: str) -> list[int]:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
     shard_indices: list[int] = [
-        int(pathlib.Path(path).name.removesuffix(".parquet").removeprefix(f"links."))
+        int(pathlib.Path(path).name.removesuffix(".parquet").removeprefix("links."))
         for path in fsspec_glob(os.path.join(urls_input_directory, "links.*.parquet"))
     ]
     shard_indices = sorted(shard_indices)
@@ -393,7 +394,7 @@ def main(cfg: GetCrawlYieldConfig):
         for shard_index in shard_indices_to_process
     ]
     consolidated_urls_and_scores_parquet_path = os.path.join(
-        cfg.urls_and_scores_output_directory, f"urls_and_scores.parquet"
+        cfg.urls_and_scores_output_directory, "urls_and_scores.parquet"
     )
     _ = ray.get(consolidate_parquet.remote(urls_and_scores_parquet_paths, consolidated_urls_and_scores_parquet_path))
 
