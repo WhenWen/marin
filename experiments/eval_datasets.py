@@ -206,7 +206,7 @@ legalbench_raw = ExecutorStep(
         hf_urls_glob=["**/*.tsv", "*.md"],
     ),
     override_output_path="raw/nguha/legalbenchhf",
-).cd("e042ea6")
+)
 
 
 """
