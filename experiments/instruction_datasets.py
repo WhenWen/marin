@@ -148,19 +148,11 @@ INSTRUCTION_DATASET_NAME_TO_CONFIG = {
         metadata_columns=["system", "source", "generated_token_count", "correct"],
         filetype="parquet",
     ),
-    "bespokelabs/Bespoke-Stratos-17k": InstructionDatasetConfig(
-        hf_dataset_id="bespokelabs/Bespoke-Stratos-17k",
-        revision="9e9adba",  # The revision hash shown in the image
-        wait_for_completion=True,
-        filetype="parquet",
-        metadata_columns=[],
-    ),
     "HuggingFaceTB/smoltalk": InstructionDatasetConfig(
         hf_dataset_id="HuggingFaceTB/smoltalk",
         revision="2c849df",  # The revision hash shown in the image
         wait_for_completion=True,
         metadata_columns=["source"],  # Keeping these metadata columns
-        subsets=["all"],
         filetype="parquet",
     ),
     "PrimeIntellect/verifiable-math-problems": InstructionDatasetConfig(
@@ -169,21 +161,6 @@ INSTRUCTION_DATASET_NAME_TO_CONFIG = {
         wait_for_completion=True,
         metadata_columns=["source", "task_type", "problem_id"],  # Keeping these metadata columns
         filetype="parquet",
-    ),
-    "sherryy/tulu-3-sft-personas-instruction-following-expanded": InstructionDatasetConfig(
-        hf_dataset_id="sherryy/tulu-3-sft-personas-instruction-following-expanded",
-        revision="79ab2c4",  # The revision hash shown in the image
-        wait_for_completion=True,
-        metadata_columns=["dataset", "id"],  # Keeping these metadata columns
-        filetype="parquet",
-    ),
-    "facebook/natural_reasoning": InstructionDatasetConfig(
-        hf_dataset_id="facebook/natural_reasoning",
-        revision="main",  # You might want to pin this to a specific commit hash later
-        wait_for_completion=True,
-        metadata_columns=["reference_answer"],  # Including reference_answer as metadata
-        filetype="jsonl",  # The dataset appears to be in parquet format
-        splits=["train"],  # Default to train split
     ),
 }
 

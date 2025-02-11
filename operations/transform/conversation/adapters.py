@@ -270,49 +270,6 @@ register_adapter(
     )
 )
 
-# Define adapter (parser) for dataset
-register_adapter(
-    TransformAdapter(
-        source="cognitivecomputations/dolphin-r1-nonreasoning",
-        dataset_format=InputDatasetFormat.SINGLE_COLUMN_MULTI_TURN,
-        conversation_column="messages",
-        role_key="role",
-        user_value="user",
-        assistant_value="assistant",
-        system_value="system",
-        content_key="content",
-    )
-)
-
-# Define adapter (parser) for dataset
-register_adapter(
-    TransformAdapter(
-        source="cognitivecomputations/dolphin-r1-reasoning",
-        dataset_format=InputDatasetFormat.INSTRUCT_MSG_RESPONSE,
-        instruction_column="messages",
-        response_column="answer",
-        role_key="role",
-        user_value="user",
-        assistant_value="assistant",
-        system_value="system",
-        content_key="content",
-    )
-)
-
-# Define adapter (parser) for dataset
-register_adapter(
-    TransformAdapter(
-        source="bespokelabs/Bespoke-Stratos-17k",
-        dataset_format=InputDatasetFormat.SINGLE_COLUMN_MULTI_TURN,
-        instruction_column="system",
-        conversation_column="conversations",
-        role_key="from",
-        user_value="user",
-        assistant_value="assistant",
-        content_key="value",
-    )
-)
-
 register_adapter(
     TransformAdapter(
         source="HuggingFaceTB/smoltalk",
@@ -332,16 +289,5 @@ register_adapter(
         dataset_format=InputDatasetFormat.INSTRUCTION_RESPONSE,
         instruction_column="prompt",
         response_column="gold_standard_solution",
-    )
-)
-
-
-register_adapter(
-    TransformAdapter(
-        source="facebook/natural_reasoning",
-        dataset_format=InputDatasetFormat.INSTRUCT_COLUMN_RESPONSE,
-        instruction_column="question",
-        response_column="responses",
-        content_key="response",
     )
 )
