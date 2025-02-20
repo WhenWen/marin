@@ -165,7 +165,7 @@ def evaluate_levanter_lm_evaluation_harness(
     Create an ExecutorStep to evaluate the model using Levanter LM Evaluation Harness.
     """
     return ExecutorStep(
-        name=f"evaluation/levanter_lm_evaluation_harness/{model_name}",
+        name=f"evaluation/levanter_lm_eval/{model_name}",
         fn=evaluate,
         config=EvaluationConfig(
             evaluator="levanter_lm_evaluation_harness",
@@ -173,7 +173,7 @@ def evaluate_levanter_lm_evaluation_harness(
             model_path=versioned(model_path),  # type: ignore
             evaluation_path=this_output_path(),
             evals=versioned(evals),
-            discover_latest_checkpoint=True,
+            discover_latest_checkpoint=False,
             max_eval_instances=versioned(max_eval_instances),
             resource_config=resource_config,
         ),

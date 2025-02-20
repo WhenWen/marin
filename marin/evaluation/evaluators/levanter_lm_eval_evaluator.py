@@ -109,4 +109,23 @@ class LevanterLmEvalEvaluator(LevanterTpuEvaluator):
             self.cleanup(model)
 
             if os.path.exists(LevanterTpuEvaluator.CACHE_PATH):
-                shutil.rmtree(LevanterTpuEvaluator.CACHE_PATH)
+                logger.info(f"Cleaning up cache directory: {LevanterTpuEvaluator.CACHE_PATH}")
+                try:
+                    # First try to remove all files individually
+                    for root, dirs, files in os.walk(LevanterTpuEvaluator.CACHE_PATH, topdown=False):
+                        for name in files:
+                            try:
+                                os.remove(os.path.join(root, name))
+                            except Exception as e:
+                                logger.warning(f"Failed to remove file {name}: {e}")
+                        for name in dirs:
+                            try:
+                                os.rmdir(os.path.join(root, name))
+                            except Exception as e:
+                                logger.warning(f"Failed to remove directory {name}: {e}")
+                    
+                    # Then try to remove the main directory
+                    os.rmdir(LevanterTpuEvaluator.CACHE_PATH)
+                    logger.info("Cache directory cleaned successfully")
+                except Exception as e:
+                    logger.warning(f"Failed to clean cache directory completely: {e}")

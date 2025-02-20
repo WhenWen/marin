@@ -9,3 +9,4 @@ class ResourceConfig:
 
 SINGLE_TPU_V4_8 = ResourceConfig(num_tpu=1, tpu_type="TPU-v4-8")
 SINGLE_TPU_V6E_8 = ResourceConfig(num_tpu=1, tpu_type="TPU-v6e-8")
+SINGLE_TPU_V4_256 = ResourceConfig(num_tpu=1, tpu_type="TPU-v4-256")

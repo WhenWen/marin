@@ -18,18 +18,20 @@ class LevanterTpuEvaluator(Evaluator, ABC):
 
     # pip packages to install for running levanter's eval_harness on TPUs
     DEFAULT_PIP_PACKAGES: ClassVar[list[Dependency]] = [
-        Dependency(name="levanter>=1.2.dev1163"),
-        Dependency(name="lm-eval @ git+https://github.com/nikil-ravi/lm-evaluation-harness.git@bpb-changes"),
+        Dependency(name="lm-eval@git+https://github.com/stanford-crfm/lm-evaluation-harness.git"),
     ]
 
-    # Where to store checkpoints, cache inference results, etc.
-    CACHE_PATH: str = "/tmp/levanter-lm-eval"
+    # Change to a location where Ray workers have write access
+    CACHE_PATH: str = "/home/ray/levanter-lm-eval"  # Ray workers should have access to their home directory
 
     @staticmethod
     def download_model(model: ModelConfig) -> str:
         """
         Download the model if it's not already downloaded
         """
+        # Create the directory if it doesn't exist
+        os.makedirs(LevanterTpuEvaluator.CACHE_PATH, exist_ok=True)
+        
         downloaded_path: str | None = model.ensure_downloaded(
             local_path=os.path.join(LevanterTpuEvaluator.CACHE_PATH, model.name)
         )
