@@ -50,6 +50,8 @@ def evaluate(config: EvaluationConfig) -> None:
 def _impute_model_config(config):
     model_path = config.model_path
 
+    logger.info(f"Model path: {model_path}")
+
     if config.model_name is None:
         # have to impute the model name from the path
         if config.model_path is None:
@@ -77,6 +79,10 @@ def _impute_model_config(config):
         model_name = f"{model_name}-{step_part}"
     else:
         model_name = config.model_name
+
+    logger.info(f"Model name: {model_name}")
+    logger.info(f"Model path: {model_path}")
+    logger.info(f"Engine kwargs: {config.engine_kwargs}")
 
     return ModelConfig(name=model_name, path=model_path, engine_kwargs=config.engine_kwargs)
 

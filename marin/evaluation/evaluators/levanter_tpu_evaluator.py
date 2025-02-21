@@ -21,8 +21,8 @@ class LevanterTpuEvaluator(Evaluator, ABC):
         Dependency(name="lm-eval@git+https://github.com/stanford-crfm/lm-evaluation-harness.git"),
     ]
 
-    # Change to a location where Ray workers have write access
-    CACHE_PATH: str = "/home/ray/levanter-lm-eval"  # Ray workers should have access to their home directory
+    # Use the GCSFuse mounted directory
+    CACHE_PATH: str = "/opt/gcsfuse_mount/levanter-lm-eval"
 
     @staticmethod
     def download_model(model: ModelConfig) -> str:

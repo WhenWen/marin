@@ -86,7 +86,7 @@ def evaluate_lm_evaluation_harness(
         evals (list[EvalTaskConfig]): List of evaluations to run with LM Evaluation Harness.
     """
     return ExecutorStep(
-        name=f"evaluation/lm_evaluation_harness/{model_name}",
+        name=f"evaluation/lm_evaluation_harness_levanter/eval_results_{model_name}",
         fn=evaluate,
         config=EvaluationConfig(
             evaluator="lm_evaluation_harness",
@@ -165,7 +165,7 @@ def evaluate_levanter_lm_evaluation_harness(
     Create an ExecutorStep to evaluate the model using Levanter LM Evaluation Harness.
     """
     return ExecutorStep(
-        name=f"evaluation/levanter_lm_eval/{model_name}",
+        name=f"evaluation/lm_evaluation_harness_levanter/eval_{model_name}",
         fn=evaluate,
         config=EvaluationConfig(
             evaluator="levanter_lm_evaluation_harness",

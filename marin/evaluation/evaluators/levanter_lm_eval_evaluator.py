@@ -76,7 +76,7 @@ class LevanterLmEvalEvaluator(LevanterTpuEvaluator):
                 ),
                 tokenizer=model_path,  # levanter picks up the tokenizer from the model path
                 checkpoint_path=model_path,
-                checkpoint_is_hf=True,
+                checkpoint_is_hf=False,
                 trainer=trainer_config,
                 model=model_config,
             )
@@ -108,24 +108,21 @@ class LevanterLmEvalEvaluator(LevanterTpuEvaluator):
             # Clean up resources
             self.cleanup(model)
 
+            # Clean up the GCS-mounted cache directory
             if os.path.exists(LevanterTpuEvaluator.CACHE_PATH):
-                logger.info(f"Cleaning up cache directory: {LevanterTpuEvaluator.CACHE_PATH}")
+                logger.info(f"Cleaning up GCS-mounted cache directory: {LevanterTpuEvaluator.CACHE_PATH}")
+                for root, dirs, files in os.walk(LevanterTpuEvaluator.CACHE_PATH, topdown=False):
+                    for name in files:
+                        try:
+                            os.remove(os.path.join(root, name))
+                        except Exception as e:
+                            logger.warning(f"Could not remove file {name}: {e}")
+                    for name in dirs:
+                        try:
+                            os.rmdir(os.path.join(root, name))
+                        except Exception as e:
+                            logger.warning(f"Could not remove directory {name}: {e}")
                 try:
-                    # First try to remove all files individually
-                    for root, dirs, files in os.walk(LevanterTpuEvaluator.CACHE_PATH, topdown=False):
-                        for name in files:
-                            try:
-                                os.remove(os.path.join(root, name))
-                            except Exception as e:
-                                logger.warning(f"Failed to remove file {name}: {e}")
-                        for name in dirs:
-                            try:
-                                os.rmdir(os.path.join(root, name))
-                            except Exception as e:
-                                logger.warning(f"Failed to remove directory {name}: {e}")
-                    
-                    # Then try to remove the main directory
                     os.rmdir(LevanterTpuEvaluator.CACHE_PATH)
-                    logger.info("Cache directory cleaned successfully")
                 except Exception as e:
-                    logger.warning(f"Failed to clean cache directory completely: {e}")
+                    logger.warning(f"Could not remove cache root directory: {e}")
