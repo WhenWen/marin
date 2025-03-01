@@ -27,6 +27,7 @@ class LevanterTpuEvaluator(Evaluator, ABC):
 
     # Use the GCSFuse mounted directory
     CACHE_PATH: str = "/opt/gcsfuse_mount/levanter-lm-eval"
+    #CACHE_PATH: str = "/tmp/levanter-lm-eval"
 
     @staticmethod
     def download_model(model: ModelConfig) -> str:

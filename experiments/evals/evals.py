@@ -165,7 +165,7 @@ def evaluate_levanter_lm_evaluation_harness(
     Create an ExecutorStep to evaluate the model using Levanter LM Evaluation Harness.
     """
     return ExecutorStep(
-        name=f"evaluation/lm_evaluation_harness_levanter/eval_{model_name}",
+        name=f"evaluation/lm_evaluation_harness_levanter/eval_debug_v4_{model_name}",
         fn=evaluate,
         config=EvaluationConfig(
             evaluator="levanter_lm_evaluation_harness",
@@ -173,7 +173,7 @@ def evaluate_levanter_lm_evaluation_harness(
             model_path=versioned(model_path),  # type: ignore
             evaluation_path=this_output_path(),
             evals=versioned(evals),
-            discover_latest_checkpoint=False,
+            discover_latest_checkpoint=True,
             max_eval_instances=versioned(max_eval_instances),
             resource_config=resource_config,
         ),
@@ -205,6 +205,7 @@ def default_eval(
         evals = CORE_TASKS
 
     logger.info(f"Running evals on the following tasks: {evals}")
+    name = f"step-819999"
 
     return evaluate_levanter_lm_evaluation_harness(
         name, model_step_path, evals, resource_config, max_eval_instances=max_eval_instances

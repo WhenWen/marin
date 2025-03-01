@@ -52,6 +52,8 @@ class LevanterLmEvalEvaluator(LevanterTpuEvaluator):
 
             logger.info(f"Running eval harness on model: {model_name_or_path}")
 
+            
+
             # NOTE(chris): Before, the batch size was 16, but this is too large for the 8B model.
             # In the future, we should make this user-configurable.
             trainer_config = TrainerConfig(
@@ -67,6 +69,13 @@ class LevanterLmEvalEvaluator(LevanterTpuEvaluator):
 
             model_path = os.path.join(LevanterTpuEvaluator.CACHE_PATH, model.path)
 
+            logger.info(f"Levanter Cache Path: {LevanterTpuEvaluator.CACHE_PATH}")
+            logger.info(f"Model name: {model.name}")
+            logger.info(f"model_name_or_path: {model_name_or_path}")
+            logger.info(f"model_path: {model_path}")
+            logger.info(f"model_config: {model_config}")
+            logger.info(f"model.path: {model.path}")
+
             eval_config = eval_harness.EvalHarnessMainConfig(
                 eval_harness=eval_harness.LmEvalHarnessConfig(
                     task_spec=tasks,
@@ -76,7 +85,7 @@ class LevanterLmEvalEvaluator(LevanterTpuEvaluator):
                 ),
                 tokenizer=model_path,  # levanter picks up the tokenizer from the model path
                 checkpoint_path=model_path,
-                checkpoint_is_hf=False,
+                checkpoint_is_hf=True,
                 trainer=trainer_config,
                 model=model_config,
             )

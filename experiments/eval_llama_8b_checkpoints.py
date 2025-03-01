@@ -1,5 +1,5 @@
 from experiments.evals.evals import default_eval
-from experiments.evals.task_configs import CORE_TASKS_PLUS_MMLU
+from experiments.evals.task_configs import CORE_TASKS_PLUS_MMLU, CORE_TASKS
 from marin.execution.executor import ExecutorMainConfig, executor_main
 from experiments.evals.resource_configs import SINGLE_TPU_V4_8, SINGLE_TPU_V6E_8, SINGLE_TPU_V4_256
 
@@ -19,9 +19,16 @@ eval_check2 = default_eval(
     resource_config=SINGLE_TPU_V4_8,
 )
 
+eval_check3 = default_eval(
+    step='gs://marin-us-central2/checkpoints/llama-8b-tootsie-phase3/hf/step-819999',
+    evals=list(CORE_TASKS),
+    resource_config=SINGLE_TPU_V4_8,
+)
+
 steps = [
-    eval_check1,
+    #eval_check1,
     # eval_check2,
+    eval_check3
 ]
 
 if __name__ == "__main__":
