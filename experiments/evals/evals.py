@@ -217,6 +217,7 @@ def default_key_evals(
     model_name: str | None = None,
     max_eval_instances: int | None = None,
     engine_kwargs: dict | None = DEFAULT_VLLM_ENGINE_KWARGS,
+    is_sft_model: bool = False,
 ) -> list[ExecutorStep]:
     """
     Create a list of ExecutorSteps to evaluate the model using LM Evaluation Harness on a step.
@@ -226,7 +227,7 @@ def default_key_evals(
     if model_name is None:
         model_name = name
 
-    return [
+    tasks = [
         evaluate_lm_evaluation_harness(
             model_name,
             model_step_path,
@@ -242,5 +243,9 @@ def default_key_evals(
             resource_config,
             max_eval_instances=max_eval_instances,
         ),
-        evaluate_alpaca_eval(model_name, model_step_path, resource_config),
     ]
+
+    if is_sft_model:
+        tasks.append(evaluate_alpaca_eval(model_name, model_step_path, resource_config))
+
+    return tasks
