@@ -9,10 +9,11 @@ Link to issue for scaling law experiments: https://github.com/stanford-crfm/mari
 from defaults import default_scaling_law_pred
 
 from experiments.evals.task_configs import CORE_TASKS
-from experiments.exp600_tootsie import dclm_mixture_config_llama3
+from experiments.dclm.tokenize_dclm import dclm_mixture_config_llama3
 from marin.execution.executor import executor_main
 from marin.scaling_laws.create_ladder_suite import scaling_law_suite
 
+# default scaling law suite
 default_suite = scaling_law_suite(
     sweep_name="scaling-law-suite-default-v2",
     tokenized=dclm_mixture_config_llama3,

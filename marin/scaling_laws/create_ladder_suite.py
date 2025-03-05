@@ -26,7 +26,7 @@ DEFAULT_MODEL_CONFIG = LlamaConfig(
 
 WS_EMA_DEFAULT_TRAIN_CONFIG = SimpleTrainConfig(
     tpu_type="v4-128",
-    node_count=1,
+    node_count=2,
     train_batch_size=1024,
     learning_rate=1e-3,  # placeholder, this will be replaced in the scaling law suite
     weight_decay=0.1,
