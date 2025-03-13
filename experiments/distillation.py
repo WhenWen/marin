@@ -28,7 +28,7 @@ math500 = ExecutorStep(
 )
 
 generations = ExecutorStep(
-    name="documents/testinfer-w-get_model/synthetic_data_llama_8b",
+    name="documents/testinfer-math500-suhas/llama_8b_debugv2",
     fn=run_inference,
     config=TextGenerationInferenceConfig(
         input_path=output_path_of(math500),
@@ -40,11 +40,10 @@ generations = ExecutorStep(
             "tensor_parallel_size": tensor_parallel_size,
         },
         generation_kwargs={
-            "temperature": 0.8,
-            "max_tokens": 512,
+            "temperature": 0.7,
+            "max_tokens": 4096,
         },
-        template="You will be given a problem. Please reason step by step, \
-            and put your final answer within \boxed{{}}:\n{example}",
+        template="For the following document, give me a paraphrase of the same using very terse and abstruse language that only an erudite scholar will understand. Replace simple words and phrases with rare and complex ones. Directly output the paraphrased document without any other text at the start or end.\n\n{example}",
         tensor_parallel_size=tensor_parallel_size,
         prompt_column="problem",
         filetype="jsonl",
