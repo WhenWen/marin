@@ -35,7 +35,7 @@ generations = ExecutorStep(
         output_path=this_output_path(),
         model_name=get_model_local_path(llama_3_1_8b_instruct),
         engine_kwargs={
-            "max_model_len": 8192,
+            "max_model_len": 4096,
             "enforce_eager": True,
             "tensor_parallel_size": tensor_parallel_size,
         },
@@ -48,6 +48,7 @@ generations = ExecutorStep(
         prompt_column="problem",
         filetype="jsonl",
         tpu_type="TPU-v4-16",
+        output_filetype_override="jsonl.gz",
     ),
 )
 
