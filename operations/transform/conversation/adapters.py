@@ -89,7 +89,9 @@ class TransformAdapter:
             messages = []
             instruction = row[self.instruction_column]
             response = row[self.response_column]
-
+            # Check data
+            if instruction is None or response is None:
+                return None # Do not process rows with missing data
             if self.filter_on_key:
                 best_completion = None
                 best_metric = -float("inf")  # TODO: Make this a config
@@ -99,7 +101,6 @@ class TransformAdapter:
                         best_metric = completion[self.filter_on_key]
                         best_completion = completion
                 response = best_completion[self.content_key]
-
             messages.append(OpenAIChatMessage(role="user", content=instruction))
             messages.append(OpenAIChatMessage(role="assistant", content=response))
             return messages
@@ -289,5 +290,33 @@ register_adapter(
         dataset_format=InputDatasetFormat.INSTRUCTION_RESPONSE,
         instruction_column="prompt",
         response_column="gold_standard_solution",
+    )
+)
+
+register_adapter(
+    TransformAdapter(
+        source="facebook/natural_reasoning",
+        dataset_format=InputDatasetFormat.INSTRUCT_COLUMN_RESPONSE,
+        instruction_column="question",
+        response_column="responses",
+        content_key="response",
+    )
+)
+
+register_adapter(
+    TransformAdapter(
+        source="GeneralReasoning/GeneralThought-195K-modelanswer",
+        dataset_format=InputDatasetFormat.INSTRUCTION_RESPONSE,
+        instruction_column="question",
+        response_column="model_answer",
+    )
+)
+
+register_adapter(
+    TransformAdapter(
+        source="GeneralReasoning/GeneralThought-195K-modelreasoning",
+        dataset_format=InputDatasetFormat.INSTRUCTION_RESPONSE,
+        instruction_column="question",
+        response_column="model_reasoning",
     )
 )
