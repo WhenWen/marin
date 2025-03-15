@@ -8,21 +8,29 @@ Link to issue for scaling law experiments: https://github.com/stanford-crfm/mari
 
 from defaults import default_scaling_law_pred
 
-from experiments.evals.task_configs import CORE_TASKS
 from experiments.dclm.tokenize_dclm import dclm_mixture_config_llama3
+from experiments.evals.task_configs import CORE_TASKS
 from marin.execution.executor import executor_main
 from marin.scaling_laws.create_ladder_suite import scaling_law_suite
 
-# default scaling law suite
+# default scaling law suite- rerun
 default_suite = scaling_law_suite(
     sweep_name="scaling-law-suite-default-v2",
     tokenized=dclm_mixture_config_llama3,
     tags=["scaling_laws"],
 )
 
+RUNS = [
+    "scaling-law-suite-default-v2-512-4d173f",
+    "scaling-law-suite-default-v2-768-12373d",
+    "scaling-law-suite-default-v2-1024-77c98b",
+    "scaling-law-suite-default-v2-1536-18344d",
+    "scaling-law-suite-default-v2-2048-7845a1",
+]
+
 
 default_suite_scaling_laws_pred = default_scaling_law_pred(
-    ladder_runs=default_suite,
+    ladder_runs=RUNS,  # default_suite,
     # TODO: corresponds to llama_8b_tootsie in exp600_tootsie.py; used wandb ID for now out of caution
     # to avoid accidentally re-running the 8B model
     pred_run="llama-8b-tootsie-0.001-19ad63",
@@ -39,8 +47,8 @@ default_suite_scaling_laws_pred = default_scaling_law_pred(
 if __name__ == "__main__":
     executor_main(
         steps=[
-            *default_suite,
-            # default_suite_scaling_laws_pred,
+            # *default_suite,
+            default_suite_scaling_laws_pred,
         ],
         description="suite + predictions for scaling laws on DCLM-Baseline+StarCoder+ProofPile mix",
     )

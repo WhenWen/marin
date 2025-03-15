@@ -303,8 +303,9 @@ def extract_scaling_data(
 def aggregate_steps(
     df: pd.DataFrame,
     step_mode: str = "all",
-    step_range: tuple[int, int] = (1, 5),
     group_col: str = "run",
+    token_filters: dict[str, float] | None = None,
+    tokens_col: str = "throughput/total_tokens",
 ) -> pd.DataFrame:
     """
     Aggregates the steps for each run.
@@ -312,16 +313,41 @@ def aggregate_steps(
     Args:
         df: DataFrame
         step_mode: how to aggregate the steps
-        step_range: range of steps to aggregate
         group_col: column to group by
+        token_filters: Dict mapping run IDs to max token counts to include
+        tokens_col: Column name containing token counts
 
     step_mode can be:
       - "average": average step_range across each run
       - "last": pick the max step within step_range
       - "all": keep every step (no grouping)
+      - "filtered": filter each run based on token_filters
     """
+    if step_mode == "filtered":
+        if token_filters is None:
+            # use all- set max tokens for each to a very high value
+            token_filters = {run_id: 1e12 for run_id in df[group_col].unique()}
 
-    if step_mode == "average":
+        # Filter each run based on its max token count
+        filtered_dfs = []
+        for run_id, max_tokens in token_filters.items():
+            run_df = df[df[group_col] == run_id]
+            filtered_df = run_df[run_df[tokens_col] <= max_tokens]
+
+            # Select 5 evenly spaced steps (or all steps if less than 5)
+            n_steps = len(filtered_df)
+            if n_steps > 5:
+                indices = np.linspace(0, n_steps - 1, 5, dtype=int)
+                filtered_df = filtered_df.iloc[indices]
+
+            filtered_dfs.append(filtered_df)
+
+        return_df = pd.concat(filtered_dfs, axis=0, ignore_index=True)
+        print("Going to print the filtered df")
+        print(return_df)
+        return return_df
+
+    elif step_mode == "average":
         grouped = df.groupby(group_col, as_index=False).mean(numeric_only=True)
         return grouped
     elif step_mode == "last":
@@ -389,6 +415,8 @@ def get_default_projection_points(count_embedding_params: bool = False) -> list[
             num_tokens = int(total_params * multiplier)
             points.append(ProjectionPoint(total_params, num_tokens))
 
+        # also add 42B tokens
+        points.append(ProjectionPoint(total_params, 41943040000))
     return points
 
 
@@ -492,6 +520,45 @@ def plot_scaling_projections(predicted: np.ndarray, points: list[ProjectionPoint
 # Functions for fitting scaling laws
 
 
+def compute_relative_error(actual: np.ndarray, predicted: np.ndarray, is_accuracy: bool = False) -> float:
+    """
+    Compute mean relative error as a percentage.
+    For accuracy metrics (is_accuracy=True), filters out outliers before calculation.
+
+    Args:
+        actual: Array of actual values
+        predicted: Array of predicted values
+        is_accuracy: If True, filters out points > 2 std from mean before calculating
+
+    Returns:
+        Mean relative error as a percentage
+    """
+    if is_accuracy:
+        # Filter outliers for accuracy metrics
+        actual_mean = np.mean(actual)
+        actual_std = np.std(actual)
+        valid_indices = np.abs(actual - actual_mean) <= 2 * actual_std
+
+        if np.any(valid_indices):
+            # Print diagnostic information about outlier filtering
+            print("\nOutlier filtering summary:")
+            print(f"Total points: {len(actual)}")
+            print(f"Points within 2 std: {np.sum(valid_indices)}")
+            print(f"Points filtered: {len(actual) - np.sum(valid_indices)}")
+
+            if len(actual) > 0:
+                print("\nSample values before filtering:")
+                print(f"First 5 values: {actual[:5]}")
+                print(f"Mean: {actual_mean:.3f}, Std: {actual_std:.3f}")
+
+            # Apply filtering
+            actual = actual[valid_indices]
+            predicted = predicted[valid_indices]
+
+    relative_errors = np.abs(predicted - actual) / np.abs(actual) * 100
+    return float(np.mean(relative_errors))
+
+
 def fit_scaling_laws(
     runs: list[str],
     loss_metrics: Sequence[str],
@@ -501,12 +568,13 @@ def fit_scaling_laws(
     pred_run: str | None = None,
     projection_points: list[ProjectionPoint] | None = None,
     aggregation: str = "all",
+    token_filters: dict[str, float] | None = None,
     tokens_col: str = "throughput/total_tokens",
     param_col: str = "parameter_count",
     count_embedding_params: bool = False,
     use_log_for_ND: bool = False,
     normalize_ND: bool = False,
-) -> tuple[dict[str, np.ndarray], tuple[dict, dict, np.ndarray, np.ndarray] | None]:
+) -> tuple[dict[str, np.ndarray], tuple[dict, dict, np.ndarray, np.ndarray, dict[str, float]] | None]:
     """Fit scaling laws for both projection and prediction
 
     Args:
@@ -518,6 +586,7 @@ def fit_scaling_laws(
         pred_run: run ID to predict scaling laws for- if None, no prediction is done
         projection_points: list of ProjectionPoint objects to project to
         aggregation: how to aggregate steps within each run (all/last/average)
+        token_filters: Dict mapping run IDs to max token counts to include
         tokens_col: column name for the number of tokens
         param_col: column name for the number of parameters
         count_embedding_params: whether to count embedding parameters in calculating N
@@ -530,6 +599,7 @@ def fit_scaling_laws(
             - dict of accuracy metrics and their predictions
             - numpy array of tokens for x-axis of plots for losses
             - numpy array of tokens for x-axis of plots for accuracies
+            - dict of relative errors for each metric
     """
 
     # First pull for losses - only essential metrics
@@ -544,7 +614,7 @@ def fit_scaling_laws(
 
     # Process loss data- remove 0-token runs, apply aggregation to the ladder runs' checkpoints (if specified)
     loss_df_filtered = filter_zero_d(loss_df, tokens_col)
-    loss_df_agg = aggregate_steps(loss_df_filtered, step_mode=aggregation)
+    loss_df_agg = aggregate_steps(loss_df_filtered, step_mode="filtered", tokens_col=tokens_col)
 
     # Get N, D
     N, D, _ = extract_scaling_data(loss_df_agg, param_col, tokens_col, count_embedding_params=count_embedding_params)
@@ -630,7 +700,6 @@ def fit_scaling_laws(
             acc_pred_agg = aggregate_steps(acc_pred_filtered, step_mode=aggregation)
 
             # Fit accuracies
-            accuracy_results = {}
             loss_metric, (actual_loss, predicted_loss) = next(iter(loss_results.items()))  # use first loss
 
             # Merge loss and accuracy data on run and tokens
@@ -662,10 +731,23 @@ def fit_scaling_laws(
                 acc_preds = predict_sigmoidal(params, pred_task_losses)
                 accuracy_results[f"{acc_metric}_from_{loss_metric}"] = (acc_pred_actual, acc_preds)
 
-            # Get token counts for plotting
-            loss_tokens = loss_pred_agg[tokens_col].values
             acc_tokens = merged_pred_df[tokens_col].values
+        else:
+            acc_tokens = np.array([])
 
-            predictions = (loss_results, accuracy_results, loss_tokens, acc_tokens)
+        # Get token counts for plotting
+        loss_tokens = loss_pred_agg[tokens_col].values
+
+        # Compute relative errors for losses
+        relative_errors = {}
+        for loss_metric, (actual, predicted) in loss_results.items():
+            relative_errors[loss_metric] = compute_relative_error(actual, predicted)
+
+        # Compute relative errors for accuracies if they exist
+        if accuracy_metrics:
+            for acc_metric, (actual, predicted) in accuracy_results.items():
+                relative_errors[acc_metric] = compute_relative_error(actual, predicted, is_accuracy=True)
+
+        predictions = (loss_results, accuracy_results, loss_tokens, acc_tokens, relative_errors)
 
     return projections, predictions

@@ -143,6 +143,12 @@ python marin/run/ray_run.py \
     --output_path "gs://marin-us-central2/scratch/nfliu/count_tokens/open_web_math_10M_cc_deduplicated_passing_minhash_against_open_web_math/"
 ```
 
+python marin/run/ray_run.py \
+    --no_wait -- \
+    python marin/crawl/count_tokens.py \
+    --input_patterns '["gs://marin-us-central2/raw/dclm/a3b142c/huggingface.co/datasets/mlfoundations/dclm-baseline-1.0/resolve/a3b142c/global-shard_01_of_10/local-shard_3_of_10/**/*.jsonl.zst"]' \
+    --output_path "gs://marin-us-central2/scratch/nravi/count_tokens/dclm_global_shard_2_local_shard_3_of_10/"
+
 
 """  # noqa: E501
 import json

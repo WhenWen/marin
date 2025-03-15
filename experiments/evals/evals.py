@@ -176,7 +176,7 @@ def evaluate_levanter_lm_evaluation_harness(
             model_path=versioned(model_path),  # type: ignore
             evaluation_path=this_output_path(),
             evals=versioned(evals),
-            discover_latest_checkpoint=True,
+            discover_latest_checkpoint=False,
             max_eval_instances=versioned(max_eval_instances),
             resource_config=resource_config,
         ),

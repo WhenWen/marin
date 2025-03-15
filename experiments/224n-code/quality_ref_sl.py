@@ -2,20 +2,28 @@
 CS 224N script for tokenization of data, and training of reference models, and 1B model experiments.
 """
 
-import dataclasses
 
-from experiments.defaults import default_train
+from marin.execution.executor import ExecutorStep, executor_main, this_output_path, versioned
+from experiments.llama import llama3_tokenizer
+from marin.processing.tokenize import (
+    TokenizeConfig,
+    TokenizerStep,
+    add_validation_sets_to_mixture,
+    lm_data_config,
+    tokenize,
+)
+from experiments.simple_train_config import SimpleTrainConfig
+
+
 from experiments.evals.task_configs import (
     CORE_TASKS_PLUS_MMLU,
 )
-from experiments.llama import LlamaConfig, llama3_tokenizer
-from experiments.simple_train_config import SimpleTrainConfig
-from marin.execution.executor import ExecutorStep, executor_main, this_output_path, versioned
-from marin.processing.tokenize import (
-    TokenizeConfig,
-    tokenize,
-)
-from marin.scaling_laws.create_ladder_suite import WS_EMA_DEFAULT_TRAIN_CONFIG, scaling_law_suite
+
+from experiments.defaults import default_train
+from experiments.llama import LlamaConfig
+
+from marin.scaling_laws.create_ladder_suite import scaling_law_suite, WS_EMA_DEFAULT_TRAIN_CONFIG
+import dataclasses
 
 ### Tokenize shard 2 of DCLM-Baseline-1.0
 
@@ -36,12 +44,10 @@ tokenized_dclm_shard_2 = ExecutorStep(
 
 ### Train two reference models on shard 2 of DCLM-Baseline-1.0
 
-reference_model_sizes_hidden_dim = [512, 1024]  # corresponds to 200 and ~500M params
+reference_model_sizes_hidden_dim = [512, 1024] # corresponds to 200 and ~500M params
 
 # replace the steps for eval and steps per task eval in the train config, and replace the #train steps to correspond to 50B tokens
-training_config = dataclasses.replace(
-    WS_EMA_DEFAULT_TRAIN_CONFIG, steps_per_eval=2500, steps_per_task_eval=2500, num_train_steps=12000
-)  # corresponds to 50B tokens
+training_config = dataclasses.replace(WS_EMA_DEFAULT_TRAIN_CONFIG, steps_per_eval=2500, steps_per_task_eval=2500, num_train_steps=12000) # corresponds to 50B tokens
 
 # replace the train steps in the train config and use the default scaling law suite to define the runs
 reference_models = scaling_law_suite(
@@ -153,7 +159,7 @@ tokenized_dclm_shard_3_filtered_fineweb_edu = ExecutorStep(
         tokenizer=versioned(llama3_tokenizer),
     ),
     pip_dependency_groups=["tokenize_train"],
-    override_output_path="gs://marin-us-central2/tokenized/tokenized/quality_filtering/fineweb-edu/dclm-global-shard-01-of-10-local-shard_3_of_10-85c24f",
+    override_output_path="gs://marin-us-central2/tokenized/tokenized/quality_filtering/fineweb-edu/dclm-global-shard-01-of-10-local-shard_3_of_10-85c24f"
 )
 
 ### Train the 1B model on shard 3 of DCLM-Baseline-1.0 with fineweb-edu quality factor
@@ -237,3 +243,21 @@ executor_main(
     ],
     description="Run the reference models",
 )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

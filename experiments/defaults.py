@@ -382,6 +382,7 @@ def default_scaling_law_pred(
     else:
         name = "projection"
 
+
     return ExecutorStep(
         name=f"""scaling_laws/{name}""",
         fn=run_scaling_law_analysis,

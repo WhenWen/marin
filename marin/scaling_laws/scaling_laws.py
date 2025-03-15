@@ -123,7 +123,7 @@ def run_scaling_law_analysis(config: ScalingLawConfig) -> None:
 def log_and_create_report(
     projections: dict[str, np.ndarray],
     points: list[ProjectionPoint] | None,
-    predictions: tuple[dict, dict, np.ndarray, np.ndarray] | None,
+    predictions: tuple[dict, dict, np.ndarray, np.ndarray, dict[str, float]] | None,
     input_run_ids: list,
     pred_run_id: str | None,
     scaling_law_config: ScalingLawConfig,
@@ -156,14 +156,18 @@ def log_and_create_report(
 
     # Log predictions if available
     if predictions:
-        loss_results, accuracy_results, loss_tokens, acc_tokens = predictions
+        loss_results, accuracy_results, loss_tokens, acc_tokens, relative_errors = predictions
+
+        # Log relative errors
+        for metric, error in relative_errors.items():
+            wandb.log({f"relative_error/{metric}": error})
 
         if loss_results:
             for loss_name, (actual_loss, predicted_loss) in loss_results.items():
                 figure = plot_actual_vs_predicted(
                     actual_loss.tolist(),
                     predicted_loss.tolist(),
-                    title=f"Actual vs Predicted {loss_name}",
+                    title=f"Actual vs Predicted {loss_name}\nRelative Error: {relative_errors[loss_name]:.2f}%",
                     task_metric=loss_name,
                     tokens=loss_tokens,
                 )
@@ -174,7 +178,7 @@ def log_and_create_report(
                 figure = plot_actual_vs_predicted(
                     actual_acc.tolist(),
                     predicted_acc.tolist(),
-                    title=f"Actual vs Predicted {metric}",
+                    title=f"Actual vs Predicted {metric}\nRelative Error: {relative_errors[metric]:.2f}%",
                     task_metric=metric,
                     tokens=acc_tokens,
                 )

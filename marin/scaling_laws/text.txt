@@ -1,0 +1,57 @@
+Going to print the filtered df
+    eval/bpb  throughput/total_tokens                                    run  \
+0   4.202184             4.194304e+06   scaling-law-suite-default-512-9b1182   
+1   1.059658             5.453015e+10   scaling-law-suite-default-512-9b1182   
+2   1.046272             1.048618e+11   scaling-law-suite-default-512-9b1182   
+3   1.040885             1.551934e+11   scaling-law-suite-default-512-9b1182   
+4   1.040291             2.097152e+11   scaling-law-suite-default-512-9b1182   
+5   4.191568             4.194304e+06   scaling-law-suite-default-768-0631eb   
+6   1.002678             5.033584e+10   scaling-law-suite-default-768-0631eb   
+7   0.986974             1.048618e+11   scaling-law-suite-default-768-0631eb   
+8   0.980506             1.551934e+11   scaling-law-suite-default-768-0631eb   
+9   0.977014             2.097152e+11   scaling-law-suite-default-768-0631eb   
+10  4.201555             4.194304e+06  scaling-law-suite-default-1024-e6a4e5   
+11  0.968968             5.033584e+10  scaling-law-suite-default-1024-e6a4e5   
+12  0.950136             1.048618e+11  scaling-law-suite-default-1024-e6a4e5   
+13  0.943316             1.551934e+11  scaling-law-suite-default-1024-e6a4e5   
+14  0.939039             2.097152e+11  scaling-law-suite-default-1024-e6a4e5   
+15  4.206222             4.194304e+06  scaling-law-suite-default-1536-51914a   
+16  0.928155             5.033584e+10  scaling-law-suite-default-1536-51914a   
+17  0.906864             1.006675e+11  scaling-law-suite-default-1536-51914a   
+18  0.898085             1.509991e+11  scaling-law-suite-default-1536-51914a   
+19  0.893243             2.097152e+11  scaling-law-suite-default-1536-51914a   
+20  4.201642             4.194304e+06  scaling-law-suite-default-2048-14ef39   
+21  0.905738             5.033584e+10  scaling-law-suite-default-2048-14ef39   
+22  0.881358             1.048618e+11  scaling-law-suite-default-2048-14ef39   
+23  0.872365             1.551934e+11  scaling-law-suite-default-2048-14ef39   
+24  0.866961             2.097152e+11  scaling-law-suite-default-2048-14ef39   
+
+
+
+Going to print the filtered df
+    eval/bpb  throughput/total_tokens  \
+0   4.202184             4.194304e+06   
+1   1.070048             5.243299e+10   
+2   1.056981             1.069589e+11   
+3   1.051989             1.572906e+11   
+4   1.050390             2.097152e+11   
+5   4.191568             4.194304e+06   
+6   1.002678             5.033584e+10   
+7   0.997341             1.048618e+11   
+8   0.991009             1.572906e+11   
+9   0.987992             2.097152e+11   
+10  4.201555             4.194304e+06   
+11  0.977002             5.243299e+10   
+12  0.960477             1.048618e+11   
+13  0.954752             1.572906e+11   
+14  0.949297             2.097152e+11   
+15  4.206222             4.194304e+06   
+16  0.935471             5.243299e+10   
+17  0.916426             1.048618e+11   
+18  0.908329             1.572906e+11   
+19  0.903696             2.097152e+11   
+20  4.201642             4.194304e+06   
+21  0.916053             5.033584e+10   
+22  0.891747             1.048618e+11   
+23  0.882519             1.551934e+11   
+24  0.877734             2.097152e+11   
