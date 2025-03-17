@@ -14,13 +14,17 @@ from experiments.exp600_tootsie import llama3_tokenizer, llama_8b
 from experiments.llama import llama_8b_old_rotary
 from marin.evaluation.visualize import VizLmConfig, mixture_for_visualization, visualize_lm_log_probs
 from marin.execution.executor import ExecutorStep, executor_main, versioned
+from marin.scaling_laws.create_ladder_suite import scaling_law_suite, WS_EMA_DEFAULT_TRAIN_CONFIG
+from experiments.dclm.tokenize_dclm import dclm_mixture_config_llama3
 
-COMPARISON_MODEL = "gs://marin-us-central2/checkpoints/llama-8b-tootsie-phase2/checkpoints/step-730000/"
+#COMPARISON_MODEL = "gs://marin-eu-west4/checkpoints/llama-8b-tootsie-0.001-19ad63/hf/step-660000"
 
 CHECKPOINTS = [
-    COMPARISON_MODEL,
-    "gs://marin-us-central2/checkpoints/llama-8b-tootsie-phase3/checkpoints/step-740000/",
-    "gs://marin-us-central2/checkpoints/llama-8b-tootsie-phase3/checkpoints/step-780000/",
+    "gs://marin-us-central2/checkpoints/scaling-law-suite-default-v2-512-4d173f/hf/step-49999",
+    "gs://marin-us-central2/checkpoints/scaling-law-suite-default-v2-768-12373d/hf/step-49999",
+    "gs://marin-us-central2/checkpoints/scaling-law-suite-default-v2-1024-77c98b/hf/step-49999",
+    "gs://marin-us-central2/checkpoints/scaling-law-suite-default-v2-1536-18344d/hf/step-49999",
+    "gs://marin-us-central2/checkpoints/scaling-law-suite-default-v2-2048-7845a1/hf/step-49999",
 ]
 
 
@@ -35,10 +39,30 @@ def path_to_step_name(path):
 eval_sets = default_validation_sets(tokenizer=versioned(llama3_tokenizer))
 eval_set_mixture = mixture_for_visualization(eval_sets)
 
+suite_configs = scaling_law_suite(
+    sweep_name="scaling-law-suite-default-v2",
+    tokenized=dclm_mixture_config_llama3,
+    tags=["scaling_laws"],
+)
 
 all_steps = []
 
-for checkpoint in CHECKPOINTS:
+# name = path_to_step_name(COMPARISON_MODEL)
+# all_steps.append(
+#     ExecutorStep(
+#             name=name,
+#             fn=visualize_lm_log_probs,
+#             config=VizLmConfig(
+#                 checkpoint_path=COMPARISON_MODEL,
+#                 model=llama_8b,
+#                 datasets=eval_set_mixture,
+#                 num_docs_per_dataset=32,
+#                 comparison_model_path=None,
+#             ),
+#         )
+# )
+
+for i, checkpoint in enumerate(CHECKPOINTS):
     name = path_to_step_name(checkpoint)
     all_steps.append(
         ExecutorStep(
@@ -46,43 +70,16 @@ for checkpoint in CHECKPOINTS:
             fn=visualize_lm_log_probs,
             config=VizLmConfig(
                 checkpoint_path=checkpoint,
-                model=llama_8b,
+                model=suite_configs[i],
                 datasets=eval_set_mixture,
                 num_docs_per_dataset=32,
-                comparison_model_path=COMPARISON_MODEL if checkpoint != COMPARISON_MODEL else None,
+                comparison_model_path=None#COMPARISON_MODEL if checkpoint != COMPARISON_MODEL else None,
             ),
         )
     )
-
-
-PHASE_1_CONFIG = llama_8b_old_rotary
-PHASE_1_BASE = "gs://marin-eu-west4/checkpoints/llama-8b-tootsie-0.001-19ad63/checkpoints/step-180000/"
-
-PHASE_1_CHECKPOINTS = [
-    PHASE_1_BASE,
-    "gs://marin-eu-west4/checkpoints/llama-8b-tootsie-0.001-19ad63/checkpoints/step-200000/",
-    "gs://marin-eu-west4/checkpoints/llama-8b-tootsie-0.001-19ad63/checkpoints/step-500000/",
-]
-
-for checkpoint in PHASE_1_CHECKPOINTS:
-    name = path_to_step_name(checkpoint)
-    all_steps.append(
-        ExecutorStep(
-            name=name,
-            fn=visualize_lm_log_probs,
-            config=VizLmConfig(
-                checkpoint_path=checkpoint,
-                model=PHASE_1_CONFIG,
-                datasets=eval_set_mixture,
-                num_docs_per_dataset=32,
-                comparison_model_path=PHASE_1_BASE if checkpoint != PHASE_1_BASE else None,
-            ),
-        )
-    )
-
 
 if __name__ == "__main__":
     executor_main(
-        all_steps,
-        description="Visualize log probabilities of Tootsie 8b at various stages of training",
+        steps=all_steps,
+        description="Visualize log probabilities of scaling law suite at different scales, and compare it to 8B",
     )

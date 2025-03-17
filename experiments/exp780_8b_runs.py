@@ -1,10 +1,9 @@
 import dataclasses
-
-from experiments.defaults import default_train
-from experiments.dolma.exp442_dolma import dolma_llama3_tokenized
-from experiments.evals.task_configs import CORE_TASKS_PLUS_MMLU
-from experiments.llama import llama_8b
 from experiments.simple_train_config import SimpleTrainConfig
+from experiments.llama import llama_8b
+from experiments.dolma.exp442_dolma import dolma_llama3_tokenized
+from experiments.evals.task_configs import CORE_TASKS, CORE_TASKS_PLUS_MMLU
+from experiments.defaults import default_train
 from marin.execution.executor import executor_main
 
 llama_8b_train_config = SimpleTrainConfig(
@@ -42,3 +41,4 @@ if __name__ == "__main__":
         steps=[llama_8b_tootsie_dolma],
         description="Train 8B model on Dolma using WSD-S.",
     )
+

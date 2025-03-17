@@ -14,6 +14,8 @@ checkpoints_to_eval = [
     "gs://marin-eu-west4/checkpoints/llama-8b-tootsie-0.001-19ad63/hf/step-180000",
 ]
 
+1b_checkpoint = ""
+
 
 def eval_checkpoint(checkpoint_path: str):
 
