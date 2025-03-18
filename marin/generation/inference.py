@@ -1,13 +1,18 @@
 import os
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 import ray
 from ray.data import DataContext
 from ray.data.datasource import FilenameProvider
 from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 
-from marin.generation.pipeline import vLLMTextGeneration
+from marin.generation.pipeline import (
+    BaseLLMGenerationConfig,
+    vInferenceLoadConfig,
+    vInferenceTextGeneration,
+    vLLMTextGeneration,
+)
 from marin.utils import fsspec_glob
 
 
@@ -21,6 +26,12 @@ class TextGenerationInferenceConfig:
     model_name: str
     engine_kwargs: dict[str, Any]
     generation_kwargs: dict[str, Any]
+    vinf_generation_config: BaseLLMGenerationConfig
+    vinf_load_config: vInferenceLoadConfig
+
+    # Provider Selection
+
+    provider: Literal["vinference", "vllm"] = "vinference"
 
     # Prompting specific
     template: str
@@ -111,7 +122,7 @@ def run_inference(config: TextGenerationInferenceConfig):
     ds = ray.data.read_json(config.input_path, **ray_data_read_kwargs)
 
     ds = ds.map_batches(  # Apply batch inference for all input data.
-        vLLMTextGeneration,
+        vLLMTextGeneration if config.provider == "vllm" else vInferenceTextGeneration,
         # Set the concurrency to the number of LLM instances.
         concurrency=config.num_instances,
         # Specify the batch size for inference.
@@ -122,6 +133,8 @@ def run_inference(config: TextGenerationInferenceConfig):
             "generation_kwargs": config.generation_kwargs,
             "template": config.template,
             "prompt_column": config.prompt_column,
+            "generation_config": config.vinf_generation_config,
+            "load_config": config.vinf_load_config,
         },
         **ray_resources_kwarg(config),
     )
