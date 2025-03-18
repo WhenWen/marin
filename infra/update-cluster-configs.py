@@ -13,7 +13,7 @@ vllm_template_path = os.path.join(this_path, "marin-vllm-template.yaml")
 
 DOCKER_TAGS = {
     "us-central2": "4a47ffc0",
-    "big-run": "6da1c9ed",
+    "big-run": "4a47ffc0",
     "us-west4": "89b461b3",
     "europe-west4": "89b461b3",
     "us-east1": "b63a1e90",
