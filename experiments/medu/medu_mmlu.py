@@ -177,3 +177,4 @@ if __name__ == "__main__":
         + mmlu_humanities_pipeline.get_all_steps()
         + mmlu_other_pipeline.get_all_steps()
     )
+    # executor_main(mmlu_science_pipeline.get_all_steps())
