@@ -228,7 +228,13 @@ def default_candidate_anneal(filtered_documents: ExecutorStep, tpu_type: str, ex
 
     quality_ablation_model = default_quality_ablation(
         candidate_tokenized=candidate_tokenized,
-        config=QualityAblationConfig(tpu_type=tpu_type),
+        config=QualityAblationConfig(
+            tpu_type=tpu_type,
+            mcq_weight=0.0,
+            candidate_weight=0.40,
+            baseline_weight=0.60,
+            model_name_prefix="8b-quality-noflan-40",
+        ),
     )
 
     return quality_ablation_model

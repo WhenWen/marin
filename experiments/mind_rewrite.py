@@ -124,7 +124,9 @@ gsm8k_rewrite_model = default_quality_ablation(
         tpu_type="v6e-128",
         mcq_weight=0.0,
         candidate_weight=0.30,
-        num_anneal_tokens=int(87_000_000 * 4 / 0.30),
+        num_anneal_tokens=int(7_000_000 * 4 / 0.30),
+        train_batch_size=256,  # I want more steps because less tokens
+        model_name_prefix="8b-quality-eval-bsz-256",
     ),
 )
 

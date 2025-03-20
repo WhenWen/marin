@@ -33,6 +33,7 @@ class QualityAblationConfig:
     # Training parameters
     num_anneal_tokens: int = 50_000_000_000
     tpu_type: str = "v5litepod-128"
+    train_batch_size: int = 1024
 
     # Naming
     model_name_prefix: str = "8b-quality-eval"
@@ -58,6 +59,7 @@ class QualityAblationConfig:
             dataset_config=self.get_dataset_config(candidate_tokenized),
             num_anneal_training_tokens=self.num_anneal_tokens,
             tpu_type=self.tpu_type,
+            train_batch_size=self.train_batch_size,
         )
 
     def get_model_name(self, candidate_tokenized: TokenizerStep) -> str:
