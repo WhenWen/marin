@@ -1,14 +1,3 @@
-"""This operation curates the default datasets for the MEDU pipeline.
-
-The overarching goal of this file is to selectively sample some tokens from the DCLM datasets
-that will later be used to train the encoder models as well as serve as the default pretraining
-corpus for training.
-
-We need to perform this sampling because the DCLM datasets are too large and we only need roughly
-250,000 examples to train the encoder models and roughly 500B tokens to filter from to yield us around
-50B tokens for pretraining.
-"""
-
 import os
 import random
 import time
