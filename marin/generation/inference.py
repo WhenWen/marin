@@ -29,7 +29,7 @@ class TextGenerationInferenceConfig:
     save_templated_prompt: bool = False
 
     # Ray data specific
-    num_instances: tuple[int, int] = (1, 4)
+    num_instances: tuple[int, int] = (1, 128)
     batch_size: int = 32
     tensor_parallel_size: int = 1
     preserve_order: bool = False
@@ -43,6 +43,7 @@ class TextGenerationInferenceConfig:
 
     # Hardware specific
     resource_config: ResourceConfig = field(default_factory=lambda: TPU_V6E_8_STRICT_PACK)
+    generated_text_column_name: str = "generated_text"
 
 
 class OneToOneFilenameProvider(FilenameProvider):
@@ -82,7 +83,7 @@ def set_ray_data_config(config: TextGenerationInferenceConfig):
 
 def ray_resources_kwarg(config: TextGenerationInferenceConfig):
     if config.tensor_parallel_size == 1:
-        return {"resources": {"TPU": 1, f"{config.resource_config.tpu_type}-head": 1}}
+        return {"resources": {"TPU": 1}}
     else:
         return {
             "ray_remote_args_fn": get_ray_remote_args_scheduling_strategy_fn(
@@ -118,12 +119,21 @@ def get_ray_data_write_kwargs(config: TextGenerationInferenceConfig):
     return ray_data_write_kwargs
 
 
+def read_dataset(config: TextGenerationInferenceConfig, ray_data_read_kwargs: dict[str, Any]):
+    if "json" in config.filetype:
+        return ray.data.read_json(config.input_path, **ray_data_read_kwargs)
+    elif config.filetype == "parquet":
+        return ray.data.read_parquet(config.input_path, **ray_data_read_kwargs)
+    else:
+        raise ValueError(f"Unsupported filetype: {config.filetype}")
+
+
 @ray.remote
 def run_inference(config: TextGenerationInferenceConfig):
     set_ray_data_config(config)
 
     ray_data_read_kwargs = get_ray_data_read_kwargs(config)
-    ds = ray.data.read_json(config.input_path, **ray_data_read_kwargs)
+    ds = read_dataset(config, ray_data_read_kwargs)
 
     ds = ds.map_batches(  # Apply batch inference for all input data.
         vLLMTextGeneration,
@@ -139,6 +149,7 @@ def run_inference(config: TextGenerationInferenceConfig):
             "prompt_column": config.prompt_column,
             "save_templated_prompt": config.save_templated_prompt,
             "apply_chat_template": config.apply_chat_template,
+            "generated_text_column_name": config.generated_text_column_name,
         },
         **ray_resources_kwarg(config),
     )

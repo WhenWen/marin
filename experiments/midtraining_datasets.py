@@ -21,3 +21,5 @@ finemath_3_plus_tokenized = default_tokenize(
     dataset=finemath_3_plus,
     tokenizer=llama3_tokenizer,
 )
+
+finemath_4_plus = finemath.cd("finemath-4plus")
