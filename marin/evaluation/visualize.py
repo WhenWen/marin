@@ -30,6 +30,7 @@ class VizLmConfig:
     num_docs_per_dataset: int = 32
     per_device_batch_size: int = 4
     output_path: str = dataclasses.field(default_factory=this_output_path)  # type: ignore
+    checkpoint_is_hf: bool = False
 
     comparison_model_path: str | None = None
 
@@ -80,6 +81,7 @@ def visualize_lm_log_probs(config: VizLmConfig) -> None:
         trainer=TrainerConfig(
             ray=RayConfig(auto_start_cluster=False), per_device_eval_parallelism=config.per_device_batch_size
         ),
+        checkpoint_is_hf=config.checkpoint_is_hf,
         comparison_model_path=config.comparison_model_path,
     )
     ray.get(do_viz_lm.remote(levanter_config))

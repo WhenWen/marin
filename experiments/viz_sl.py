@@ -20,11 +20,11 @@ from experiments.dclm.tokenize_dclm import dclm_mixture_config_llama3
 #COMPARISON_MODEL = "gs://marin-eu-west4/checkpoints/llama-8b-tootsie-0.001-19ad63/hf/step-660000"
 
 CHECKPOINTS = [
-    "gs://marin-us-central2/checkpoints/scaling-law-suite-default-v2-512-4d173f/hf/step-49999",
-    "gs://marin-us-central2/checkpoints/scaling-law-suite-default-v2-768-12373d/hf/step-49999",
-    "gs://marin-us-central2/checkpoints/scaling-law-suite-default-v2-1024-77c98b/hf/step-49999",
-    "gs://marin-us-central2/checkpoints/scaling-law-suite-default-v2-1536-18344d/hf/step-49999",
-    "gs://marin-us-central2/checkpoints/scaling-law-suite-default-v2-2048-7845a1/hf/step-49999",
+    "gs://marin-us-central2/checkpoints/scaling-law-suite-default-v2-512-4d173f/hf/step-49999/",
+    "gs://marin-us-central2/checkpoints/scaling-law-suite-default-v2-768-12373d/hf/step-49999/",
+    "gs://marin-us-central2/checkpoints/scaling-law-suite-default-v2-1024-77c98b/hf/step-49999/",
+    "gs://marin-us-central2/checkpoints/scaling-law-suite-default-v2-1536-18344d/hf/step-49999/",
+    "gs://marin-us-central2/checkpoints/scaling-law-suite-default-v2-2048-7845a1/hf/step-49999/",
 ]
 
 
@@ -73,6 +73,7 @@ for i, checkpoint in enumerate(CHECKPOINTS):
                 model=suite_configs[i],
                 datasets=eval_set_mixture,
                 num_docs_per_dataset=32,
+                checkpoint_is_hf=True,
                 comparison_model_path=None#COMPARISON_MODEL if checkpoint != COMPARISON_MODEL else None,
             ),
         )
