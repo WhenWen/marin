@@ -397,7 +397,6 @@ def default_sft(
             output_role=sft_config.output_role,
             stop_strategy=sft_config.stop_strategy,
             bypass_path_checks=sft_config.bypass_path_checks,
-            env={"JAX_PLATFORMS": "tpu"},
         )
         # Use the mixture training function
         fn = run_levanter_sft_mixture
@@ -437,7 +436,6 @@ def default_sft(
             input_role=sft_config.input_role,
             output_role=sft_config.output_role,
             bypass_path_checks=sft_config.bypass_path_checks,
-            env={"JAX_PLATFORMS": "tpu"},
         )
         # Use the single-dataset training function
         fn = run_levanter_sft
