@@ -214,6 +214,7 @@ def default_train(
     schedule = BatchSchedule(train_config.train_batch_size)
     total_examples = schedule.global_data_offset_by_step(train_config.num_train_steps)
 
+    checkpoint_path_to_load_from = train_config.initialize_from_checkpoint_path
     return ExecutorStep(
         name=os.path.join("checkpoints", name),
         description=(
@@ -248,8 +249,9 @@ def default_train(
                 replica_dcn_axis_size=-1,
                 allow_partial_checkpoint=train_config.allow_partial_checkpoint,
                 quantization=QuantizationConfig(int8=train_config.int8) if train_config.int8 else None,
-                per_device_eval_parallelism=per_device_eval_parallelism,
+                initialize_from=None if train_config.reset_data_loader_on_init else checkpoint_path_to_load_from,
             ),
+            initialize_from_checkpoint_path=checkpoint_path_to_load_from if train_config.reset_data_loader_on_init else None,
             z_loss_weight=train_config.z_loss_weight,
             model=model_config,
             optimizer=AdamConfig(
@@ -278,7 +280,6 @@ def default_train(
             data_seed=train_config.data_seed,
             eval_harness_steps=train_config.steps_per_task_eval or 10000,
             eval_harness=harness_config,
-            initialize_from_checkpoint_path=train_config.initialize_from_checkpoint_path,
         ),
         pip_dependency_groups=["tokenize_train"],
     )
