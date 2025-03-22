@@ -150,3 +150,29 @@ nemotron_cc = ExecutorStep(
     ),
     pip_dependency_groups=["download_transform"],
 )
+
+# link to dataset on HF: https://huggingface.co/datasets/HuggingFaceTB/stack-edu
+stack_edu = ExecutorStep(
+    name="raw/stack-edu",
+    fn=download_hf,
+    config=DownloadConfig(
+        hf_dataset_id="HuggingFaceTB/stack-edu",
+        revision="eeec5ca",
+        gcs_output_path=this_output_path(),
+        wait_for_completion=True,
+    ),
+    description="Downloads Stack-Edu, a 125B token dataset of educational code filtered from The Stack v2; link: https://huggingface.co/datasets/HuggingFaceTB/stack-edu"
+)
+
+# link to dataset on HF: https://huggingface.co/datasets/HuggingFaceTB/issues-kaggle-notebooks
+issues_kaggle_notebooks = ExecutorStep(
+    name="raw/issues-kaggle-notebooks",
+    fn=download_hf,
+    config=DownloadConfig(
+        hf_dataset_id="HuggingFaceTB/issues-kaggle-notebooks",
+        revision="ef882ad",
+        gcs_output_path=this_output_path(),
+        wait_for_completion=True,
+    ),
+    description="Downloads issues-kaggle-notebooks, a collection of two code datasets (11B GitHub tokens of issues and 1.7B tokens of data analysis notebooks; link: https://huggingface.co/datasets/HuggingFaceTB/issues-kaggle-notebooks"
+)
