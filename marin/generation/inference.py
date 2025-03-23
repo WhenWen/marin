@@ -29,7 +29,7 @@ class TextGenerationInferenceConfig:
     save_templated_prompt: bool = False
 
     # Ray data specific
-    num_instances: tuple[int, int] = (1, 128)
+    num_instances: tuple[int, int] = (1, 512)
     batch_size: int = 32
     tensor_parallel_size: int = 1
     preserve_order: bool = False

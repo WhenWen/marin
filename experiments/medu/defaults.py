@@ -6,7 +6,6 @@ from experiments.anneal_config import AnnealConfig
 from experiments.cooldown_quality import QualityAblationConfig, default_quality_ablation
 from experiments.dclm.tokenize_dclm import dclm_components_llama3
 from experiments.defaults import default_anneal, default_tokenize
-from experiments.dolma.tokenize_dolma import tokenize_dolma_steps
 from experiments.evals.resource_configs import ResourceConfig
 from experiments.llama import llama3_tokenizer
 from marin.classifiers.hf.launch_ray_training import LaunchConfig, launch_training_with_ray
@@ -233,7 +232,8 @@ def default_candidate_anneal(filtered_documents: ExecutorStep, tpu_type: str, ex
             mcq_weight=0.0,
             candidate_weight=0.40,
             baseline_weight=0.60,
-            model_name_prefix="8b-quality-noflan-40",
+            model_name_prefix="8b-noflan-40-100b",
+            num_anneal_tokens=100_000_000_000,
         ),
     )
 
@@ -252,17 +252,32 @@ def default_control_experiment(
     Outputs:
         An ExecutorStep that represents the control model after annealing.
     """
+    # control_model = default_anneal(
+    #     name="medu-control-w-flan",
+    #     anneal_config=AnnealConfig(
+    #         dataset_config=lm_mixture_data_config(
+    #             components={
+    #                 "dclm": dclm_components_llama3["dclm_baseline"],
+    #                 "flan": tokenize_dolma_steps()["dolma/flan"],
+    #             },
+    #             weights={"dclm": 0.85, "flan": 0.15},
+    #         ),
+    #         tpu_type=tpu_type,
+    #     ),
+    # )
+
     control_model = default_anneal(
-        name="medu-control-w-flan",
+        name="medu-control-100b",
         anneal_config=AnnealConfig(
             dataset_config=lm_mixture_data_config(
                 components={
                     "dclm": dclm_components_llama3["dclm_baseline"],
-                    "flan": tokenize_dolma_steps()["dolma/flan"],
+                    # "flan": tokenize_dolma_steps()["dolma/flan"],
                 },
-                weights={"dclm": 0.85, "flan": 0.15},
+                weights={"dclm": 1.0},
             ),
             tpu_type=tpu_type,
+            num_anneal_training_tokens=100_000_000_000,
         ),
     )
 

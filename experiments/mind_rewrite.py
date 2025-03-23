@@ -10,7 +10,7 @@ from experiments.cooldown_quality import QualityAblationConfig, default_quality_
 from experiments.defaults import default_tokenize
 from experiments.llama import llama3_tokenizer
 from experiments.medu.medu_mmlu import mmlu_science_pipeline
-from experiments.midtraining_datasets import finemath
+from experiments.midtraining_datasets import finemath, finemath_3_plus_tokenized
 from experiments.models import get_model_local_path, llama_3_1_8b_instruct, llama_3_3_70b_instruct
 from marin.execution.executor import ExecutorStep, InputName, executor_main, output_path_of, this_output_path, versioned
 from marin.generation.inference import TextGenerationInferenceConfig, run_inference
@@ -89,6 +89,7 @@ def qa_rewrite_document(
             output_filetype_override="jsonl.gz",
             one_to_one_input_output_mapping=False,
             generated_text_column_name="text",
+            batch_size=128,
         ),
     )
 
@@ -179,8 +180,61 @@ mmlu_science_qa = qa_rewrite_document(
     tensor_parallel_size=1,
 )
 
+mmlu_science_rewrite_model = default_quality_ablation(
+    candidate_tokenized=default_tokenize(
+        name="medu-mmlu-science-llama8b-mind-qa",
+        dataset=output_path_of(mmlu_science_qa),
+        tokenizer=llama3_tokenizer,
+    ),
+    config=QualityAblationConfig(
+        tpu_type="v6e-128",
+        mcq_weight=0.0,
+        candidate_weight=0.30,
+        num_anneal_tokens=int(1_783_169_234 * 4 / 0.30),
+        train_batch_size=1024,  # I want more steps because less tokens
+        model_name_prefix="8b-quality-qa-ep-4-30",
+    ),
+)
+
+mmlu_science_entire_shard = mmlu_science_pipeline.filtered_documents
+mmlu_science_qa_whole_shard = qa_rewrite_document(
+    input_path=mmlu_science_entire_shard,
+    model_name_or_path=llama_3_1_8b_instruct,
+    document_name="medu-mmlu-science-llama8b-qa-whole",
+    template=REPHRASE_THE_WEB_QA_TEMPLATE,
+    filetype="jsonl.zst",
+    prompt_column="text",
+    tensor_parallel_size=1,
+)
+
+finemath3_plus_40_anneal = default_quality_ablation(
+    candidate_tokenized=finemath_3_plus_tokenized,
+    config=QualityAblationConfig(
+        tpu_type="v6e-128",
+        mcq_weight=0.0,
+        candidate_weight=0.40,
+        num_anneal_tokens=50_000_000_000,
+        model_name_prefix="8b-quality-eval-noflan-40",
+    ),
+)
+
+finemath3_plus_30_anneal = default_quality_ablation(
+    candidate_tokenized=finemath_3_plus_tokenized,
+    config=QualityAblationConfig(
+        tpu_type="v6e-128",
+        mcq_weight=0.0,
+        candidate_weight=0.30,
+        num_anneal_tokens=50_000_000_000,
+        model_name_prefix="8b-quality-eval-noflan-30",
+    ),
+)
+
 steps = [
-    gsm8k_rewrite_model,
+    # mmlu_science_rewrite_msodel,
+    # mmlu_science_qa_whole_shard,
+    finemath3_plus_30_anneal,
+    finemath3_plus_40_anneal,
+    # gsm8k_rewrite_model,
     # finemath_4_plus_student_teacher_llama8b,
     # mmlu_science_qa,
     # finemath_4_plus,
