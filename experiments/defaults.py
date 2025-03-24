@@ -10,6 +10,7 @@ from datetime import timedelta
 from functools import lru_cache
 
 import jmp
+from haliax.quantization import QuantizationConfig
 from levanter.checkpoint import CheckpointerConfig
 from levanter.compat.hf_checkpoints import load_tokenizer
 from levanter.data.text import LMMixtureDatasetConfig
@@ -23,7 +24,12 @@ from levanter.tracker.wandb import WandbConfig
 from levanter.trainer import TrainerConfig
 
 from experiments.anneal_config import AnnealConfig
-from experiments.evals.task_configs import CORE_TASKS, CORE_TASKS_PLUS_MMLU, convert_to_levanter_task_config
+from experiments.evals.task_configs import (
+    CORE_TASKS,
+    CORE_TASKS_PLUS_MMLU,
+    convert_to_levanter_task_config,
+    convert_to_task_metrics,
+)
 from experiments.llama import compute_num_parameters, llama_8b
 from experiments.paloma import paloma_tokenized
 from experiments.simple_train_config import SimpleTrainConfig
@@ -31,6 +37,7 @@ from marin.evaluation.evaluation_config import EvalTaskConfig
 from marin.execution.executor import (
     ExecutorStep,
     InputName,
+    get_executor_step,
     this_output_path,
     unwrap_versioned_value,
     versioned,
@@ -42,6 +49,7 @@ from marin.processing.tokenize import (
     lm_data_config,
     tokenize,
 )
+from marin.scaling_laws.scaling_laws import ScalingLawConfig, run_scaling_law_analysis
 from marin.training.training import TrainLmOnPodConfig, run_levanter_train_lm
 
 logger = logging.getLogger("ray")
@@ -49,14 +57,16 @@ logger = logging.getLogger("ray")
 
 def default_tokenize(
     name: str,
-    dataset: InputName | ExecutorStep,
+    dataset: InputName | ExecutorStep | str,
     tokenizer: str,
     options: CacheOptions | None = None,
     text_key: str = "text",
+    *,
+    is_validation: bool = False,
 ) -> ExecutorStep:
     config = TokenizeConfig(
-        train_paths=[dataset],
-        validation_paths=[],
+        train_paths=[dataset] if not is_validation else [],
+        validation_paths=[dataset] if is_validation else [],
         cache_path=this_output_path(),
         tokenizer=versioned(tokenizer),
         text_key=text_key,
@@ -187,6 +197,11 @@ def default_train(
 
         model_averaging = EmaModelAveragingConfig(beta=train_config.ema_beta)
 
+    if train_config.per_device_eval_parallelism is None:
+        per_device_eval_parallelism = -1
+    else:
+        per_device_eval_parallelism = train_config.per_device_eval_parallelism
+
     schedule = BatchSchedule(train_config.train_batch_size)
     total_examples = schedule.global_data_offset_by_step(train_config.num_train_steps)
 
@@ -217,12 +232,15 @@ def default_train(
                 num_train_steps=train_config.num_train_steps,
                 steps_per_eval=train_config.steps_per_eval if train_config.steps_per_eval is not None else 1000,
                 checkpointer=CheckpointerConfig(
-                    save_interval=timedelta(minutes=10),
+                    save_interval=timedelta(minutes=30),
                     keep=[dict(every=steps_per_export)],
                 ),
                 model_averaging=model_averaging,
                 replica_dcn_axis_size=-1,
                 allow_partial_checkpoint=train_config.allow_partial_checkpoint,
+                per_device_eval_parallelism=per_device_eval_parallelism,
+                allow_nondivisible_batch_size=True,
+                quantization=QuantizationConfig(int8=train_config.int8) if train_config.int8 else None,
             ),
             z_loss_weight=train_config.z_loss_weight,
             model=model_config,
@@ -238,6 +256,7 @@ def default_train(
                     train_config.max_grad_norm if train_config.max_grad_norm is not None else AdamConfig().max_grad_norm
                 ),
                 warmup=(train_config.warmup if train_config.warmup is not None else AdamConfig().warmup),
+                rewarmup=(train_config.rewarmup if train_config.rewarmup is not None else AdamConfig().rewarmup),
                 decay=(train_config.decay if train_config.decay is not None else AdamConfig().decay),
                 lr_schedule=(
                     train_config.lr_schedule if train_config.lr_schedule is not None else AdamConfig().lr_schedule
@@ -346,3 +365,41 @@ def _get_tokenizer_for_train(tokenized: InputName | ExecutorStep | LMMixtureData
             raise ValueError(f"Could not determine tokenizer from {tokenized}")
 
     return tokenizer
+
+
+def default_scaling_law_pred(
+    ladder_runs: Sequence[ExecutorStep | InputName | str],
+    pred_run: ExecutorStep | InputName | str | None = None,
+    task_losses: Sequence[str] = ("eval/paloma/c4_en/bpb"),
+    task_accuracies: Sequence[str] | Sequence[EvalTaskConfig] | None = None,
+):
+    """
+    Given a suite of small models, predict the performance on a number of (N, D) values.
+    """
+    # get the executor steps or run IDs for the ladder runs and the pred run
+    ladder_steps_or_ids = [get_executor_step(run) if not isinstance(run, str) else run for run in ladder_runs]
+
+    pred_run_or_id = None
+    if pred_run:
+        pred_run_or_id = get_executor_step(pred_run) if not isinstance(pred_run, str) else pred_run
+
+    # convert the task accuracies to strings if they are `EvalTaskConfig`s
+    if task_accuracies is not None:
+        task_accuracies = convert_to_task_metrics(task_accuracies, metric="acc")
+
+    if pred_run_or_id:
+        name = pred_run_or_id if isinstance(pred_run_or_id, str) else pred_run_or_id.name
+    else:
+        name = "projection"
+
+    return ExecutorStep(
+        name=f"""scaling_laws/{name}""",
+        fn=run_scaling_law_analysis,
+        config=ScalingLawConfig(
+            name=name,
+            ladder_model_steps=ladder_steps_or_ids,
+            pred_model_step=pred_run_or_id,
+            task_losses=task_losses,
+            task_accuracies=task_accuracies,
+        ),
+    )
