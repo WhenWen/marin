@@ -115,6 +115,7 @@ def evaluate_alpaca_eval(
     repetition_penalty: float = 1.0,
     top_p: float = 1.0,
     top_k: int = -1,
+    verbose: bool = False,
 ) -> ExecutorStep:
     """
     Create an ExecutorStep to evaluate the model using AlpacaEval.
@@ -140,6 +141,7 @@ def evaluate_alpaca_eval(
             to consider. Must be in (0, 1]. Set to 1 to consider all tokens. Defaults to 1.0.
         top_k (int, optional): Integer that controls the number of top tokens to consider.
             Set to -1 to consider all tokens. Defaults to -1.
+        verbose (bool, optional): Whether to output verbose real-time command execution output. Defaults to False.
     """
     return ExecutorStep(
         name=f"evaluation/alpaca_eval/{model_name}",
@@ -150,7 +152,7 @@ def evaluate_alpaca_eval(
             model_path=model_path,
             evaluation_path=this_output_path(),
             resource_config=resource_config,
-            generation_params={
+            engine_kwargs={
                 "temperature": temperature,
                 "presence_penalty": presence_penalty,
                 "frequency_penalty": frequency_penalty,
@@ -158,6 +160,7 @@ def evaluate_alpaca_eval(
                 "top_p": top_p,
                 "top_k": top_k,
             },
+            verbose=verbose,
         ),
     )
 

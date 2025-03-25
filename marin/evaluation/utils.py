@@ -57,23 +57,92 @@ def upload_to_gcs(local_path: str, gcs_path: str) -> None:
     logger.info(f"Uploaded {local_path} to {gcs_path}.")
 
 
-def run_bash_command(command: list[str], check: bool = True) -> None:
+def run_bash_command(command: list[str], check: bool = True, verbose: bool = False) -> None:
     """Runs a bash command."""
     command_str: str = " ".join(command)
     logger.info(f"RUNNING: {command_str}")
     start_time: float = time.time()
 
-    try:
-        result = subprocess.run(command, check=check, text=True, capture_output=True)
+    if not verbose:
+        try:
+            result = subprocess.run(command, check=check, text=True, capture_output=True)
+            elapsed_time_seconds: float = time.time() - start_time
+            logger.info(f"COMPLETED: {command_str} ({elapsed_time_seconds}s)")
+            logger.info(f"STDOUT:\n{result.stdout}")
+            logger.info(f"STDERR:\n{result.stderr}")
+        except subprocess.CalledProcessError as e:
+            logger.error(f"FAILED: {command_str}")
+            logger.error(f"STDOUT:\n{e.stdout}")
+            logger.error(f"STDERR:\n{e.stderr}")
+            raise
+    else:
+        print(f"running command {command_str}", flush=True)
+
+        # Create the process with pipes for stdout and stderr
+        process = subprocess.Popen(
+            command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, bufsize=1  # Line buffered
+        )
+
+        # Read and print stdout line by line as it comes
+        stdout_lines = []
+        stderr_lines = []
+
+        # Process both stdout and stderr to avoid deadlocks
+        while True:
+            stdout_line = process.stdout.readline()
+            stderr_line = process.stderr.readline()
+
+            if stdout_line:
+                line = stdout_line.rstrip()
+                stdout_lines.append(line)
+                print(f"STDOUT: {line}", flush=True)
+
+            if stderr_line:
+                line = stderr_line.rstrip()
+                stderr_lines.append(line)
+                print(f"STDERR: {line}", flush=True)
+
+            # If process has finished and no more output
+            if process.poll() is not None and not stdout_line and not stderr_line:
+                # Get any remaining output
+                remaining_stdout, remaining_stderr = process.communicate()
+
+                if remaining_stdout:
+                    for line in remaining_stdout.splitlines():
+                        stdout_lines.append(line)
+                        print(f"STDOUT: {line}", flush=True)
+
+                if remaining_stderr:
+                    for line in remaining_stderr.splitlines():
+                        stderr_lines.append(line)
+                        print(f"STDERR: {line}", flush=True)
+
+                break
+
+        # Process has completed
+        return_code = process.poll()
         elapsed_time_seconds: float = time.time() - start_time
-        logger.info(f"COMPLETED: {command_str} ({elapsed_time_seconds}s)")
-        logger.info(f"STDOUT:\n{result.stdout}")
-        logger.info(f"STDERR:\n{result.stderr}")
-    except subprocess.CalledProcessError as e:
-        logger.error(f"FAILED: {command_str}")
-        logger.error(f"STDOUT:\n{e.stdout}")
-        logger.error(f"STDERR:\n{e.stderr}")
-        raise
+
+        # Combine all output for logging
+        stdout_all = "\n".join(stdout_lines)
+        stderr_all = "\n".join(stderr_lines)
+
+        if return_code == 0:
+            print(f"COMPLETED: {command_str} ({elapsed_time_seconds:.2f}s)", flush=True)
+            logger.info(f"COMPLETED: {command_str} ({elapsed_time_seconds:.2f}s)")
+            logger.info(f"STDOUT:\n{stdout_all}")
+            logger.info(f"STDERR:\n{stderr_all}")
+        else:
+            print(f"FAILED: {command_str} with exit code {return_code}", flush=True)
+            logger.error(f"FAILED: {command_str} with exit code {return_code}")
+            logger.error(f"STDOUT:\n{stdout_all}")
+            logger.error(f"STDERR:\n{stderr_all}")
+
+            if check:
+                error = subprocess.CalledProcessError(return_code, command)
+                error.stdout = stdout_all
+                error.stderr = stderr_all
+                raise error
 
 
 def write_yaml(content: dict, output_path: str) -> None:

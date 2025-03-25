@@ -11,6 +11,7 @@ steps = [
         temperature=0.7,
         frequency_penalty=2.0,
         repetition_penalty=2.0,
+        verbose=True,
     ),
 ]
 

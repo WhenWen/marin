@@ -73,3 +73,8 @@ class EvaluationConfig:
     """
     Additional keyword arguments to pass to the Ray resources.
     """
+
+    verbose: bool = False
+    """
+    Whether to print verbose output from bash commands.
+    """

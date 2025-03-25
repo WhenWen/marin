@@ -101,7 +101,8 @@ class AlpacaEvaluator(VllmTpuEvaluator):
         evals: list[str],
         output_path: str,
         max_eval_instances: int | None = None,
-        generation_params: dict | None = None,
+        engine_kwargs: dict | None = None,
+        verbose: bool = False,
     ) -> None:
         """
         Runs AlpacaEval on the specified model.
@@ -111,7 +112,8 @@ class AlpacaEvaluator(VllmTpuEvaluator):
             evals (List[str]): Does nothing. We just run on the default eval set.
             output_path (str): The path to save the evaluation results.
             max_eval_instances (int | None): The maximum number of evaluation instances to run.
-            generation_params (dict, optional): Dictionary containing generation parameters. Defaults to None.
+            engine_kwargs (dict, optional): Dictionary containing generation parameters. Defaults to None.
+            verbose (bool, optional): Whether to output verbose real-time command execution output. Defaults to False.
         """
         try:
             # Set the OPENAI_API_KEY environment variable for the auto evaluator
@@ -121,7 +123,7 @@ class AlpacaEvaluator(VllmTpuEvaluator):
             model_name_or_path: str = self.download_model(model)
 
             model_config_path: str = os.path.join(AlpacaEvaluator.CACHE_PATH, model_name_or_path, "model_config.yaml")
-            self.write_model_config_file(model, model_config_path, generation_params)
+            self.write_model_config_file(model, model_config_path, engine_kwargs)
 
             # Construct the command and run AlpacaEval
             max_eval_instances = max_eval_instances or self.DEFAULT_MAX_INSTANCES
@@ -136,7 +138,8 @@ class AlpacaEvaluator(VllmTpuEvaluator):
                     str(max_eval_instances),
                     "--output_path",
                     results_path,
-                ]
+                ],
+                verbose=verbose,
             )
 
             # Upload the results to GCS
