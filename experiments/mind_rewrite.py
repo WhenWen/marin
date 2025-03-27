@@ -89,7 +89,7 @@ def qa_rewrite_document(
             output_filetype_override="jsonl.gz",
             one_to_one_input_output_mapping=False,
             generated_text_column_name="text",
-            batch_size=128,
+            batch_size=64,
         ),
     )
 
@@ -207,6 +207,42 @@ mmlu_science_qa_whole_shard = qa_rewrite_document(
     tensor_parallel_size=1,
 )
 
+mmlu_science_qa_whole_shard_tokenized = default_tokenize(
+    name="medu-candidate-mmlu-science-llama-8b-qa",
+    dataset=output_path_of(mmlu_science_qa_whole_shard),
+    tokenizer=llama3_tokenizer,
+)
+
+mmlu_science_og_tokenized = default_tokenize(
+    name="medu-candidate-mmlu-science",
+    dataset=output_path_of(mmlu_science_entire_shard),
+    tokenizer=llama3_tokenizer,
+)
+
+mmlu_science_qa_model = default_quality_ablation(
+    candidate_tokenized=mmlu_science_qa_whole_shard_tokenized,
+    config=QualityAblationConfig(
+        mcq_component=mmlu_science_qa_whole_shard_tokenized,
+        tpu_type="v6e-128",
+        mcq_weight=0.30,
+        candidate_weight=0.0,
+        num_anneal_tokens=50_000_000_000,
+        model_name_prefix="8b-dclm-70-qa-30-50b",
+    ),
+)
+
+mmlu_science_qa_model_og_15_15 = default_quality_ablation(
+    candidate_tokenized=mmlu_science_og_tokenized,
+    config=QualityAblationConfig(
+        mcq_component=mmlu_science_qa_whole_shard_tokenized,
+        tpu_type="v6e-128",
+        mcq_weight=0.15,
+        candidate_weight=0.15,
+        num_anneal_tokens=50_000_000_000,
+        model_name_prefix="8b-dclm-70-og-15-qa-15-50b",
+    ),
+)
+
 finemath3_plus_40_anneal = default_quality_ablation(
     candidate_tokenized=finemath_3_plus_tokenized,
     config=QualityAblationConfig(
@@ -230,10 +266,12 @@ finemath3_plus_30_anneal = default_quality_ablation(
 )
 
 steps = [
+    mmlu_science_qa_model_og_15_15,
+    mmlu_science_qa_model,
     # mmlu_science_rewrite_msodel,
     # mmlu_science_qa_whole_shard,
-    finemath3_plus_30_anneal,
-    finemath3_plus_40_anneal,
+    # finemath3_plus_30_anneal,
+    # finemath3_plus_40_anneal,
     # gsm8k_rewrite_model,
     # finemath_4_plus_student_teacher_llama8b,
     # mmlu_science_qa,
