@@ -102,27 +102,23 @@ def scaling_law_suite(
             num_heads=num_heads,
             num_kv_heads=num_kv_heads,
         )
-
-        steps.append(model_config)
     
+        lr = min(base_lr / w, max_lr)
+        training_config = dataclasses.replace(training_config, learning_rate=lr)
+
+        logging.info(f"Creating training step for {sweep_name}-{w} with width {w} and lr {lr}")
+
+        steps.append(
+            default_train(
+                name=f"{sweep_name}-{w}",
+                tokenized=tokenized,
+                model_config=model_config,
+                train_config=training_config,
+                tags=tags,
+                eval_harness_tasks=CORE_TASKS_PLUS_MMLU,
+            )
+        )
     return steps
-
-    #     lr = min(base_lr / w, max_lr)
-    #     training_config = dataclasses.replace(training_config, learning_rate=lr)
-
-    #     logging.info(f"Creating training step for {sweep_name}-{w} with width {w} and lr {lr}")
-
-    #     steps.append(
-    #         default_train(
-    #             name=f"{sweep_name}-{w}",
-    #             tokenized=tokenized,
-    #             model_config=model_config,
-    #             train_config=training_config,
-    #             tags=tags,
-    #             eval_harness_tasks=CORE_TASKS_PLUS_MMLU,
-    #         )
-    #     )
-    # return steps
 
 
 def _round_to_multiple(x, multiple):
