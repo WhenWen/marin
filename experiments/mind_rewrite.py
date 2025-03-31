@@ -7,11 +7,13 @@ synthetic math datasets from existing datasets.
 from transformers import AutoTokenizer
 
 from experiments.cooldown_quality import QualityAblationConfig, default_quality_ablation
+from experiments.datashop.datashop_datasets import datashop_dclm_pretraining_subset
+from experiments.datashop.defaults import default_candidate_anneal, default_quality_filter_and_consolidate
 from experiments.defaults import default_tokenize
+from experiments.exp923_medu_mmlu import mmlu_science_pipeline
 from experiments.llama import llama3_tokenizer
-from experiments.medu.medu_mmlu import mmlu_science_pipeline
 from experiments.midtraining_datasets import finemath, finemath_3_plus_tokenized
-from experiments.models import get_model_local_path, llama_3_1_8b_instruct, llama_3_3_70b_instruct
+from experiments.models import finemath_classifier, get_model_local_path, llama_3_1_8b_instruct, llama_3_3_70b_instruct
 from marin.execution.executor import ExecutorStep, InputName, executor_main, output_path_of, this_output_path, versioned
 from marin.generation.inference import TextGenerationInferenceConfig, run_inference
 from marin.utils import get_directory_friendly_name
@@ -265,9 +267,24 @@ finemath3_plus_30_anneal = default_quality_ablation(
     ),
 )
 
+finemath_dclm_documents = default_quality_filter_and_consolidate(
+    get_model_local_path(finemath_classifier),
+    datashop_dclm_pretraining_subset,
+    "finemath-dclm",
+    "finemath-dclm",
+)
+
+finemath_dclm_model = default_candidate_anneal(
+    finemath_dclm_documents,
+    "v6e-128",
+    "finemath-dclm",
+)
+
 steps = [
-    mmlu_science_qa_model_og_15_15,
-    mmlu_science_qa_model,
+    finemath_dclm_model,
+    # finemath_classifier,
+    # mmlu_science_qa_model_og_15_15,
+    # mmlu_science_qa_model,
     # mmlu_science_rewrite_msodel,
     # mmlu_science_qa_whole_shard,
     # finemath3_plus_30_anneal,

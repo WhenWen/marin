@@ -45,6 +45,9 @@ class HFTrainingConfig:
     logging_steps: int = field(default=50, metadata={"help": "Number of logging steps"})
     per_device_train_batch_size: int = field(default=128, metadata={"help": "Batch size per device"})
     run_name: str = field(default="", metadata={"help": "Name of the run"})
+    lr_scheduler_type: str = field(default="linear", metadata={"help": "Type of learning rate scheduler"})
+    percent_warmup: float = field(default=0.1, metadata={"help": "Percentage of warmup steps"})
+    num_train_epochs: int = field(default=3, metadata={"help": "Number of training epochs"})
 
 
 class DataCollator:
@@ -121,6 +124,12 @@ def load_dataset(input_path: str, split: str):
 def train_classifier(rank: int, hf_script_args: HFTrainingConfig, train_dataset, eval_dataset):
     # NOTE(chris): We NEED to instantiate the ScriptArugments here because instantiating it will
     # result in usage of the XLA backend, which will not allow us to call xmp.spawn.
+
+    num_training_steps = (
+        hf_script_args.num_train_epochs * len(train_dataset) // hf_script_args.per_device_train_batch_size
+    )
+    warmup_steps = int(hf_script_args.percent_warmup * num_training_steps)
+
     args = ScriptArguments(
         model_name=hf_script_args.model_name,
         max_length=hf_script_args.max_length,
@@ -143,6 +152,8 @@ def train_classifier(rank: int, hf_script_args: HFTrainingConfig, train_dataset,
         metric_for_best_model="f1_macro",
         greater_is_better=True,
         run_name=hf_script_args.run_name,
+        lr_scheduler_type=hf_script_args.lr_scheduler_type,
+        warmup_steps=warmup_steps,
     )
 
     set_seed(args.seed)

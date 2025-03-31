@@ -119,3 +119,10 @@ olmo_2_sft_8b = download_model_step(
         hf_revision="1de02c0",
     )
 )
+
+finemath_classifier = download_model_step(
+    ModelConfig(
+        hf_repo_id="HuggingFaceTB/finemath-classifier",
+        hf_revision="bd0b0e3",
+    )
+)
