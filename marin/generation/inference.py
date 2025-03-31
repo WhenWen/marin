@@ -1,7 +1,8 @@
 import os
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
+import fsspec
 import ray
 from ray.data import DataContext
 from ray.data.datasource import FilenameProvider
@@ -27,6 +28,7 @@ class TextGenerationInferenceConfig:
     template: str
     apply_chat_template: bool = True
     save_templated_prompt: bool = False
+    template_type: Literal["string", "file"] = "string"
 
     # Ray data specific
     num_instances: tuple[int, int] = (1, 512)
@@ -135,6 +137,14 @@ def run_inference(config: TextGenerationInferenceConfig):
     ray_data_read_kwargs = get_ray_data_read_kwargs(config)
     ds = read_dataset(config, ray_data_read_kwargs)
 
+    if config.template_type == "file":
+        with fsspec.open(config.template, "r", compression="infer") as f:
+            template = str(f.read())
+    elif config.template_type == "string":
+        template = config.template
+    else:
+        raise ValueError(f"Invalid template type: {config.template_type}")
+
     ds = ds.map_batches(  # Apply batch inference for all input data.
         vLLMTextGeneration,
         # Set the concurrency to the number of LLM instances.
@@ -145,7 +155,7 @@ def run_inference(config: TextGenerationInferenceConfig):
             "model_name": config.model_name,
             "engine_kwargs": config.engine_kwargs,
             "generation_kwargs": config.generation_kwargs,
-            "template": config.template,
+            "template": template,
             "prompt_column": config.prompt_column,
             "save_templated_prompt": config.save_templated_prompt,
             "apply_chat_template": config.apply_chat_template,
