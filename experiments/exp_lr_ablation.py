@@ -126,6 +126,13 @@ if __name__ == "__main__":
         )
     )
 
+    cosine_scheduler_no_warmup = create_max_length_ablation_experiment(
+        MaxLengthAblationConfig(
+            lr_scheduler_type="cosine",
+            percent_warmup=0.0,
+        )
+    )
+
     linear_scheduler = create_max_length_ablation_experiment(
         MaxLengthAblationConfig(
             lr_scheduler_type="linear",
@@ -136,6 +143,7 @@ if __name__ == "__main__":
     experiment_steps = []
     experiment_steps.extend(cosine_scheduler)
     experiment_steps.extend(linear_scheduler)
+    experiment_steps.extend(cosine_scheduler_no_warmup)
 
     # Run the experiment
     executor_main(experiment_steps)

@@ -126,7 +126,9 @@ def train_classifier(rank: int, hf_script_args: HFTrainingConfig, train_dataset,
     # result in usage of the XLA backend, which will not allow us to call xmp.spawn.
 
     num_training_steps = (
-        hf_script_args.num_train_epochs * len(train_dataset) // hf_script_args.per_device_train_batch_size
+        hf_script_args.num_train_epochs
+        * len(train_dataset)
+        // (hf_script_args.per_device_train_batch_size * hf_script_args.tpu_num_cores)
     )
     warmup_steps = int(hf_script_args.percent_warmup * num_training_steps)
 

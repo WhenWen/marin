@@ -133,6 +133,9 @@ mmlu_social_sciences_pipeline = MMLUMeduPipeline(
 )
 mmlu_humanities_pipeline = MMLUMeduPipeline(MeduMMLUConfig(subset_names=humanities, experiment_name="mmlu-humanities"))
 mmlu_other_pipeline = MMLUMeduPipeline(MeduMMLUConfig(subset_names=other, experiment_name="mmlu-other"))
+mmlu_mathematics_pipeline = MMLUMeduPipeline(
+    MeduMMLUConfig(subset_names=mathematics, experiment_name="mmlu-mathematics")
+)
 
 if __name__ == "__main__":
     # executor_main(
@@ -142,13 +145,14 @@ if __name__ == "__main__":
     # )
 
     executor_main(
-        [
-            mmlu_science_pipeline.quality_ablation_model,
-            mmlu_engineering_pipeline.quality_ablation_model,
-            mmlu_humanities_pipeline.quality_ablation_model,
-            mmlu_humanities_pipeline.quality_ablation_model,
-            mmlu_humanities_pipeline.control_model,
-        ]
+        # [
+        #     mmlu_science_pipeline.quality_ablation_model,
+        #     mmlu_engineering_pipeline.quality_ablation_model,
+        #     mmlu_humanities_pipeline.quality_ablation_model,
+        #     mmlu_humanities_pipeline.quality_ablation_model,
+        #     mmlu_humanities_pipeline.control_model,
+        # ]
+        mmlu_mathematics_pipeline.get_eval_cluster_steps()
     )
     # executor_main(mmlu_science_pipeline.get_all_steps())
     #     # + mmlu_social_sciences_pipeline.get_all_steps()
