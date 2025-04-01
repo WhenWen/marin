@@ -152,7 +152,7 @@ if __name__ == "__main__":
         #     mmlu_humanities_pipeline.quality_ablation_model,
         #     mmlu_humanities_pipeline.control_model,
         # ]
-        mmlu_mathematics_pipeline.get_eval_cluster_steps()
+        mmlu_mathematics_pipeline.get_all_steps()
     )
     # executor_main(mmlu_science_pipeline.get_all_steps())
     #     # + mmlu_social_sciences_pipeline.get_all_steps()
