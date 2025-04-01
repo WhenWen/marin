@@ -15,11 +15,13 @@ from levanter.optim import AdamConfig
 from experiments.defaults import _prepare_data_config
 from experiments.llama import llama_150m, llama_300m, llama_600m, llama_1_4b, llama_1_9b, llama_8b
 from experiments.pretraining_datasets import dclm_baseline, slimpajama
-from experiments.midtraining_datasets import finemath_3_plus_tokenized, pubmed_abstracts_tokenized, open_web_math_tokenized
+from experiments.midtraining_datasets import finemath_3_plus_tokenized, pubmed_abstracts_tokenized, open_web_math_tokenized, latxa_corpus_tokenized
 
 from marin.execution.executor import executor_main, output_path_of
 from marin.processing.tokenize.data_configs import lm_mixture_data_config, lm_varying_mixture_data_config
 from experiments.defaults import default_tokenize
+from marin.execution.executor import ExecutorStep, executor_main, this_output_path, versioned
+from marin.processing.tokenize import TokenizeConfig, tokenize
 
 from experiments.curriculum.cpt.cpt_train_config import cpt_train_executor_step
 from experiments.instruction_datasets import get_instruction_dataset
@@ -37,21 +39,21 @@ llama_8b_1024 = dataclasses.replace(llama_8b, seq_len=1024)
 print("Launching experiment from:", marin_prefix)
 
 if 'us-central2' in marin_prefix:
-    STACK_PYTHON = marin_prefix + "/raw/the-stack-dedup-4ba450/17cad72/data/python/data-{id:05d}-of-00144.parquet"
-    STACK_CPP = marin_prefix + "/raw/the-stack-dedup-4ba450/17cad72/data/cpp/data-{id:05d}-of-00110.parquet"
-    DOLMA_C4 = marin_prefix + "/raw/dolma/v1.7/c4-{id:04d}.json.gz" # different across regions
-    DOLMA_TULU_FLAN = marin_prefix + "/raw/dolma/v1.7/tulu_flan-{id:04d}.json.gz" # different across regions
-    SPJ6B = marin_prefix + "/raw/SlimPajama-6B-be35b7/b5f90f4/huggingface.co/datasets/DKYoon/SlimPajama-6B/resolve/b5f90f4/data/train-{id:05d}-of-00048*.parquet"
-    WIKI = marin_prefix + "/raw/dolmino-mix-1124-157960/bb54cab/data/wiki/wiki-{id:04d}.json.gz"
+    # STACK_PYTHON = marin_prefix + "/raw/the-stack-dedup-4ba450/17cad72/data/python/data-{id:05d}-of-00144.parquet"
+    # STACK_CPP = marin_prefix + "/raw/the-stack-dedup-4ba450/17cad72/data/cpp/data-{id:05d}-of-00110.parquet"
+    # DOLMA_C4 = marin_prefix + "/raw/dolma/v1.7/c4-{id:04d}.json.gz" # different across regions
+    DOLMA_TULU_FLAN = marin_prefix + "/raw/dolma/v1.7/tulu_flan-{0000..0065}.json.gz"  # Update pattern to match tokenize_dolma.py
+    # SPJ6B = marin_prefix + "/raw/SlimPajama-6B-be35b7/b5f90f4/huggingface.co/datasets/DKYoon/SlimPajama-6B/resolve/b5f90f4/data/train-{id:05d}-of-00048*.parquet"
+    # WIKI = marin_prefix + "/raw/dolmino-mix-1124-157960/bb54cab/data/wiki/wiki-{id:04d}.json.gz"
     tpu_type = "v4-128"
     region_suffix = "usc2"
 elif 'eu-west4' in marin_prefix:
-    STACK_PYTHON = marin_prefix + "/raw/the-stack-dedup-4ba450/17cad72/data/python/data-{id:05d}-of-00144.parquet"
-    STACK_CPP = marin_prefix + "/raw/the-stack-dedup-4ba450/17cad72/data/cpp/data-{id:05d}-of-00110.parquet"
-    DOLMA_C4 = marin_prefix + "/raw/dolma-c4-split/c4-{id:04d}.json.gz" # different across regions
-    DOLMA_TULU_FLAN = marin_prefix + "/raw/dolma-tulu_flan-split/tulu_flan-{id:04d}.json.gz" # different across regions
-    SPJ6B = marin_prefix + "/raw/SlimPajama-6B-be35b7/b5f90f4/huggingface.co/datasets/DKYoon/SlimPajama-6B/resolve/b5f90f4/data/train-{id:05d}-of-00048*.parquet"
-    WIKI = None
+    # STACK_PYTHON = marin_prefix + "/raw/the-stack-dedup-4ba450/17cad72/data/python/data-{id:05d}-of-00144.parquet"
+    # STACK_CPP = marin_prefix + "/raw/the-stack-dedup-4ba450/17cad72/data/cpp/data-{id:05d}-of-00110.parquet"
+    # DOLMA_C4 = marin_prefix + "/raw/dolma-c4-split/c4-{id:04d}.json.gz" # different across regions
+    DOLMA_TULU_FLAN = marin_prefix + "/raw/dolma-tulu_flan-split/tulu_flan-{0000..0065}.json.gz"  # Update pattern to match tokenize_dolma.py
+    # SPJ6B = marin_prefix + "/raw/SlimPajama-6B-be35b7/b5f90f4/huggingface.co/datasets/DKYoon/SlimPajama-6B/resolve/b5f90f4/data/train-{id:05d}-of-00048*.parquet"
+    # WIKI = None
     # tpu_type = "v6e-256"
     tpu_type = "v5litepod-128"
     region_suffix = "euw4"
@@ -69,12 +71,37 @@ dclm_tokenized = dataclasses.replace(
     override_output_path="tokenized/dclm_baseline-0206f1/",
 )
 
+slimpajama_tokenized = ExecutorStep(
+    name=os.path.join("tokenized", "SlimPajama-627B"),
+    fn=tokenize,
+    config=TokenizeConfig(
+        train_paths=[slimpajama.cd("train")],
+        validation_paths=[slimpajama.cd("validation")],
+        cache_path=this_output_path(),
+        tokenizer=versioned(llama3_tokenizer),
+    ),
+)
+
+# Add this after the other tokenized datasets
+tulu_flan_tokenized = ExecutorStep(
+    name=os.path.join("tokenized", "tulu-flan"),
+    fn=tokenize,
+    config=TokenizeConfig(
+        train_paths=[DOLMA_TULU_FLAN],
+        validation_paths=[],
+        cache_path=this_output_path(),
+        tokenizer=versioned(llama3_tokenizer),
+    ),
+)
+
 data_dict = {
     "finemath": finemath_3_plus_tokenized,
     "dclm": dclm_tokenized,
     "pubmed": pubmed_abstracts_tokenized,
     "open-web-math": open_web_math_tokenized,
-    "slimpajama": slimpajama,
+    "spj": slimpajama_tokenized,
+    "flan": tulu_flan_tokenized,
+    "latxa": latxa_corpus_tokenized,
 }
 
 def get_cpt_data(
@@ -89,22 +116,29 @@ def get_cpt_data(
 ):
     
     assert np.isclose(data1_weight_stage1, 0.0), "data1_weight_stage1 must be 0.0 for now"
-    # Create data config with varying mixture
-    components = {
-        data1_name: data_dict[data1_name],
-        data2_name: data_dict[data2_name]
-    }
+    if data1_weight_stage2 == 1.0:
+        components = {
+            data1_name: data_dict[data1_name]
+        }
 
-    if transition_seq_idx == 0.0:
+        weights_list = [
+            (0, {data1_name: data1_weight_stage2}),  # Stage 2
+        ]
+    else:
+        components = {
+            data1_name: data_dict[data1_name],
+            data2_name: data_dict[data2_name]
+        }
+
         weights_list = [
             (0, {data1_name: data1_weight_stage2, data2_name: 1 - data1_weight_stage2}),  # Stage 2
         ]
-    else:
-        assert False
-        weights_list = [
-            (0, {data1_name: data1_weight_stage1, data2_name: 1 - data1_weight_stage1}),  # Stage 1
-            (transition_seq_idx, {data1_name: data1_weight_stage2, data2_name: 1 - data1_weight_stage2})  # Stage 2
-        ]
+
+    assert transition_seq_idx == 0.0, "transition_seq_idx must be 0.0 for now"
+        # weights_list = [
+        #     (0, {data1_name: data1_weight_stage1, data2_name: 1 - data1_weight_stage1}),  # Stage 1
+        #     (transition_seq_idx, {data1_name: data1_weight_stage2, data2_name: 1 - data1_weight_stage2})  # Stage 2
+        # ]
 
     data_config = lm_varying_mixture_data_config(
         components=components,
@@ -144,6 +178,8 @@ def full_cpt_varying_mixture(
     batch_size: int = 1024,
     min_lr_ratio: float = 0.1,
     warmup_steps: float = 0.01,
+    weight_decay: float = 0.1,
+    data_seed: int = 42,
 ):
     """
     Two-stage training using varying mixture weights, similar to varsched but without checkpointing.
@@ -205,7 +241,6 @@ def full_cpt_varying_mixture(
         num_data1_repetitions=num_data1_repetitions,
     )
 
-    weight_decay = 0.1
     steps_per_eval = num_train_steps // num_eval
     steps_per_eval_task = None if num_lm_eval_harness is None else num_train_steps // num_lm_eval_harness
     epochs_tag = f"-r{num_data1_repetitions}" if num_data1_repetitions is not None and num_data1_repetitions > 1 else ""
@@ -268,6 +303,7 @@ def full_cpt_varying_mixture(
         additional_tags=additional_tags + [region_suffix],
         steps_per_eval_task=steps_per_eval_task,
         warmup_steps=warmup_steps,
+        data_seed=data_seed,
     )
 
     return [train_step]

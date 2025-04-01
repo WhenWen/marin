@@ -51,6 +51,15 @@ EVAL_TASKS = (
     # EvalTaskConfig("medqa", 5, task_alias="medqa_5shot"),
 )
 
+BASQUE_GLUE_TASKS = (
+    # EvalTaskConfig(name="bec2016eu", num_fewshot=0, task_alias="bec2016eu"),
+    # EvalTaskConfig(name="vaxx_stance", num_fewshot=0, task_alias="vaxx_stance"),
+    # EvalTaskConfig(name="qnlieu", num_fewshot=0, task_alias="qnlieu"),
+    # EvalTaskConfig(name="basque-glue", num_fewshot=0, task_alias="basque-glue"),
+    EvalTaskConfig("wnli_eu", num_fewshot=0, task_alias="wnli_eu"),
+    EvalTaskConfig("xcopa_eu", num_fewshot=0, task_alias="xcopa_eu"),
+)
+
 def cpt_train_executor_step(
     name : str,
     pretraining_data : lm_data_config,
@@ -102,7 +111,10 @@ def cpt_train_executor_step(
         )
 
     if steps_per_eval_task:
-        harness_config = LmEvalHarnessConfig(task_spec=convert_to_levanter_task_config(EVAL_TASKS))
+        if "latxa" in name:
+            harness_config = LmEvalHarnessConfig(task_spec=convert_to_levanter_task_config(BASQUE_GLUE_TASKS))
+        else:
+            harness_config = LmEvalHarnessConfig(task_spec=convert_to_levanter_task_config(EVAL_TASKS))
     else:
         harness_config = None
 

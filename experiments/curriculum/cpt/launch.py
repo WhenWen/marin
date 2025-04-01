@@ -4,36 +4,44 @@ from marin.execution.executor import executor_main
 
 from experiments.curriculum.cpt.cpt_launch import full_cpt_varying_mixture
 
+# 2000 steps is 1B tokens
+
 base_steps = {
     "finemath": 200,
-    "open-web-math": 2000,
+    "open-web-math": 20000,
     "pubmed": 100,
+    "flan": 20,
+    "latxa": 80,
+    "spj": 2000,
 }
 
 if __name__ == "__main__":
     stage_pairs = [
         full_cpt_varying_mixture(
             data1_name=data1_name,
-            data2_name="dclm",
+            data2_name=data2_name,
             total_data1_portion=total_data1_portion,
             duration_frac_stage2=1.0,  # Single stage training
             data1_frac_alloc_stage2=1.0,
             schedule_type="cosine",
             model_name="meta-llama/Meta-Llama-3.1-8B",
             num_train_steps=int(base_steps[data1_name] * num_data1_repetitions / total_data1_portion),
-            learning_rate=5e-6,
-            num_eval=20,
+            learning_rate=3e-5,
+            num_eval=4 if base_steps[data1_name] == 20 else 20,
             num_lm_eval_harness=4,
             num_data1_repetitions=num_data1_repetitions,
             batch_size=128,
-            additional_tags=[f"{data1_name}-rarity-sweep-epochs-owm"],
+            additional_tags=[f"{data1_name}-replay"],
             min_lr_ratio=0.0,
-            version_tag=f"",
+            version_tag=f"-lr-3e-5",
             warmup_steps=0.05,
+            # data_seed=43,
+            # weight_decay=weight_decay,
         )
-        for total_data1_portion in [1.0, 0.95, 0.75]
-        for data1_name in ["open-web-math"]
-        for num_data1_repetitions in [5]
+        for total_data1_portion in [0.9, 0.1]
+        for data1_name in ["latxa"]
+        for data2_name in ["spj", "dclm", "flan", "open-web-math", "pubmed"]
+        for num_data1_repetitions in [1]
     ]
 
     steps = list(chain(*stage_pairs))

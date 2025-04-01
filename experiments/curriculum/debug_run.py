@@ -22,11 +22,11 @@ if __name__ == "__main__":
             model_size="150m_4096",
             num_train_steps=200,
             learning_rate=0.003,
-            num_eval=3,
+            num_eval=4,
             num_data1_repetitions=1,
             additional_tags=["debug-internal-eval"],
             num_lm_eval_harness=1,
-            version_tag="",
+            version_tag="-debug4",
         )
         for duration_frac_stage2 in [1.0] 
         for total_data1_portion in [0.05]

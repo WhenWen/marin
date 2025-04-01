@@ -56,12 +56,29 @@ open_web_math_tokenized = default_tokenize(
     tokenizer=llama3_tokenizer,
 )
 
+latxa_corpus = ExecutorStep(
+    name="raw/latxa_corpus",
+    fn=download_hf,
+    config=DownloadConfig(
+        hf_dataset_id="HiTZ/latxa-corpus-v1.1",
+        revision="02dc515",
+        gcs_output_path=this_output_path(),
+        wait_for_completion=True,
+    ),
+)
+
+latxa_corpus_tokenized = default_tokenize(
+    name="latxa_corpus",
+    dataset=latxa_corpus,
+    tokenizer=llama3_tokenizer,
+)
+
 if __name__ == "__main__":
     executor_main(
         steps=[
-            open_web_math,
-            open_web_math_tokenized,
+            latxa_corpus,
+            latxa_corpus_tokenized,
         ],
-        description="Download and tokenize pubmed abstracts and open web math",
+        description="Download and tokenize latxa corpus",
     )
 
