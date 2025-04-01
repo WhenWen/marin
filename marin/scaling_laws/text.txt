@@ -1,57 +1,54 @@
 Going to print the filtered df
-    eval/bpb  throughput/total_tokens                                    run  \
-0   4.202184             4.194304e+06   scaling-law-suite-default-512-9b1182   
-1   1.059658             5.453015e+10   scaling-law-suite-default-512-9b1182   
-2   1.046272             1.048618e+11   scaling-law-suite-default-512-9b1182   
-3   1.040885             1.551934e+11   scaling-law-suite-default-512-9b1182   
-4   1.040291             2.097152e+11   scaling-law-suite-default-512-9b1182   
-5   4.191568             4.194304e+06   scaling-law-suite-default-768-0631eb   
-6   1.002678             5.033584e+10   scaling-law-suite-default-768-0631eb   
-7   0.986974             1.048618e+11   scaling-law-suite-default-768-0631eb   
-8   0.980506             1.551934e+11   scaling-law-suite-default-768-0631eb   
-9   0.977014             2.097152e+11   scaling-law-suite-default-768-0631eb   
-10  4.201555             4.194304e+06  scaling-law-suite-default-1024-e6a4e5   
-11  0.968968             5.033584e+10  scaling-law-suite-default-1024-e6a4e5   
-12  0.950136             1.048618e+11  scaling-law-suite-default-1024-e6a4e5   
-13  0.943316             1.551934e+11  scaling-law-suite-default-1024-e6a4e5   
-14  0.939039             2.097152e+11  scaling-law-suite-default-1024-e6a4e5   
-15  4.206222             4.194304e+06  scaling-law-suite-default-1536-51914a   
-16  0.928155             5.033584e+10  scaling-law-suite-default-1536-51914a   
-17  0.906864             1.006675e+11  scaling-law-suite-default-1536-51914a   
-18  0.898085             1.509991e+11  scaling-law-suite-default-1536-51914a   
-19  0.893243             2.097152e+11  scaling-law-suite-default-1536-51914a   
-20  4.201642             4.194304e+06  scaling-law-suite-default-2048-14ef39   
-21  0.905738             5.033584e+10  scaling-law-suite-default-2048-14ef39   
-22  0.881358             1.048618e+11  scaling-law-suite-default-2048-14ef39   
-23  0.872365             1.551934e+11  scaling-law-suite-default-2048-14ef39   
-24  0.866961             2.097152e+11  scaling-law-suite-default-2048-14ef39   
+    eval/paloma/c4_en/bpb  throughput/total_tokens  \
+0                3.764435             4.194304e+06   
+1                1.070949             5.453015e+10   
+2                1.059734             1.048618e+11   
+3                1.055063             1.551934e+11   
+4                1.053014             2.097152e+11   
+5                3.752329             4.194304e+06   
+6                1.018338             5.033584e+10   
+7                1.003028             1.048618e+11   
+8                0.998115             1.551934e+11   
+9                0.994718             2.097152e+11   
+10               3.761157             4.194304e+06   
+11               0.986239             5.033584e+10   
+12               0.970043             1.048618e+11   
+13               0.964256             1.551934e+11   
+14               0.959933             2.097152e+11   
+15               3.779585             4.194304e+06   
+16               0.948494             5.033584e+10   
+17               0.929559             1.006675e+11   
+18               0.922448             1.509991e+11   
+19               0.917157             2.097152e+11   
+20               3.763560             4.194304e+06   
+21               0.926217             5.033584e+10   
+22               0.905302             1.048618e+11   
+23               0.898381             1.551934e+11   
+24               0.893217             2.097152e+11   
 
-
-
-Going to print the filtered df
-    eval/bpb  throughput/total_tokens  \
-0   4.202184             4.194304e+06   
-1   1.070048             5.243299e+10   
-2   1.056981             1.069589e+11   
-3   1.051989             1.572906e+11   
-4   1.050390             2.097152e+11   
-5   4.191568             4.194304e+06   
-6   1.002678             5.033584e+10   
-7   0.997341             1.048618e+11   
-8   0.991009             1.572906e+11   
-9   0.987992             2.097152e+11   
-10  4.201555             4.194304e+06   
-11  0.977002             5.243299e+10   
-12  0.960477             1.048618e+11   
-13  0.954752             1.572906e+11   
-14  0.949297             2.097152e+11   
-15  4.206222             4.194304e+06   
-16  0.935471             5.243299e+10   
-17  0.916426             1.048618e+11   
-18  0.908329             1.572906e+11   
-19  0.903696             2.097152e+11   
-20  4.201642             4.194304e+06   
-21  0.916053             5.033584e+10   
-22  0.891747             1.048618e+11   
-23  0.882519             1.551934e+11   
-24  0.877734             2.097152e+11   
+                                      run  hidden_dim  parameter_count  step  
+0    scaling-law-suite-default-512-9b1182         512        198459904     0  
+1    scaling-law-suite-default-512-9b1182         512        198459904    12  
+2    scaling-law-suite-default-512-9b1182         512        198459904    24  
+3    scaling-law-suite-default-512-9b1182         512        198459904    36  
+4    scaling-law-suite-default-512-9b1182         512        198459904    49  
+5    scaling-law-suite-default-768-0631eb         768        348021504     0  
+6    scaling-law-suite-default-768-0631eb         768        348021504    12  
+7    scaling-law-suite-default-768-0631eb         768        348021504    25  
+8    scaling-law-suite-default-768-0631eb         768        348021504    37  
+9    scaling-law-suite-default-768-0631eb         768        348021504    50  
+10  scaling-law-suite-default-1024-e6a4e5        1024        531137536     0  
+11  scaling-law-suite-default-1024-e6a4e5        1024        531137536    12  
+12  scaling-law-suite-default-1024-e6a4e5        1024        531137536    25  
+13  scaling-law-suite-default-1024-e6a4e5        1024        531137536    37  
+14  scaling-law-suite-default-1024-e6a4e5        1024        531137536    50  
+15  scaling-law-suite-default-1536-51914a        1536        998032896     0  
+16  scaling-law-suite-default-1536-51914a        1536        998032896    12  
+17  scaling-law-suite-default-1536-51914a        1536        998032896    24  
+18  scaling-law-suite-default-1536-51914a        1536        998032896    36  
+19  scaling-law-suite-default-1536-51914a        1536        998032896    49  
+20  scaling-law-suite-default-2048-14ef39        2048       1532037120     0  
+21  scaling-law-suite-default-2048-14ef39        2048       1532037120    12  
+22  scaling-law-suite-default-2048-14ef39        2048       1532037120    25  
+23  scaling-law-suite-default-2048-14ef39        2048       1532037120    37  
+24  scaling-law-suite-default-2048-14ef39        2048       1532037120    50  
