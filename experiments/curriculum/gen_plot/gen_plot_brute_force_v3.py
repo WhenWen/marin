@@ -76,6 +76,7 @@ def parse_run(run):
         return None
     
     stage2_stack_portion = run_json_config["data"]["value"]["train_weights"][-1][1][data1_name]
+    run_dict["stage2_stack_portion"] = stage2_stack_portion
     run_dict["stage2_duration"] = round(args.rare_freq * run_dict["fraction_data1_stage2"] / stage2_stack_portion, 7)
 
     history = run.history(keys=[f"eval/{data1_name}/loss", f"eval/{data2_name}/loss"])
@@ -114,18 +115,24 @@ for idx, fraction_data1_stage2 in enumerate(unique_fractions_data1_stage2):
     runs_with_decay = [run for run in run_list if run['fraction_data1_stage2'] == fraction_data1_stage2]
     runs_with_decay.sort(key=lambda x: x['stage2_duration'])
     
-    x = np.array([run['stage2_duration'] for run in runs_with_decay])
+    x = np.array([1 - run['stage2_stack_portion'] for run in runs_with_decay])
+    print(x)
     y = np.array([run[f"final_{data1_name}_loss"] for run in runs_with_decay])
-    x_log = np.log(x)
-
-    # Fit a cubic polynomial
-    z = np.polyfit(x_log, y, 2)
+    
+    # Generate smooth points for plotting in the original space
+    x_smooth = np.linspace(x.min(), x.max(), 100)
+    
+    # Transform both original and smooth points for fitting
+    x_transformed = np.log(1 - x)
+    x_smooth_transformed = np.log(1 - x_smooth)
+    
+    # Fit a quadratic polynomial in transformed space
+    z = np.polyfit(x_transformed, y, 2)
     p = np.poly1d(z)
     
-    # Generate smooth points for plotting
-    x_smooth = np.logspace(np.log10(x.min()), np.log10(x.max()), 100)
-    x_smooth_log = np.log(x_smooth)
-    y_smooth = p(x_smooth_log)
+    # Get y values in original space
+    y_smooth = p(x_smooth_transformed)
+    
     # Find minimum of the fitted curve
     min_idx = np.argmin(y_smooth)
     min_x = x_smooth[min_idx]
@@ -140,10 +147,10 @@ for idx, fraction_data1_stage2 in enumerate(unique_fractions_data1_stage2):
 
 plt.xlabel('Stage 2 Duration')
 plt.ylabel(f'Final {data1_name} loss')
-plt.xscale('log')
+plt.xscale('function', functions=(lambda x: np.log(1-x), lambda x: 1 - np.exp(x)))
 plt.title(f'Rare loss vs Stage 2 duration and fraction of rare data in stage 2\n\n{pretty_name_dict[data1_name]} ({args.rare_freq}) vs {pretty_name_dict[data2_name]} ({1 - args.rare_freq}) with {args.model_size} parameters')
-plt.xticks([0.8, 0.4, 0.2, 0.1], 
-           [0.8, 0.4, 0.2, 0.1])
+plt.xticks([0.975, 0.95, 0.9, 0.8, 0.6, 0.2], 
+           [0.975, 0.95, 0.9, 0.8, 0.6, 0.2])
 if data1_name == "stack_dedup" and data2_name == "c4" and args.model_size == "150m":
     plt.ylim(ymax=3.6)
 # plt.xlim(xmin=0.02)
@@ -151,5 +158,5 @@ if data1_name == "stack_dedup" and data2_name == "c4" and args.model_size == "15
 plt.plot([], [], '*', color='black', label='Minima from cubic fit', markersize=10)
 plt.legend()
 plt.tight_layout()
-plt.savefig(f'/Users/Suhas/Desktop/SUHAS/Repos/marin/experiments/curriculum/plots/brute_force_v3/{data1_name}_{data2_name}_{args.model_size}_{args.rare_freq}_rare_loss_curve.png')
+plt.savefig(f'/Users/Suhas/Desktop/SUHAS/Repos/marin/experiments/curriculum/plots/brute_force_v3/{data1_name}_{data2_name}_{args.model_size}_{args.rare_freq}_rare_loss_curve_x_replay.png')
 plt.close()
