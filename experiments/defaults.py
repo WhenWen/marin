@@ -389,9 +389,11 @@ def default_scaling_law_pred(
     else:
         name = "projection"
 
+    from uuid import uuid4  
 
+    uuid = str(uuid4())
     return ExecutorStep(
-        name=f"""scaling_laws/{name}""",
+        name=f"""scaling_laws/{name}-{uuid}""",
         fn=run_scaling_law_analysis,
         config=ScalingLawConfig(
             name=name,

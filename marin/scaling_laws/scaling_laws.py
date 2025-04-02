@@ -29,6 +29,17 @@ from marin.scaling_laws.utils import (
 )
 
 
+# to restrict the number of tokens used for scaling laws regression fitting and avoid
+# extremely overtrained checkpoints
+TOKEN_FILTERS = {
+    "scaling-law-suite-default-v2-512-4d173f": 5.0e10,  # 50B tokens
+    "scaling-law-suite-default-v2-768-12373d": 7.0e10,  # 70B tokens
+    "scaling-law-suite-default-v2-1024-77c98b": 1.0e11, # 100B tokens
+    "scaling-law-suite-default-v2-1536-18344d": 2.1e11, # 210B tokens
+    "scaling-law-suite-default-v2-2048-7845a1": 2.1e11, # 210B tokens
+}
+
+
 @dataclass(frozen=True)
 class ScalingLawConfig:
     name: str
@@ -108,6 +119,7 @@ def run_scaling_law_analysis(config: ScalingLawConfig) -> None:
         count_embedding_params=config.count_embedding_params,
         use_log_for_ND=config.use_log_for_ND,
         normalize_ND=config.normalize_ND,
+        #token_filters=TOKEN_FILTERS,
     )
 
     log_and_create_report(

@@ -7,7 +7,7 @@ Link to issue: https://github.com/stanford-crfm/marin/issues/780
 from defaults import default_scaling_law_pred
 
 from experiments.dolma.exp442_dolma import dolma_llama3_tokenized
-from experiments.evals.task_configs import CORE_TASKS_PLUS_MMLU
+from experiments.evals.task_configs import CORE_TASKS
 from marin.execution.executor import executor_main
 from marin.scaling_laws.create_ladder_suite import scaling_law_suite
 
@@ -36,7 +36,7 @@ dolma_suite_scaling_laws_pred = default_scaling_law_pred(
         "eval/loss",
         "eval/paloma/c4_en/loss",
     ),
-    task_accuracies=CORE_TASKS_PLUS_MMLU,
+    task_accuracies=CORE_TASKS,
 )
 
 if __name__ == "__main__":
