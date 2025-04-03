@@ -280,6 +280,20 @@ finemath_dclm_model = default_candidate_anneal(
     "finemath-dclm",
 )
 
+# def max_ensemble_multitask(doc, attrs):
+
+
+# max_multitask_attributes = ExecutorStep(
+#     name="attributes/quality_filtering/max_multitask",
+#     fn=create_custom_attribute,
+#     config=CustomAttributeConfig(
+#         input_doc_path=datashop_dclm_pretraining_subset,
+#         output_attr_path=this_output_path(),
+#         label_func=max_ensemble_multitask,
+#         input_attr_paths=[output_path_of(mmlu_science_), output_path_of(mmlu_science_qa_model)],
+#     ),
+# )
+
 steps = [
     finemath_dclm_model,
     # finemath_classifier,
