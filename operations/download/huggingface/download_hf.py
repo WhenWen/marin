@@ -11,6 +11,7 @@ import fsspec
 import ray
 from huggingface_hub import HfFileSystem
 from tqdm_loggable.tqdm_logging import tqdm_logging
+import lzma
 
 from marin.core.runtime import simple_backpressure
 from marin.utilities.validation_utils import write_provenance_json
@@ -45,6 +46,28 @@ def stream_file_to_fsspec(cfg: DownloadConfig, hf_fs: HfFileSystem, file_path: s
         logging.info(f"Streamed {file_path} to fsspec path: {fsspec_file_path}")
     except Exception as e:
         logging.exception(f"Error processing {file_path}: {e}")
+        raise
+
+
+@ray.remote
+def decompress_xz_file(input_path: str, output_path: str):
+    """Ray task to decompress an xz file using fsspec and save it as a valid JSONL file."""
+    try:
+        fs, _ = fsspec.core.url_to_fs(input_path)
+        with fs.open(input_path, "rb") as src_file:
+            with fsspec.open(output_path, "w") as dest_file:
+                decompressor = lzma.LZMADecompressor()
+                buffer = ""
+                while chunk := src_file.read(1024 * 1024):  # Read in 1MB chunks
+                    buffer += decompressor.decompress(chunk).decode('utf-8')
+                    while "\n" in buffer:
+                        line, buffer = buffer.split("\n", 1)
+                        dest_file.write(line + "\n")
+        logging.info(f"Decompressed and saved as JSONL: {input_path} to {output_path}")
+        # Remove the compressed file after successful decompression
+        fs.rm(input_path)
+    except Exception as e:
+        logging.exception(f"Error decompressing {input_path}: {e}")
         raise
 
 
@@ -104,6 +127,18 @@ def download_hf(cfg: DownloadConfig) -> None:
         except Exception as e:
             logging.exception(f"Error during task execution: {e}")
             raise e
+        
+    if cfg.decompress:
+        logger.info("Starting decompression of .xz files...")
+        decompression_tasks = []
+        for file in files:
+            if file.endswith(".xz"):
+                input_path = os.path.join(cfg.gcs_output_path, file.split("/", 3)[-1])
+                output_path = input_path[:-3]  # Remove the .xz extension
+                decompression_tasks.append(decompress_xz_file.remote(input_path, output_path))
+
+        # Wait for all decompression tasks to complete
+        ray.get(decompression_tasks)
 
     # Write Provenance JSON
     write_provenance_json(

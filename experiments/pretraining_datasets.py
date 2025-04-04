@@ -150,10 +150,9 @@ multilegalpile = ExecutorStep(
         revision="483f6c8",
         gcs_output_path=this_output_path(),
         wait_for_completion=True,
+        decompress=True
     ),
 ).cd("data")
-
-# TODO: How to decompress the files within this infrastructure? (now it is xz compressed jsonl files)
 
 nemotron_cc = ExecutorStep(
     name="raw/nemotro-cc",

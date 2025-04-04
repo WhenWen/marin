@@ -56,6 +56,8 @@ class DownloadConfig:
         "datasets"  # The repo_type_prefix is datasets/ for datasets,
         # spaces/ for spaces, and models do not need a prefix in the URL.
     )
+    
+    decompress: bool = False
 
 
 @ray.remote
