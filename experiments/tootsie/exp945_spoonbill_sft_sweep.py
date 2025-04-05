@@ -13,7 +13,7 @@ from experiments.tootsie.exp916_tootsie_spoonbill_cooldown import llama_8b_fp32_
 from marin.execution.executor import executor_main
 
 # Define the learning rates to sweep through
-LEARNING_RATES = [1e-5, 2e-5, 3e-5, 5e-5, 1e-4]
+LEARNING_RATES = [1e-5, 2e-5, 3e-5, 5e-5, 1e-4, 2e-4, 4e-4]
 
 # Create SFT configs for each learning rate
 sft_configs = []
