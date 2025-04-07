@@ -36,8 +36,33 @@ for lr, sft_config in zip(LEARNING_RATES, sft_configs, strict=True):
     ).with_output_path(f"checkpoints/sft/tulu3_sft_spoonbill_945_lr_{lr:.0e}")
     sft_experiments.append(experiment)
 
+
+# let's try variants with zoss too:
+sft_zloss_configs = []
+for lr in LEARNING_RATES:
+    sft_config = dataclasses.replace(
+        spoonbill_zloss_tulu3_sft_config,
+        learning_rate=lr,
+        z_loss_weight=1e-4,
+    )
+    sft_zloss_configs.append(sft_config)
+
+
+sft_zloss_experiments = []
+for lr, sft_config in zip(LEARNING_RATES, sft_zloss_configs, strict=True):
+    experiment = default_sft(
+        name=f"sft/tulu3_sft_spoonbill_945_zloss_lr_{lr:.0e}",
+        tokenized=tulu3_llama_tokenize_step,
+        model_config=llama_8b_fp32_attn,
+        sft_config=sft_config,
+        tags=["llama", "8b", "exp945", "tootsie", "sft", "spoonbill"],
+    ).with_output_path(f"checkpoints/sft/tulu3_sft_spoonbill_945_zloss_lr_{lr:.0e}")
+
+    sft_zloss_experiments.append(experiment)
+
+
 if __name__ == "__main__":
     executor_main(
-        sft_experiments,
+        sft_experiments + sft_zloss_experiments,
         description="SFT learning rate sweep for spoonbill zloss model",
     )

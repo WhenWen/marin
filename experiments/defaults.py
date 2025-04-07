@@ -446,6 +446,7 @@ def default_sft(
             config=inner_config,
             pod_config=pod_config,
             output_path=this_output_path(),
+            z_loss_weight=sft_config.z_loss_weight,
         )
         fn = run_levanter_sft
 

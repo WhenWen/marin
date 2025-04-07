@@ -24,20 +24,6 @@ from experiments.simple_train_config import SimpleTrainConfig
 from marin.execution.executor import executor_main
 from marin.processing.tokenize import lm_mixture_data_config
 
-# data
-
-MARIN_CENTRAL_DCLM_COMPONENTS = {
-    "dclm_baseline": "gs://marin-us-central2/tokenized/dclm_baseline-0206f1",
-    "starcoderdata": "gs://marin-us-central2/tokenized/starcoderdata-12f018/",
-    "proofpile_2": "gs://marin-us-central2/tokenized/proofpile_2-4a35c7",
-}
-dclm_components_zoned = {
-    name: dataclasses.replace(
-        step,
-        override_output_path=MARIN_CENTRAL_DCLM_COMPONENTS[name],
-    )
-    for name, step in dclm_components_llama3.items()
-}
 
 #####
 ## Phase 1 for 13B, 22B: WSD-S on same mixture as tootsie 8b
@@ -118,8 +104,6 @@ llama_13b_train_config_ema = SimpleTrainConfig(
     ema_beta=0.995,
     lr_schedule="linear",
     cycle_length=None,
-    allow_out_of_region_reads=True,
-    allow_out_of_region_writes=False,
     allow_partial_checkpoint=True,
 )
 
@@ -136,20 +120,16 @@ llama_22b_train_config_ema = SimpleTrainConfig(
     ema_beta=0.995,
     lr_schedule="linear",
     cycle_length=None,
-    allow_out_of_region_reads=True,
-    allow_out_of_region_writes=False,
     allow_partial_checkpoint=True,
     steps_per_eval=1000,
     steps_per_task_eval=10000,
 )
 
-dclm_mixture_config_llama3_zoned = lm_mixture_data_config(
-    components=dclm_components_zoned, weights=DCLM_MIXTURE_WEIGHTS, include_raw_paths=False
-)
+
 llama_13b_tootsie_ema_warmstart = dataclasses.replace(
     default_train(
         name="llama-13b-tootsie-ema-mk2",
-        tokenized=dclm_mixture_config_llama3_zoned,
+        tokenized=dclm_mixture_config_llama3,
         model_config=llama_13b,
         train_config=llama_13b_train_config_ema,
         tags=["llama", "13b", "ema", "exp201", "tootsie"],
@@ -162,13 +142,48 @@ llama_13b_tootsie_ema_warmstart = dataclasses.replace(
 llama_22b_tootsie_ema_warmstart = dataclasses.replace(
     default_train(
         name="llama-22b-tootsie-ema-mk2",
-        tokenized=dclm_mixture_config_llama3_zoned,
+        tokenized=dclm_mixture_config_llama3,
         model_config=llama_24b,
         train_config=llama_22b_train_config_ema,
         tags=["llama", "22b", "ema", "exp201", "tootsie"],
         eval_harness_tasks=[],
     ),
     override_output_path="checkpoints/llama-22b-tootsie-ema-mk2",
+)
+
+
+llama_22b_train_config_ema_mk3 = SimpleTrainConfig(
+    tpu_type="v6e-128",
+    node_count=4,
+    # train_batch_size=1024,
+    train_batch_size=[ScheduleStep(start=0, value=1024), ScheduleStep(start=200_000, value=3072)],
+    num_train_steps=1_000_000,
+    # NEW: increased weight decay
+    weight_decay=0.1,
+    # NEW: zloss
+    z_loss_weight=1e-4,
+    learning_rate=4.2e-4,  # 3e-4 * 1.4
+    decay=0.4,
+    ema_beta=0.995,
+    lr_schedule="linear",
+    cycle_length=None,
+    allow_partial_checkpoint=True,
+    steps_per_eval=1000,
+    steps_per_task_eval=10000,
+)
+
+
+llama_22b_tootsie_ema_warmstart_mk3 = dataclasses.replace(
+    # Not shown: warmstarting from llama_22b_tootsie_ema_warmstart at step 300,000
+    default_train(
+        name="llama-22b-tootsie-ema-mk3",
+        tokenized=dclm_mixture_config_llama3,
+        model_config=llama_24b,
+        train_config=llama_22b_train_config_ema,
+        tags=["llama", "22b", "ema", "exp201", "tootsie"],
+        eval_harness_tasks=[],
+    ),
+    override_output_path="checkpoints/llama-22b-tootsie-ema-mk3",
 )
 
 #####
@@ -204,8 +219,6 @@ llama_56b_train_config_mk2 = dataclasses.replace(
     lr_schedule="linear",
     cycle_length=None,
     allow_partial_checkpoint=True,
-    allow_out_of_region_reads=True,
-    allow_out_of_region_writes=False,
 )
 
 
@@ -242,6 +255,7 @@ if __name__ == "__main__":
             llama_22b_tootsie_phase1,
             llama_13b_tootsie_ema_warmstart,
             llama_22b_tootsie_ema_warmstart,
+            llama_22b_tootsie_ema_warmstart_mk3,
         ],
         description="Train some models on DCLM using WSD-S, switching to EMA.",
     )

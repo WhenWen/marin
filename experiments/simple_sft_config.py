@@ -102,3 +102,5 @@ class SimpleSFTConfig:
 
     allow_out_of_region_writes: bool = False
     """This makes less sense than reading across regions, but for completeness."""
+
+    z_loss_weight: float = 0.0

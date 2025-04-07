@@ -17,7 +17,6 @@ from experiments.defaults import default_train
 from experiments.llama import llama_70b
 from experiments.simple_train_config import SimpleTrainConfig
 from experiments.tootsie.exp600_tootsie import dclm_mixture_config_llama3
-from experiments.tootsie.exp859_big_tootsies import dclm_mixture_config_llama3_zoned
 from marin.execution.executor import executor_main
 
 llama_70b_train_config_mk6 = SimpleTrainConfig(
@@ -42,8 +41,6 @@ llama_70b_train_config_mk6 = SimpleTrainConfig(
     warmup=1000,  # initial warmup
     cycle_length=None,
     allow_partial_checkpoint=True,
-    allow_out_of_region_reads=True,
-    allow_out_of_region_writes=False,
     steps_per_eval=1000,
     steps_per_task_eval=10000,
 )
@@ -59,8 +56,6 @@ llama_70b_train_config_1536 = dataclasses.replace(
     lr_schedule="linear",
     cycle_length=None,
     allow_partial_checkpoint=True,
-    allow_out_of_region_reads=True,
-    allow_out_of_region_writes=False,
 )
 
 
@@ -69,7 +64,7 @@ llama_70b_train_config_1536 = dataclasses.replace(
 llama_70b_tootsie_bs1536 = dataclasses.replace(
     default_train(
         name="llama-bs1536-70b-tootsie",
-        tokenized=dclm_mixture_config_llama3_zoned,
+        tokenized=dclm_mixture_config_llama3,
         model_config=llama_70b,
         train_config=llama_70b_train_config_1536,
         tags=["llama", "70b", "wsd", "exp750", "tootsie", "ema"],
