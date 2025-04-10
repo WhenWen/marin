@@ -11,6 +11,7 @@ Mix is still DCLM+Math+Code
 
 import dataclasses
 
+from haliax import ScanCheckpointPolicy
 from levanter.schedule import ScheduleStep
 
 from experiments.defaults import default_train
@@ -26,7 +27,7 @@ llama_70b_train_config_mk6 = SimpleTrainConfig(
     train_batch_size=[ScheduleStep(start=0, value=1024), ScheduleStep(start=96001, value=1536)],
     weight_decay=0.05,
     tpu_type="v6e-128",
-    node_count=6,
+    node_count=5,
     # LR doesn't support schedule yet
     # until 93_621, was 2e-4
     # learning_rate=2e-4,
@@ -73,12 +74,14 @@ llama_70b_tootsie_bs1536 = dataclasses.replace(
     override_output_path="checkpoints/llama-bs1536-70b-tootsie",
 )
 
+remat_llama70b = dataclasses.replace(llama_70b, gradient_checkpointing=ScanCheckpointPolicy(nested=True))
+
 
 llama_real_70b_tootsie = dataclasses.replace(
     default_train(
         name="llama-real-70b-tootsie",
         tokenized=dclm_mixture_config_llama3,
-        model_config=llama_70b,
+        model_config=remat_llama70b,
         train_config=llama_70b_train_config_mk6,
         tags=["llama", "70b", "wsd", "exp750", "tootsie", "ema"],
         eval_harness_tasks=[],

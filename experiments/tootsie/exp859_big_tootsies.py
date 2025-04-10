@@ -17,13 +17,11 @@ import dataclasses
 from levanter.models.rotary import DefaultRotaryEmbeddingsConfig
 from levanter.schedule import ScheduleStep
 
-from experiments.dclm.tokenize_dclm import DCLM_MIXTURE_WEIGHTS, dclm_components_llama3, dclm_mixture_config_llama3
+from experiments.dclm.tokenize_dclm import dclm_mixture_config_llama3
 from experiments.defaults import default_train
 from experiments.llama import llama_13b, llama_24b, llama_56b
 from experiments.simple_train_config import SimpleTrainConfig
 from marin.execution.executor import executor_main
-from marin.processing.tokenize import lm_mixture_data_config
-
 
 #####
 ## Phase 1 for 13B, 22B: WSD-S on same mixture as tootsie 8b
@@ -95,7 +93,7 @@ llama_22b_tootsie_phase1 = default_train(
 
 llama_13b_train_config_ema = SimpleTrainConfig(
     tpu_type="v6e-64",
-    node_count=7,
+    node_count=7,  # we use what we have
     train_batch_size=[ScheduleStep(start=0, value=1024), ScheduleStep(start=280_000, value=3072)],
     num_train_steps=1_000_000,
     weight_decay=0.05,
@@ -152,17 +150,22 @@ llama_22b_tootsie_ema_warmstart = dataclasses.replace(
 )
 
 
-llama_22b_train_config_ema_mk3 = SimpleTrainConfig(
+# At this point we realized that z-loss was good and that our weight norms were a bit out of control
+# So we decided to warmstart from the previous run with these changes
+
+# mk3 went nan (as did mk2) after some code changes. Unclear why, trying to workaround
+# mk4 was wrong for uninteresting reasons
+llama_22b_train_config_ema_mk5 = SimpleTrainConfig(
     tpu_type="v6e-128",
     node_count=4,
     # train_batch_size=1024,
     train_batch_size=[ScheduleStep(start=0, value=1024), ScheduleStep(start=200_000, value=3072)],
     num_train_steps=1_000_000,
-    # NEW: increased weight decay
-    weight_decay=0.1,
+    weight_decay=0.05,
     # NEW: zloss
     z_loss_weight=1e-4,
-    learning_rate=4.2e-4,  # 3e-4 * 1.4
+    # lowering LR because we're going to nan (and we added z_loss)
+    learning_rate=2e-4,
     decay=0.4,
     ema_beta=0.995,
     lr_schedule="linear",
@@ -173,18 +176,50 @@ llama_22b_train_config_ema_mk3 = SimpleTrainConfig(
 )
 
 
-llama_22b_tootsie_ema_warmstart_mk3 = dataclasses.replace(
+llama_13b_train_config_ema_mk3 = SimpleTrainConfig(
+    tpu_type="v6e-64",
+    node_count=6,
+    train_batch_size=[ScheduleStep(start=0, value=1024), ScheduleStep(start=280_000, value=3072)],
+    num_train_steps=1_000_000,
+    # NEW: increased weight decay
+    weight_decay=0.1,
+    # new: zloss
+    learning_rate=4.2e-4,  # 3e-4 * 1.4
+    decay=0.4,
+    ema_beta=0.995,
+    lr_schedule="linear",
+    cycle_length=None,
+    allow_partial_checkpoint=True,
+)
+
+
+llama_22b_tootsie_ema_warmstart_mk5 = dataclasses.replace(
     # Not shown: warmstarting from llama_22b_tootsie_ema_warmstart at step 300,000
     default_train(
-        name="llama-22b-tootsie-ema-mk3",
+        name="llama-22b-tootsie-ema-mk5",
         tokenized=dclm_mixture_config_llama3,
         model_config=llama_24b,
-        train_config=llama_22b_train_config_ema,
+        train_config=llama_22b_train_config_ema_mk5,
         tags=["llama", "22b", "ema", "exp201", "tootsie"],
         eval_harness_tasks=[],
     ),
-    override_output_path="checkpoints/llama-22b-tootsie-ema-mk3",
+    override_output_path="checkpoints/llama-22b-tootsie-ema-mk5",
 )
+
+
+llama_13b_tootsie_ema_warmstart_mk3 = dataclasses.replace(
+    # Not shown: warmstarting from llama_13b_tootsie_ema_warmstart at step 300,000
+    default_train(
+        name="llama-13b-tootsie-ema-mk3",
+        tokenized=dclm_mixture_config_llama3,
+        model_config=llama_13b,
+        train_config=llama_13b_train_config_ema_mk3,
+        tags=["llama", "13b", "ema", "exp201", "tootsie"],
+        eval_harness_tasks=[],
+    ),
+    override_output_path="checkpoints/llama-13b-tootsie-ema-mk3",
+)
+
 
 #####
 # sigh... 56B. you can ignore this.
@@ -255,7 +290,8 @@ if __name__ == "__main__":
             llama_22b_tootsie_phase1,
             llama_13b_tootsie_ema_warmstart,
             llama_22b_tootsie_ema_warmstart,
-            llama_22b_tootsie_ema_warmstart_mk3,
+            llama_22b_tootsie_ema_warmstart_mk5,
+            llama_13b_tootsie_ema_warmstart_mk3,
         ],
         description="Train some models on DCLM using WSD-S, switching to EMA.",
     )
