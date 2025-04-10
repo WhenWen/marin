@@ -7,6 +7,12 @@ import draccus
 from levanter.main.train_lm import TrainLmConfig
 from levanter.models.gpt2 import Gpt2Config
 from levanter.trainer import TrainerConfig
+from levanter.config import WandbConfig, CheckpointerConfig, AdamConfig
+from levanter.models.llama import LlamaConfig
+from marin.config import LMSupervisedDatasetConfig
+from marin.config.sft import SFTConfig
+from marin.config.pod import TrainSFTPodConfig
+from marin.operations.train.sft import run_levanter_sft
 
 from marin.classifiers.utils import DatasetConfig
 from marin.execution.executor import (
@@ -227,6 +233,72 @@ def create_steps(prefix: str, synth_data: str) -> list[ExecutorStep]:
 
     # evaluate_step = evaluate_helm_on_step(train_step, ["mmlu"], max_eval_instances=10)
 
+    ### SFT step
+        
+        # Model configuration - small for testing
+        model_config = LlamaConfig(
+            n_layers=8,
+            n_heads=8,
+            dim=512
+        )
+        
+        # Training configuration
+        trainer_config = TrainerConfig(
+            tracker=WandbConfig(project="marin", tags=["sft"]),
+            mp=jmp.get_policy("p=f32,c=bfloat16"),
+            train_batch_size=8,
+            num_train_steps=100,
+            steps_per_eval=10,
+            checkpointer=CheckpointerConfig(keep=[dict(every=10)]),
+            seed=42
+        )
+        
+        # Optimizer configuration
+        optimizer_config = AdamConfig(
+            learning_rate=1e-4,
+            weight_decay=0.1,
+            warmup=10,
+            cooldown=0,
+            min_lr_ratio=0.1,
+            lr_schedule="cosine",
+            max_grad_norm=1.0
+        )
+        
+        # Dataset configuration
+        supervised_data = LMSupervisedDatasetConfig(
+            cache_dir=tokenized_data_path,
+            input_field="user",
+            output_field="assistant"
+        )
+        
+        # SFT configuration
+        sft_config = SFTConfig(
+            trainer=trainer_config,
+            model=model_config,
+            optimizer=optimizer_config,
+            supervised_data=supervised_data,
+            model_name_or_path=output_path_of(train_step),
+            initialize_from_hf=False,
+            tokenizer="gpt2", 
+            max_seq_len=64  # Match the sequence length used in training
+        )
+        
+        # Pod configuration - using same object as train step
+        config = TrainSFTPodConfig(
+            config=sft_config,
+            pod_config=pod_config,
+            output_path=this_output_path(),
+        )
+        
+        return ExecutorStep(
+            name=os.path.join(prefix, "sft"),
+            fn=run_levanter_sft,
+            config=config
+        )
+    
+    # Create SFT step using tokenized data
+    sft_step = simple_sft(output_path_of(tokenize_step))
+
     return [
         transform_hq_data_step,
         transform_lq_data_step,
@@ -237,6 +309,7 @@ def create_steps(prefix: str, synth_data: str) -> list[ExecutorStep]:
         consolidate_step,
         tokenize_step,
         train_step,
+        sft_step,
         # evaluate_step,
     ]
 
