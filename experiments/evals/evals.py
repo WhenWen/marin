@@ -9,7 +9,14 @@ from experiments.evals.resource_configs import SINGLE_TPU_V4_8, ResourceConfig
 from experiments.evals.task_configs import CORE_TASKS, KEY_GENERATION_TASKS, KEY_MULTIPLE_CHOICE_TASKS
 from marin.evaluation.evaluation_config import EvalTaskConfig, EvaluationConfig
 from marin.evaluation.run import evaluate
-from marin.execution.executor import ExecutorStep, InputName, output_path_of, this_output_path, versioned
+from marin.execution.executor import (
+    ExecutorStep,
+    InputName,
+    get_executor_step,
+    output_path_of,
+    this_output_path,
+    versioned,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,12 +54,8 @@ def evaluate_helm_on_step(
         evals (list[str]): List of evaluations to run with HELM, e.g, ["mmlu", "lite"].
     """
     # TODO: support evaluating all checkpoints in a run
-    if isinstance(step, ExecutorStep):
-        model_step_path = output_path_of(step)
-        executor_step = step
-    elif isinstance(step, InputName):
-        model_step_path = output_path_of(step.step)
-        executor_step = step.step
+    executor_step = get_executor_step(step)
+    model_step_path = output_path_of(executor_step)
 
     return ExecutorStep(
         name=f"evaluation/helm/{executor_step.name}",
@@ -102,13 +105,41 @@ def evaluate_lm_evaluation_harness(
     )
 
 
-def evaluate_alpaca_eval(model_name: str, model_path: str, resource_config: ResourceConfig) -> ExecutorStep:
+def evaluate_alpaca_eval(
+    model_name: str,
+    model_path: str,
+    resource_config: ResourceConfig,
+    temperature: float = 0.7,
+    presence_penalty: float = 0.0,
+    frequency_penalty: float = 0.0,
+    repetition_penalty: float = 1.0,
+    top_p: float = 1.0,
+    top_k: int = -1,
+) -> ExecutorStep:
     """
     Create an ExecutorStep to evaluate the model using AlpacaEval.
 
     Args:
         model_name (str): Name of the model.
         model_path (str): Path to the model.
+        resource_config (ResourceConfig): Resource configuration for the evaluation.
+        temperature (float, optional): Float that controls the randomness of the sampling.
+            Lower values make the model more deterministic, while higher values make
+            the model more random. Zero means greedy sampling. Defaults to 0.7.
+        presence_penalty (float, optional): Float that penalizes new tokens based on whether they
+            appear in the generated text so far. Values > 0 encourage the model
+            to use new tokens, while values < 0 encourage the model to repeat tokens. Defaults to 0.0.
+        frequency_penalty (float, optional): Float that penalizes new tokens based on their
+            frequency in the generated text so far. Values > 0 encourage the model to
+            use new tokens, while values < 0 encourage the model to repeat tokens. Defaults to 0.0.
+        repetition_penalty (float, optional): Float that penalizes new tokens based on whether
+            they appear in the prompt and the generated text so far. Values > 1
+            encourage the model to use new tokens, while values < 1 encourage
+            the model to repeat tokens. Defaults to 1.0.
+        top_p (float, optional): Float that controls the cumulative probability of the top tokens
+            to consider. Must be in (0, 1]. Set to 1 to consider all tokens. Defaults to 1.0.
+        top_k (int, optional): Integer that controls the number of top tokens to consider.
+            Set to -1 to consider all tokens. Defaults to -1.
     """
     return ExecutorStep(
         name=f"evaluation/alpaca_eval/{model_name}",
@@ -119,6 +150,14 @@ def evaluate_alpaca_eval(model_name: str, model_path: str, resource_config: Reso
             model_path=model_path,
             evaluation_path=this_output_path(),
             resource_config=resource_config,
+            engine_kwargs={
+                "temperature": temperature,
+                "presence_penalty": presence_penalty,
+                "frequency_penalty": frequency_penalty,
+                "repetition_penalty": repetition_penalty,
+                "top_p": top_p,
+                "top_k": top_k,
+            },
         ),
     )
 
@@ -165,7 +204,7 @@ def evaluate_levanter_lm_evaluation_harness(
     Create an ExecutorStep to evaluate the model using Levanter LM Evaluation Harness.
     """
     return ExecutorStep(
-        name=f"evaluation/levanter_lm_evaluation_harness/{model_name}",
+        name=f"evaluation/lm_evaluation_harness_levanter/lmeval_debug_{model_name}",
         fn=evaluate,
         config=EvaluationConfig(
             evaluator="levanter_lm_evaluation_harness",
