@@ -12,7 +12,6 @@ from marin.evaluation.run import evaluate
 from marin.execution.executor import (
     ExecutorStep,
     InputName,
-    get_executor_step,
     output_path_of,
     this_output_path,
     versioned,
@@ -54,7 +53,8 @@ def evaluate_helm_on_step(
         evals (list[str]): List of evaluations to run with HELM, e.g, ["mmlu", "lite"].
     """
     # TODO: support evaluating all checkpoints in a run
-    executor_step = get_executor_step(step)
+    # TODO:BUG FIX THIS WAS A HACK FOR THE ALPACA EVAL
+    executor_step = step
     model_step_path = output_path_of(executor_step)
 
     return ExecutorStep(
