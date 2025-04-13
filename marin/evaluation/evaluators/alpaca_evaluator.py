@@ -64,12 +64,12 @@ class AlpacaEvaluator(VllmTpuEvaluator):
                     # Mandatory argument for `vllm_local_completions` in AlpacaEval
                     # https://github.com/tatsu-lab/alpaca_eval/blob/main/src/alpaca_eval/decoders/vllm_local.py#L21
                     "max_new_tokens": None,  # Following the config above, set to None to go up to EOS or context length
-                    "temperature": 0.7,
-                    # "top_p": top_p,
-                    # "top_k": top_k,
-                    # "presence_penalty": presence_penalty,
-                    # "frequency_penalty": frequency_penalty,
-                    # "repetition_penalty": repetition_penalty,
+                    "temperature": temp,
+                    "top_p": top_p,
+                    "top_k": top_k,
+                    "presence_penalty": presence_penalty,
+                    "frequency_penalty": frequency_penalty,
+                    "repetition_penalty": repetition_penalty,
                     "model_kwargs": {
                         "max_model_len": 4096,  # Cap at 4096 tokens
                         "dtype": "bfloat16",  # Explicitly use bfloat16 for TPU
@@ -122,7 +122,7 @@ class AlpacaEvaluator(VllmTpuEvaluator):
             self.write_model_config_file(model, model_config_path, engine_kwargs)
 
             # Construct the command and run AlpacaEval
-            max_eval_instances = 20  # max_eval_instances or self.DEFAULT_MAX_INSTANCES
+            max_eval_instances = max_eval_instances or self.DEFAULT_MAX_INSTANCES
             model_name = os.path.basename(model_name_or_path)
             results_path: str = os.path.join(AlpacaEvaluator.BASE_RESULTS_PATH, model_name)
             run_bash_command(
