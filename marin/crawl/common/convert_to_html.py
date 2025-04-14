@@ -11,6 +11,7 @@ from typing import Any
 import draccus
 import fsspec
 import pandas as pd
+from operations.download.dclm_hq.download_dclm_hq_html import find_html_in_cc
 import ray
 from warcio import ArchiveIterator
 
@@ -62,41 +63,60 @@ def process_one_shard(
     length_warc = 0
     # NOTE: make sure s3 keys are set up by passing them as
     # environment variables when submitting the job
-    s3_fs = fsspec.filesystem(
-        "s3",
-        anon=False,
-        default_block_size=100 * 2**20,
-        key=os.environ["AWS_ACCESS_KEY"],
-        secret=os.environ["AWS_SECRET_KEY"],
-    )
-    s3_fs.retries = 10
+    if isinstance(s3_url, str):
+        s3_fs = fsspec.filesystem(
+            "s3",
+            anon=False,
+            default_block_size=100 * 2**20,
+            key=os.environ["AWS_ACCESS_KEY"],
+            secret=os.environ["AWS_SECRET_KEY"],
+        )
+        s3_fs.retries = 10
 
-    if s3_url_modifier:
-        s3_url = s3_url_modifier(s3_url)
+        if s3_url_modifier:
+            s3_url = s3_url_modifier(s3_url)
+        
+        with s3_fs.open(s3_url, mode="rb") as file_stream:
+            for record in ArchiveIterator(file_stream):
+                if num_urls_found == num_urls_to_find:
+                    break
 
-    with s3_fs.open(s3_url, mode="rb") as file_stream:
-        for record in ArchiveIterator(file_stream):
-            if num_urls_found == num_urls_to_find:
-                break
+                # Check if it's a response record
+                if record.rec_type == "response":
+                    # Process the record
+                    url = record.rec_headers.get_header("WARC-Target-URI")
+                    length_warc += 1
 
-            # Check if it's a response record
-            if record.rec_type == "response":
-                # Process the record
-                url = record.rec_headers.get_header("WARC-Target-URI")
+                    if url in url_dict:
+                        num_urls_found += 1
+                        url_idx_in_df = url_dict[url]
+
+                        content = record.content_stream().read()
+                        html_decoded: str | None = decode_html(content)
+                        if html_decoded:
+                            df.loc[url_idx_in_df, "html"] = html_decoded
+                        else:
+                            df.loc[url_idx_in_df, "html"] = ""
+                            num_urls_failed_decoding += 1
+                        num_urls_processed += 1
+    
+    elif isinstance(s3_url, dict):
+        for url in urls:
+            if url in url_dict:
+                num_urls_found += 1
+                url_idx_in_df = url_dict[url]
+
+            content = find_html_in_cc(**s3_url)
+            if content is not None:
+                df.loc[url_idx_in_df, "html"] = content
                 length_warc += 1
+            else:
+                df.loc[url_idx_in_df, "html"] = ""
+                num_urls_failed_decoding += 1
+            num_urls_processed += 1
 
-                if url in url_dict:
-                    num_urls_found += 1
-                    url_idx_in_df = url_dict[url]
-
-                    content = record.content_stream().read()
-                    html_decoded: str | None = decode_html(content)
-                    if html_decoded:
-                        df.loc[url_idx_in_df, "html"] = html_decoded
-                    else:
-                        df.loc[url_idx_in_df, "html"] = ""
-                        num_urls_failed_decoding += 1
-                    num_urls_processed += 1
+    else:
+        raise ValueError(f"Invalid s3_url: {s3_url} of type {type(s3_url)}")
 
     with fsspec.open(output_path, "wt", compression="gzip") as f:  # html output
         for _, row in df.iterrows():
@@ -124,6 +144,7 @@ def process_one_shard(
         f"in {input_path} . {num_urls_failed_decoding} failed HTML decoding "
         f"AWS URL: {s3_url}"
         f"Found {length_warc} records in the WARC file"
+        f"Saved {num_urls_found} urls to {output_path}"
     )
 
 
@@ -178,20 +199,49 @@ def group_by_warc(
 
     if warc_path_extractor:
         print("Extracting WARC path from metadata")
-        df[file_path_column] = df["metadata"].apply(warc_path_extractor)
+        df[file_path_column] = warc_path_extractor(df)
         columns.append(file_path_column)
-
-    grouped = df.groupby(file_path_column)
 
     remote_refs = []
 
-    # Using Ray to parallelize the writing of groups
-    for index, (_, group_df) in enumerate(grouped):
-        output_file = os.path.join(output_path, f"{index}_warc_examples.parquet")
-        group_success_file = os.path.join(output_path, f"{index}_warc_examples.success")
+    # Try using pandas groupby, fall back to manual method if unhashable types are found
+    try:
+        grouped = df.groupby(file_path_column)
+        
+        # Using Ray to parallelize the writing of groups
+        for index, (_, group_df) in enumerate(grouped):
+            output_file = os.path.join(output_path, f"{index}_warc_examples.parquet")
+            group_success_file = os.path.join(output_path, f"{index}_warc_examples.success")
 
-        # Queue up remote task for writing this group
-        remote_refs.append(write_group_to_parquet.remote(output_file, group_df, group_success_file))
+            # Queue up remote task for writing this group
+            remote_refs.append(write_group_to_parquet.remote(output_file, group_df, group_success_file))
+    
+    except TypeError as e:
+        # If we get a TypeError (likely due to unhashable types like dictionaries),
+        # fall back to a manual grouping approach
+        logger.info(f"Error with standard groupby: {e}. Falling back to manual grouping...")
+        
+        # Create a hashable representation of the grouping key
+        df['_file_path_hashable'] = df[file_path_column].apply(
+            lambda x: json.dumps(x) if isinstance(x, dict) else str(x)
+        )
+        
+        # Manual grouping
+        grouped_dict = {}
+        for idx, row in df.iterrows():
+            hashable_key = row['_file_path_hashable']
+            if hashable_key not in grouped_dict:
+                grouped_dict[hashable_key] = []
+            grouped_dict[hashable_key].append(idx)
+        
+        # Using Ray to parallelize the writing of groups
+        for index, (_, indices) in enumerate(grouped_dict.items()):
+            group_df = df.loc[indices].copy()
+            output_file = os.path.join(output_path, f"{index}_warc_examples.parquet")
+            group_success_file = os.path.join(output_path, f"{index}_warc_examples.success")
+
+            # Queue up remote task for writing this group
+            remote_refs.append(write_group_to_parquet.remote(output_file, group_df, group_success_file))
 
     # Wait for all groups to be written
     ray.get(remote_refs)
@@ -247,27 +297,37 @@ def process_parquet(cfg: HtmlExtractionConfig):
     num_shards_to_process = len(shard_indices_to_process)
 
     # Set a limit on the number of concurrent tasks so we don't overwhelm CC
-    MAX_CONCURRENT_TASKS = 500
+    MAX_CONCURRENT_TASKS = 100
 
     # Shuffle to encourage different workers to hit different AWS prefixes,
     # so we don't run into per-prefix rate limits.
     random.shuffle(shard_indices_to_process)
-    num_shards_submitted = 0
-    unfinished = []
 
     columns = cfg.columns
     if cfg.warc_path_extractor:
         columns.append(cfg.file_path_column)
 
-    def submit_shard_task(shard_index):
-        """Submit a shard processing task and log progress every 1000 shards."""
-        nonlocal num_shards_submitted
+    result_refs = []
+    num_shards_submitted = 0
+    
+    # Process shards with controlled concurrency
+    for shard_index in shard_indices_to_process:
+        # Wait for a task to complete if we've reached the concurrency limit
+        if len(result_refs) >= MAX_CONCURRENT_TASKS:
+            # Wait for at least one task to complete before submitting more
+            ready_refs, result_refs = ray.wait(result_refs, num_returns=1)
+            try:
+                ray.get(ready_refs)
+            except Exception as e:
+                logger.exception(f"Error processing shard: {e}")
+        
         # shard_path_to_process is of form gs://<output_path>/0_warc_examples.parquet
         shard_path = os.path.join(cfg.output_path, f"{shard_index}_warc_examples.parquet")
         # shard_output_path is of form gs://<output_path>/open-web-math_0.jsonl.gz
         shard_output_path = os.path.join(cfg.output_path, f"{cfg.source_name}_{shard_index}.jsonl.gz")
 
-        unfinished.append(
+        # Submit task
+        result_refs.append(
             process_one_shard.remote(
                 shard_path,
                 shard_output_path,
@@ -278,25 +338,17 @@ def process_parquet(cfg: HtmlExtractionConfig):
                 cfg.file_path_column,
             )
         )
+        
         num_shards_submitted += 1
         if num_shards_submitted % 1000 == 0:
             logger.info(
                 f"Submitted {num_shards_submitted} / {num_shards_to_process} shards "
                 f"({num_shards_submitted / num_shards_to_process})"
             )
-
-    # Launch the initial MAX_CONCURRENT_TASKS batch of tasks
-    for _ in range(min(MAX_CONCURRENT_TASKS, len(shard_indices_to_process))):
-        submit_shard_task(shard_indices_to_process.pop())
-
-    while unfinished:
-        finished, unfinished = ray.wait(unfinished, num_returns=len(unfinished), timeout=5)
+    
+    # Wait for all remaining tasks to complete
+    if result_refs:
         try:
-            ray.get(finished)
+            ray.get(result_refs)
         except Exception as e:
-            logger.exception(f"Error processing shard: {e}")
-
-        # If we have more shard paths left to process and we haven't hit the max
-        # number of concurrent tasks, add tasks to the unfinished queue.
-        while shard_indices_to_process and len(unfinished) < MAX_CONCURRENT_TASKS:
-            submit_shard_task(shard_indices_to_process.pop())
+            logger.exception(f"Error processing remaining shards: {e}")

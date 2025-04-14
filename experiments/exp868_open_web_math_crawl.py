@@ -5,11 +5,17 @@ Link to issue: https://github.com/stanford-crfm/marin/issues/868
 """
 
 import json
+import pandas as pd
 
 from experiments.crawl.default import default_crawl
 from marin.crawl.common.schemas import HtmlExtractionConfig
 from marin.crawl.get_open_web_math_crawl_yield import filter_and_yield
 from marin.execution.executor import executor_main, this_output_path
+
+
+def warc_path_extractor(df: pd.DataFrame) -> str:
+    return df["metadata"].apply(lambda x: json.loads(x)["warc_path"])
+
 
 open_web_math_crawling_steps = default_crawl(
     config=HtmlExtractionConfig(
@@ -17,11 +23,12 @@ open_web_math_crawling_steps = default_crawl(
         output_path=this_output_path(),
         source_name="openwebmath",
         columns=["url", "date", "metadata"],
-        warc_path_extractor=lambda x: json.loads(x)["warc_path"],
+        warc_path_extractor=warc_path_extractor,
         max_files=1,
     ),
     yield_fn=filter_and_yield,
 )
+
 
 if __name__ == "__main__":
     executor_main(
