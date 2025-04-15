@@ -127,7 +127,6 @@ def default_crawl(
             data_source=config.source_name,
             text_output_directory=this_output_path(f"text/{config.source_name}-cc-deduplicated"),
             statistics_output_path=output_path_of(links_fetched_warc, "yield_statistics.json.gz"),
-            urls_and_scores_output_directory=this_output_path(f"urls_and_scores/{config.source_name}-cc-deduplicated"),
         ),
         override_output_path=f"crawl/{config.source_name}",
     )
