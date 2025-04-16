@@ -178,7 +178,7 @@ llama_22b_train_config_ema_mk5 = SimpleTrainConfig(
 
 llama_13b_train_config_ema_mk3 = SimpleTrainConfig(
     tpu_type="v6e-64",
-    node_count=6,
+    node_count=2,
     train_batch_size=[ScheduleStep(start=0, value=1024), ScheduleStep(start=280_000, value=3072)],
     num_train_steps=1_000_000,
     # NEW: increased weight decay
