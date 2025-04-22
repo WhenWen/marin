@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import ray
 from levanter.data.text import LMMixtureDatasetConfig
 from levanter.distributed import RayConfig
+from levanter.infra.ray_tpu import _separate_process_fn
 from levanter.main.viz_logprobs import VizLmConfig as LevanterVizLmConfig
 from levanter.main.viz_logprobs import main as viz_lm_main
 from levanter.models.lm_model import LmConfig
@@ -33,6 +34,7 @@ class VizLmConfig:
     checkpoint_is_hf: bool = False
 
     comparison_model_path: str | None = None
+    comparison_is_hf: bool = False
 
 
 @ray.remote(memory=64 * 1024 * 1024 * 1024, resources={"TPU": 4, "TPU-v4-8-head": 1})
@@ -44,7 +46,8 @@ def do_viz_lm(config: LevanterVizLmConfig) -> None:
     Args:
         config (VizLmConfig): The configuration for visualizing log probabilities.
     """
-    viz_lm_main(config)
+    # remove_tpu_lockfile_on_exit() isn't sufficient now?
+    _separate_process_fn(viz_lm_main, (config,), {})
 
 
 def mixture_for_visualization(inputs: dict[str, ExecutorStep]) -> LMMixtureDatasetConfig:
@@ -83,5 +86,6 @@ def visualize_lm_log_probs(config: VizLmConfig) -> None:
         ),
         checkpoint_is_hf=config.checkpoint_is_hf,
         comparison_model_path=config.comparison_model_path,
+        comparison_is_hf=config.comparison_is_hf,
     )
     ray.get(do_viz_lm.remote(levanter_config))

@@ -389,7 +389,7 @@ def get_default_projection_points(count_embedding_params: bool = False) -> list[
     Args:
         count_embedding_params: Whether to include embedding parameters in parameter count
     """
-    from experiments.llama import llama_1_4b, llama_8b, llama_13b, llama_24b, llama_56b, llama_70b
+    from experiments.llama import llama_1_4b, llama_8b, llama_13b, llama_24b, llama_70b
 
     # Base model configs
     model_configs = [
@@ -397,7 +397,6 @@ def get_default_projection_points(count_embedding_params: bool = False) -> list[
         llama_8b,
         llama_13b,
         llama_24b,
-        llama_56b,
         llama_70b,
     ]
 
