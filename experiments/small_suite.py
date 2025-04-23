@@ -1,7 +1,8 @@
 from marin.scaling_laws.create_ladder_suite import create_smaller_ladder_suite
 from experiments.evals.task_configs import CORE_TASKS_PLUS_MMLU
-from experiments.tootsie.exp600_tootsie import dclm_mixture_config_llama3
 from marin.execution.executor import executor_main
+from experiments.dolma.exp442_dolma import dolma_llama3_tokenized
+
 
 model_table = [
     {"name": "4M", "hidden_dim": 64, "num_layers": 8, "num_heads": 8, "batch_size": 32, "learning_rate": 1.4e-2},
@@ -16,8 +17,8 @@ model_table = [
 ]
 
 suite = create_smaller_ladder_suite(
-    sweep_name="small-suite",
-    tokenized=dclm_mixture_config_llama3,
+    sweep_name="small-suite-dolma",
+    tokenized=dolma_llama3_tokenized,
     tags=["small_models", "scaling_laws"],
     model_table=model_table,
     eval_harness_tasks=CORE_TASKS_PLUS_MMLU,
@@ -26,6 +27,6 @@ suite = create_smaller_ladder_suite(
 if __name__ == "__main__":
     executor_main(
         steps=suite,
-        description="Suite for scaling laws on small models (4M-90M) with DCLM-Baseline+StarCoder+ProofPile mix",
+        description="Suite for scaling laws on small models (4M-90M) with Dolma mix",
     )
 # print(suite)
