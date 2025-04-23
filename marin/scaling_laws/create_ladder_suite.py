@@ -25,8 +25,8 @@ DEFAULT_MODEL_CONFIG = LlamaConfig(
 )
 
 WS_EMA_DEFAULT_TRAIN_CONFIG = SimpleTrainConfig(
-    tpu_type="v4-128",
-    node_count=2,
+    tpu_type="v4-32",
+    node_count=1,
     train_batch_size=1024,
     learning_rate=1e-3,  # placeholder, this will be replaced in the scaling law suite
     weight_decay=0.1,
@@ -121,5 +121,64 @@ def scaling_law_suite(
     return steps
 
 
+from experiments.llama import compute_num_parameters, llama3_tokenizer_vocab_size
+
+def create_smaller_ladder_suite(
+    sweep_name: str,
+    tokenized: InputName | ExecutorStep | LMMixtureDatasetConfig,
+    tags: Sequence[str] = (),
+    model_table: Sequence[dict] = None,
+    base_model_config: LlamaConfig = llama_1_4b,
+    base_train_config: SimpleTrainConfig = WS_EMA_DEFAULT_TRAIN_CONFIG,
+    eval_harness_tasks=CORE_TASKS_PLUS_MMLU,
+):
+    steps = []
+    for entry in model_table:
+        model_config = dataclasses.replace(
+            base_model_config,
+            hidden_dim=entry["hidden_dim"],
+            num_layers=entry["num_layers"],
+            num_heads=entry["num_heads"],
+            intermediate_dim=entry.get("intermediate_dim", _round_to_multiple(8 * entry["hidden_dim"], 128)),
+            num_kv_heads=entry.get("num_kv_heads", min(entry["num_heads"], 8)),
+            seq_len=entry.get("seq_len", 2048),
+        )
+        train_config = dataclasses.replace(
+            base_train_config,
+            train_batch_size=entry["batch_size"],
+            learning_rate=entry["learning_rate"],
+            num_train_steps=30000,
+        )
+        steps.append(
+            default_train(
+                name=f"{sweep_name}-{entry['name']}",
+                tokenized=tokenized,
+                model_config=model_config,
+                train_config=train_config,
+                tags=tags,
+                eval_harness_tasks=eval_harness_tasks,
+            )
+        )
+    return steps
+
+        # n_params = compute_num_parameters(model_config, llama3_tokenizer_vocab_size)
+        # print(f"{entry['name']}: {n_params:,} parameters")
+
+# Example usage in an experiment script:
+# from marin.scaling_laws.create_ladder_suite import create_smaller_ladder_suite
+# model_table = [
+#     {"name": "4M", "hidden_dim": 64, "num_layers": 8, "num_heads": 8, "batch_size": 32, "learning_rate": 1.4e-2},
+#     {"name": "6M", "hidden_dim": 96, "num_layers": 8, "num_heads": 8, "batch_size": 32, "learning_rate": 1.2e-2},
+#     ... # etc for all models up to 90M
+# ]
+# suite = create_smaller_ladder_suite(
+#     sweep_name="small-models-suite",
+#     tokenized=your_dataset_config,
+#     tags=["small_models"],
+#     model_table=model_table,
+# )
+
 def _round_to_multiple(x, multiple):
     return int(multiple * round(x / multiple))
+
+
