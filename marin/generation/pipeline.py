@@ -34,8 +34,9 @@ class TextGeneration:
         """Generate a batch of text using an LLM where the example text is in dolma format in the "text" column."""
 
         prompts = [self.template.format(example=example) for example in batch[self.prompt_column]]
+        print(f"Prompts: {prompts}")
         generated_text = self.llm.generate(prompts)
-
+        print(f"Generated text: {generated_text}")
         return self._update_batch(batch, generated_text, prompts)
 
 
