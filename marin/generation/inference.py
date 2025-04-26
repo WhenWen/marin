@@ -137,6 +137,7 @@ def run_inference(config: TextGenerationInferenceConfig):
     elif config.template:
         template = config.template
 
+    print("Starting inference")
     ds = ds.map_batches(  # Apply batch inference for all input data.
         vLLMTextGeneration,
         # Set the concurrency to the number of LLM instances.
@@ -154,4 +155,6 @@ def run_inference(config: TextGenerationInferenceConfig):
         },
         **ray_resources_kwarg(config),
     )
+
+    print("Writing output")
     ds = ds.write_json(config.output_path, **get_ray_data_write_kwargs(config))
