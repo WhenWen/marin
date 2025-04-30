@@ -1,6 +1,7 @@
 name: CI with GCP TPU
 
-on: pull_request
+on: 
+  workflow_dispatch
 
 jobs:
   tpu-tests:
