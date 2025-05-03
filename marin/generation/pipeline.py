@@ -1,6 +1,6 @@
 from typing import Any
 
-from marin.generation.llm_generation import BaseLLMProvider, vLLMProvider
+from marin.generation.llm_generation import BaseLLMProvider, vLLMProvider, vSurgeProvider
 from marin.generation.templates import STEP_BY_STEP_TEMPLATE
 
 
@@ -66,6 +66,49 @@ class vLLMTextGeneration(TextGeneration):
             for example in batch[self.prompt_column]:
                 chat_example = [{"role": "user", "content": self.template.format(example=example)}]
                 prompts.append(tokenizer.apply_chat_template(chat_example, tokenize=False, add_generation_prompt=True))
+        else:
+            prompts = [self.template.format(example=example) for example in batch[self.prompt_column]]
+
+        generated_text = self.llm.generate(prompts)
+        return self._update_batch(batch, generated_text, prompts)
+
+
+class vSurgeTextGeneration(TextGeneration):
+    def __init__(
+        self,
+        model_name: str,
+        engine_kwargs: dict[str, Any] | None = None,
+        generation_kwargs: dict[str, Any] | None = None,
+        template: str | None = None,
+        num_generations: int = 1,
+        num_instances: tuple[int, int] = (1, 4),
+        prompt_column: str = "text",
+        apply_chat_template: bool = True,
+        save_templated_prompt: bool = False,
+    ):
+        surge = vSurgeProvider(model_name, engine_kwargs, generation_kwargs)
+
+        super().__init__(
+            surge,
+            template,
+            num_generations,
+            prompt_column,
+            save_templated_prompt,
+        )
+
+        self.apply_chat_template = apply_chat_template
+
+    def __call__(self, batch: dict[str, Any]) -> dict[str, Any]:
+        if self.apply_chat_template:
+            prompts = []
+            for example in batch[self.prompt_column]:
+                prompts.append(
+                    self.llm.processor.apply_chat_template(
+                        [{"role": "user", "content": self.template.format(example=example)}],
+                        tokenize=False,
+                        add_generation_prompt=True,
+                    )
+                )
         else:
             prompts = [self.template.format(example=example) for example in batch[self.prompt_column]]
 
