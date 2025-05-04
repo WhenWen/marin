@@ -10,7 +10,7 @@ from dataclasses import dataclass
 import ray
 
 from experiments.evals.resource_configs import (
-    TPU_V4_16_STRICT_PACK,
+    TPU_V6E_8_STRICT_PACK,
 )
 from experiments.models import get_model_local_path, llama_3_1_8b_instruct
 from marin.execution.executor import ExecutorStep, executor_main, output_path_of, this_output_path, versioned
@@ -19,8 +19,8 @@ from marin.utils import get_directory_friendly_name
 from operations.download.huggingface.download import DownloadConfig
 from operations.download.huggingface.download_hf import download_hf
 
-# tpu_type = "TPU-v6e-8"
-tpu_type = "TPU-v4-16"
+tpu_type = "TPU-v6e-8"
+# tpu_type = "TPU-v4-16"
 
 
 @dataclass
@@ -100,7 +100,7 @@ math500 = ExecutorStep(
 )
 
 generations = ExecutorStep(
-    name="documents/synthetic_data_llama_8b_debug",
+    name="documents/synthetic_data_llama_8b_debug_new",
     fn=run_inference,
     config=TextGenerationInferenceConfig(
         input_path=output_path_of(math500),
@@ -120,10 +120,10 @@ generations = ExecutorStep(
         tensor_parallel_size=tensor_parallel_size,
         prompt_column="problem",
         filetype="jsonl",
-        # resource_config=TPU_V6E_8_STRICT_PACK,
+        resource_config=TPU_V6E_8_STRICT_PACK,
         # resource_config=SINGLE_TPU_V4_8,
         # resource_config=SINGLE_TPU_V4_16,
-        resource_config=TPU_V4_16_STRICT_PACK,
+        # resource_config=TPU_V4_16_STRICT_PACK,
     ),
 )
 
