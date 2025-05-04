@@ -100,7 +100,7 @@ math500 = ExecutorStep(
 )
 
 generations = ExecutorStep(
-    name="documents/synthetic_data_llama_8b_debug_new",
+    name="documents/synthetic_data_llama_8b_debug_new_6",
     fn=run_inference,
     config=TextGenerationInferenceConfig(
         input_path=output_path_of(math500),
@@ -121,6 +121,7 @@ generations = ExecutorStep(
         prompt_column="problem",
         filetype="jsonl",
         resource_config=TPU_V6E_8_STRICT_PACK,
+        batch_size=4,
         # resource_config=SINGLE_TPU_V4_8,
         # resource_config=SINGLE_TPU_V4_16,
         # resource_config=TPU_V4_16_STRICT_PACK,
@@ -128,7 +129,7 @@ generations = ExecutorStep(
 )
 
 generations_alt = ExecutorStep(
-    name="documents/synthetic_data_llama_8b_alt_debug",
+    name="documents/synthetic_data_llama_8b_alt_debug_3",
     fn=dummy_inference,
     config=DummyInferenceConfig(prompt="What is 1+1?"),
 )

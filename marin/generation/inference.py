@@ -79,7 +79,7 @@ def set_ray_data_config(config: TextGenerationInferenceConfig):
     # This is the amount of time to wait for the actors to be created.
     # We increase the default timeout since model loading
     # for large models can take awhile.
-    ctx.wait_for_min_actors_s = 60 * 10 * config.tensor_parallel_size
+    ctx.wait_for_min_actors_s = 120 * 10 * config.tensor_parallel_size
 
 
 def ray_resources_kwarg(config: TextGenerationInferenceConfig):
@@ -138,7 +138,7 @@ def run_inference(config: TextGenerationInferenceConfig):
     elif config.template:
         template = config.template
 
-    print("Starting inference")
+    # print("Starting inference")
     ds = ds.map_batches(  # Apply batch inference for all input data.
         vLLMTextGeneration,
         # Set the concurrency to the number of LLM instances.
@@ -158,4 +158,11 @@ def run_inference(config: TextGenerationInferenceConfig):
     )
 
     print("Writing output")
-    ds = ds.write_json(config.output_path, **get_ray_data_write_kwargs(config))
+    # ds = ds.write_json(config.output_path, **get_ray_data_write_kwargs(config))
+    results = ds.take(400)
+    print(results)
+
+    # with fsspec.open(config.output_path, "wt", compression="infer") as out:
+    #     for record in results:  # ds.iter_rows():
+    #         print(record)
+    #         # out.write(json.dumps(record) + "\n")
