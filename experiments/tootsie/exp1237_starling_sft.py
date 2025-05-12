@@ -12,8 +12,6 @@ from experiments.exp808_sft_mixture import mixture_config as sft_mixture_llama3
 from experiments.llama import llama_8b
 from experiments.tootsie.exp916_tootsie_spoonbill_cooldown import spoonbill_zloss_tulu3_sft_config
 from marin.execution.executor import executor_main
-from marin.resources import TpuPodConfig
-import numpy as np
 
 sft_experiments = []
 deeper_sft_config = dataclasses.replace(
@@ -26,7 +24,7 @@ deeper_sft_config = dataclasses.replace(
 
 
 deeper_mixture_experiment = default_sft(
-    name="sft/mixture_sft_deeper_starling"
+    name="sft/mixture_sft_deeper_starling",
     tokenized=sft_mixture_llama3,
     model_config=llama_8b,
     sft_config=deeper_sft_config,
