@@ -7,10 +7,13 @@ See https://github.com/stanford-crfm/marin/issues/163 for more details.
 import os
 from dataclasses import dataclass, field
 
+from experiments.defaults import default_tokenize, default_train
+from experiments.evals.evals import default_eval
 from experiments.exp274_mmlu_quality_classifier import (
     dclm_negative_examples_in_dolma_format,
     mmlu_eval_aux_in_dolma_format,
 )
+from experiments.llama import llama3_tokenizer, llama_1_4b, llama_1_4b_train_config
 from marin.classifiers.utils import DatasetConfig
 from marin.core.runtime import TaskConfig
 from marin.execution.executor import (
@@ -87,7 +90,7 @@ def create_steps(config: ExperimentConfig) -> list[ExecutorStep]:
     )
 
     bert_classifier_train = ExecutorStep(
-        name=f"classifiers/{config.experiment_name}/bert-debug",
+        name=f"classifiers/{config.experiment_name}/bert-debug",  # TODO: remove debug
         fn=train_bert,
         config=TrainBertClassifierConfig(
             datasets=config.classifier_training_datasets,
@@ -204,6 +207,78 @@ def create_steps(config: ExperimentConfig) -> list[ExecutorStep]:
 
         steps.extend(fasttext_consolidate_steps)
         steps.extend(bert_consolidate_steps)
+
+        # dolmino_dclm = get_dolmino_step_llama3("dclm")
+        for fasttext_consolidate_step, bert_consolidate_step in zip(
+            fasttext_consolidate_steps, bert_consolidate_steps, strict=False
+        ):
+            fasttext_tokenize_step = default_tokenize(
+                name=f"tokenized/quality_filtering/{config.experiment_name}/fasttext/{input_data_source}",
+                dataset=fasttext_consolidate_step,
+                tokenizer=llama3_tokenizer,
+            )
+            bert_tokenize_step = default_tokenize(
+                name=f"tokenized/quality_filtering/{config.experiment_name}/bert/{input_data_source}",
+                dataset=bert_consolidate_step,
+                tokenizer=llama3_tokenizer,
+            )
+            steps.append(fasttext_tokenize_step)
+            steps.append(bert_tokenize_step)
+
+            fasttext_train_step = default_train(
+                name=f"checkpoints/quality_filtering/{config.experiment_name}/fasttext/{input_data_source}/train",
+                tokenized=fasttext_tokenize_step,
+                model_config=llama_1_4b,
+                train_config=llama_1_4b_train_config,
+            )
+            bert_train_step = default_train(
+                name=f"checkpoints/quality_filtering/{config.experiment_name}/bert/{input_data_source}/train",
+                tokenized=bert_tokenize_step,
+                model_config=llama_1_4b,
+                train_config=llama_1_4b_train_config,
+            )
+            steps.append(fasttext_train_step)
+            steps.append(bert_train_step)
+
+            # fasttext_anneal_config = AnnealConfig(
+            #     dataset_config=lm_mixture_data_config(
+            #         components={
+            #             "fineweb-hq": fasttext_tokenize_step,
+            #             "dolmino": dolmino_dclm,
+            #         },
+            #         weights={"fineweb-hq": 0.3, "dolmino": 0.7},
+            #     ),
+            # )
+            # fasttext_anneal_step = default_anneal(
+            #     name=f"checkpoints/quality_filtering/{config.experiment_name}/fasttext/{input_data_source}/anneal",
+            #     anneal_config=fasttext_anneal_config,
+            # )
+
+            # bert_anneal_config = AnnealConfig(
+            #     dataset_config=lm_mixture_data_config(
+            #         components={
+            #             "fineweb-hq": bert_tokenize_step,
+            #             "dolmino": dolmino_dclm,
+            #         },
+            #         weights={"fineweb-hq": 0.3, "dolmino": 0.7},
+            #     ),
+            # )
+            # bert_anneal_step = default_anneal(
+            #     name=f"checkpoints/quality_filtering/{config.experiment_name}/bert/{input_data_source}/anneal",
+            #     anneal_config=bert_anneal_config,
+            # )
+            # steps.append(fasttext_anneal_step)
+            # steps.append(bert_anneal_step)
+
+            eval_fasttext_train = default_eval(fasttext_train_step)
+            eval_bert_train = default_eval(bert_train_step)
+            # eval_fasttext_anneal = default_eval(fasttext_anneal_step)
+            # eval_bert_anneal = default_eval(bert_anneal_step)
+
+            steps.append(eval_fasttext_train)
+            steps.append(eval_bert_train)
+            # steps.append(eval_fasttext_anneal)
+            # steps.append(eval_bert_anneal)
 
     return steps
 
