@@ -1,0 +1,60 @@
+{
+  "model_size": "130m",
+  "optimizer_name": "mudam",
+  "sweep_grids": {
+    "learning_rate": [
+      0.004,
+      0.008,
+      0.016,
+      0.032
+    ],
+    "weight_decay": [
+      0,
+      0.1,
+      0.2,
+      0.3
+    ],
+    "beta1": [
+      0.9,
+      0.95,
+      0.98,
+      0.99
+    ],
+    "beta2": [
+      0.95,
+      0.95,
+      0.98,
+      0.99
+    ],
+    "shampoo_beta": [
+      0.95,
+      0.98,
+      0.99
+    ],
+    "momentum": [
+      0.9,
+      0.95,
+      0.98
+    ],
+    "adam_lr": [
+      0.002,
+      0.004,
+      0.008,
+      0.016
+    ],
+    "warmup": [
+      0,
+      500,
+      1000
+    ],
+    "normalization": [
+      "muon",
+      null
+    ],
+    "train_batch_size": [
+      128,
+      256
+    ]
+  },
+  "target_chinchilla": 4
+}

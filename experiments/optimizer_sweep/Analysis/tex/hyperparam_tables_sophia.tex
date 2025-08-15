@@ -1,0 +1,90 @@
+\subsection{Sweeping Results for Sophia}% sophia - 130m on 4x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Sophia on 130m on 4x Chinchilla Data}
+\label{tab:ablation_sophia_130m_4}
+\begin{tabular}{cccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\gamma$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.95 & 0.99 & 1e-07 & 0.0125 & 0.004 & 1 & 0 & 128 & 4000 & 0.2 & 3.330 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-10B-sophia420680lr0.004-wd0.2-minlr0-warmup4000-b10.9-95e0d1}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% sophia - 130m on 2x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Sophia on 130m on 2x Chinchilla Data}
+\label{tab:ablation_sophia_130m_2}
+\begin{tabular}{cccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\gamma$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.95 & 0.9 & 1e-07 & 0.0125 & 0.004 & 1 & 0 & 128 & 4000 & 0.1 & 3.414 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-5B-sophiaf95b3dlr0.004-wd0.1-minlr0-warmup4000-b10.95-187352}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% sophia - 130m on 8x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Sophia on 130m on 8x Chinchilla Data}
+\label{tab:ablation_sophia_130m_8}
+\begin{tabular}{cccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\gamma$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.95 & 0.95 & 1e-07 & 0.0125 & 0.002 & 1 & 0 & 128 & 4000 & 0.2 & 3.259 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-21B-sophia8d270alr0.002-wd0.2-minlr0-warmup4000-b10.9-728991}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% sophia - 130m on 1x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Sophia on 130m on 1x Chinchilla Data}
+\label{tab:ablation_sophia_130m_1}
+\begin{tabular}{cccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\gamma$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.95 & 0.9 & 1e-07 & 0.0125 & 0.004 & 1.0 & 0 & 128 & 4000 & 0 & 3.544 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-2B-sophiag67fd60lr0.004-wd0-minlr0-warmup4000-b10.95--7bdb33}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% sophia - 300m on 1x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Sophia on 300m on 1x Chinchilla Data}
+\label{tab:ablation_sophia_300m_1}
+\begin{tabular}{cccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\gamma$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.9 & 0.9 & 1e-07 & 0.0125 & 0.004 & 1 & 0 & 128 & 4000 & 0.1 & 3.267 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-6B-sophiafff382flr0.004-wd0.1-minlr0-warmup4000-b10.9-f1648d}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% sophia - 520m on 1x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Sophia on 520m on 1x Chinchilla Data}
+\label{tab:ablation_sophia_520m_1}
+\begin{tabular}{cccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\gamma$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.95 & 0.9 & 1e-07 & 0.0125 & 0.002 & 1 & 0 & 128 & 4000 & 0.3 & 3.106 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-10B-sophia651c9blr0.002-wd0.3-minlr0-warmup4000-b10.9-46bf7a}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+

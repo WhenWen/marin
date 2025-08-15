@@ -1,0 +1,255 @@
+\subsection{Sweeping Results for Muon}% muon - 300m on 4x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Muon on 300m on 4x Chinchilla Data}
+\label{tab:ablation_muon_300m_4}
+\begin{tabular}{cccccccccccccccc}
+\toprule
+$\eta_{adam}$ & $\beta_1$ & $\beta_2$ & $\mathrm{Decay (WSD)}$ & $\epsilon$ & $\eta$ & $\mathrm{Schedule}$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{\beta_{muon}}$ & $\epsilon_{muon}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.0012 & 0.8 & 0.98 & 0.8 & 1e-15 & 0.004 & linear & 1 & 0 & 0.98 & 1e-05 & 128 & 0 & 0.1 & 3.079 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-24B-muon25115alr0.004-wd0.1-minlr0-warmup0-b10.8-b20.-f7ddef}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% muon - 300m on 8x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Muon on 300m on 8x Chinchilla Data}
+\label{tab:ablation_muon_300m_8}
+\begin{tabular}{cccccccccccccccc}
+\toprule
+$\eta_{adam}$ & $\beta_1$ & $\beta_2$ & $\mathrm{Decay (WSD)}$ & $\epsilon$ & $\eta$ & $\mathrm{Schedule}$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{\beta_{muon}}$ & $\epsilon_{muon}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.0024 & 0.8 & 0.98 & 0.8 & 1e-15 & 0.008 & linear & 1 & 0 & 0.98 & 1e-05 & 256 & 0 & 0.1 & 3.032 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-48B-muond28b65lr0.008-wd0.1-minlr0-warmup0-b10.8-b20.-3e14c1}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% muon - 300m on 2x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Muon on 300m on 2x Chinchilla Data}
+\label{tab:ablation_muon_300m_2}
+\begin{tabular}{cccccccccccccccc}
+\toprule
+$\eta_{adam}$ & $\beta_1$ & $\beta_2$ & $\mathrm{Decay (WSD)}$ & $\epsilon$ & $\eta$ & $\mathrm{Schedule}$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{\beta_{muon}}$ & $\epsilon_{muon}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.0024 & 0.8 & 0.98 & 0.8 & 1e-15 & 0.008 & linear & 1 & 0 & 0.98 & 1e-05 & 128 & 0 & 0.1 & 3.143 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-12B-muon5de1eclr0.008-wd0.1-minlr0-warmup0-b10.8-b20.-049a9e}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% muon - 300m on 1x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Muon on 300m on 1x Chinchilla Data}
+\label{tab:ablation_muon_300m_1}
+\begin{tabular}{cccccccccccccccc}
+\toprule
+$\eta_{adam}$ & $\beta_1$ & $\beta_2$ & $\mathrm{Decay (WSD)}$ & $\epsilon$ & $\eta$ & $\mathrm{Schedule}$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{\beta_{muon}}$ & $\epsilon_{muon}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.0024 & 0.8 & 0.98 & 0.8 & 1e-15 & 0.008 & linear & 1 & 0 & 0.98 & 1e-05 & 128 & 0 & 0.1 & 3.224 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-6B-muon103aa7lr0.008-wd0.1-minlr0-warmup0-b10.8-b20.9-299b18}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% muon - 520m on 4x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Muon on 520m on 4x Chinchilla Data}
+\label{tab:ablation_muon_520m_4}
+\begin{tabular}{cccccccccccccccc}
+\toprule
+$\eta_{adam}$ & $\beta_1$ & $\beta_2$ & $\mathrm{Decay (WSD)}$ & $\epsilon$ & $\eta$ & $\mathrm{Schedule}$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{\beta_{muon}}$ & $\epsilon_{muon}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.0024 & 0.8 & 0.98 & 1 & 1e-25 & 0.008 & linear & 2 & 0 & 0.98 & 1e-05 & 256 & 0 & 0.1 & 2.945 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-42B-muon92eab1lr0.008-wd0.1-minlr0-warmup0-b10.8-b20.-f2fd04}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% muon - 520m on 1x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Muon on 520m on 1x Chinchilla Data}
+\label{tab:ablation_muon_520m_1}
+\begin{tabular}{cccccccccccccccc}
+\toprule
+$\eta_{adam}$ & $\beta_1$ & $\beta_2$ & $\mathrm{Decay (WSD)}$ & $\epsilon$ & $\eta$ & $\mathrm{Schedule}$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{\beta_{muon}}$ & $\epsilon_{muon}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.0024 & 0.8 & 0.98 & 1 & 1e-25 & 0.008 & linear & 1 & 0 & 0.98 & 1e-05 & 128 & 0 & 0.1 & 3.073 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-10B-muonb6462flr0.008-wd0.1-minlr0-warmup0-b10.8-b20.-bb54fc}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% muon - 520m on 8x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Muon on 520m on 8x Chinchilla Data}
+\label{tab:ablation_muon_520m_8}
+\begin{tabular}{cccccccccccccccc}
+\toprule
+$\eta_{adam}$ & $\beta_1$ & $\beta_2$ & $\mathrm{Decay (WSD)}$ & $\epsilon$ & $\eta$ & $\mathrm{Schedule}$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{\beta_{muon}}$ & $\epsilon_{muon}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.0024 & 0.8 & 0.98 & 1 & 1e-25 & 0.008 & linear & 2 & 0 & 0.98 & 1e-05 & 256 & 0 & 0.1 & 2.906 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-85B-muongc58c06lr0.008-wd0.1-minlr0-warmup0-b10.8-b20-498482}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% muon - 520m on 2x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Muon on 520m on 2x Chinchilla Data}
+\label{tab:ablation_muon_520m_2}
+\begin{tabular}{cccccccccccccccc}
+\toprule
+$\eta_{adam}$ & $\beta_1$ & $\beta_2$ & $\mathrm{Decay (WSD)}$ & $\epsilon$ & $\eta$ & $\mathrm{Schedule}$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{\beta_{muon}}$ & $\epsilon_{muon}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.0012 & 0.8 & 0.98 & 1 & 1e-25 & 0.004 & linear & 2 & 0 & 0.98 & 1e-05 & 128 & 0 & 0.1 & 3.002 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-21B-muon7ace6clr0.004-wd0.1-minlr0-warmup0-b10.8-b20.-748517}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% muon - 130m on 8x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Muon on 130m on 8x Chinchilla Data}
+\label{tab:ablation_muon_130m_8}
+\begin{tabular}{cccccccccccccccc}
+\toprule
+$\eta_{adam}$ & $\beta_1$ & $\beta_2$ & $\mathrm{Decay (WSD)}$ & $\epsilon$ & $\eta$ & $\mathrm{Schedule}$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{\beta_{muon}}$ & $\epsilon_{muon}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.0024 & 0.8 & 0.98 & 1 & 1e-15 & 0.008 & linear & 1 & 0 & 0.98 & 1e-05 & 128 & 0 & 0.1 & 3.240 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-21B-muon9841d7lr0.008-wd0.1-minlr0-warmup0-b10.8-b20.-6269f2}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% muon - 130m on 2x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Muon on 130m on 2x Chinchilla Data}
+\label{tab:ablation_muon_130m_2}
+\begin{tabular}{cccccccccccccccc}
+\toprule
+$\eta_{adam}$ & $\beta_1$ & $\beta_2$ & $\mathrm{Decay (WSD)}$ & $\epsilon$ & $\eta$ & $\mathrm{Schedule}$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{\beta_{muon}}$ & $\epsilon_{muon}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.0024 & 0.8 & 0.98 & 0.8 & 1e-15 & 0.008 & linear & 1 & 0 & 0.98 & 1e-05 & 128 & 0 & 0.1 & 3.369 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-5B-muon45194alr0.008-wd0.1-minlr0-warmup0-b10.8-b20.9-c1c97c}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% muon - 130m on 16x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Muon on 130m on 16x Chinchilla Data}
+\label{tab:ablation_muon_130m_16}
+\begin{tabular}{cccccccccccccccc}
+\toprule
+$\eta_{adam}$ & $\beta_1$ & $\beta_2$ & $\mathrm{Decay (WSD)}$ & $\epsilon$ & $\eta$ & $\mathrm{Schedule}$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{\beta_{muon}}$ & $\epsilon_{muon}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.0024 & 0.8 & 0.98 & 1 & 1e-25 & 0.008 & linear & 1 & 0 & 0.98 & 1e-05 & 128 & 0 & 0.1 & 3.202 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-42B-muoncedd383lr0.008-wd0.1-minlr0-warmup0-b10.8-b20-89555c}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% muon - 130m on 1x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Muon on 130m on 1x Chinchilla Data}
+\label{tab:ablation_muon_130m_1}
+\begin{tabular}{cccccccccccccccc}
+\toprule
+$\eta_{adam}$ & $\beta_1$ & $\beta_2$ & $\mathrm{Decay (WSD)}$ & $\epsilon$ & $\eta$ & $\mathrm{Schedule}$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{\beta_{muon}}$ & $\epsilon_{muon}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.0032 & 0.8 & 0.98 & 0.8 & 1e-15 & 0.016 & linear & 1 & 0 & 0.95 & 1e-05 & 128 & 0 & 0.1 & 3.464 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-2B-muon02b4fclr0.016-wd0.1-minlr0-warmup0-b10.8-b20.9-9c2fe9}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% muon - 130m on 4x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Muon on 130m on 4x Chinchilla Data}
+\label{tab:ablation_muon_130m_4}
+\begin{tabular}{cccccccccccccccc}
+\toprule
+$\eta_{adam}$ & $\beta_1$ & $\beta_2$ & $\mathrm{Decay (WSD)}$ & $\epsilon$ & $\eta$ & $\mathrm{Schedule}$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{\beta_{muon}}$ & $\epsilon_{muon}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.0024 & 0.8 & 0.98 & 0.8 & 1e-15 & 0.008 & linear & 1 & 0 & 0.95 & 1e-05 & 128 & 0 & 0.1 & 3.296 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-10B-muonz43402blr0.008-wd0.1-minlr0-warmup0-b10.8-b20-82a88f}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% muon - 1.2b on 4x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Muon on 1.2b on 4x Chinchilla Data}
+\label{tab:ablation_muon_1.2b_4}
+\begin{tabular}{cccccccccccccccc}
+\toprule
+$\eta_{adam}$ & $\beta_1$ & $\beta_2$ & $\mathrm{Decay (WSD)}$ & $\epsilon$ & $\eta$ & $\mathrm{Schedule}$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{\beta_{muon}}$ & $\epsilon_{muon}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.0012 & 0.8 & 0.98 & 1.0 & 1e-15 & 0.004 & linear & 2 & 0.0 & 0.98 & 1e-05 & 256 & 0 & 0.1 & 2.780 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-1.2b-96B-muon5ad2a1lr0.004-wd0.1-minlr0.0-warmup0.0-b10.8--05a146}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% muon - 1.2b on 2x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Muon on 1.2b on 2x Chinchilla Data}
+\label{tab:ablation_muon_1.2b_2}
+\begin{tabular}{cccccccccccccccc}
+\toprule
+$\eta_{adam}$ & $\beta_1$ & $\beta_2$ & $\mathrm{Decay (WSD)}$ & $\epsilon$ & $\eta$ & $\mathrm{Schedule}$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{\beta_{muon}}$ & $\epsilon_{muon}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.0012 & 0.8 & 0.98 & 1.0 & 1e-15 & 0.004 & linear & 2 & 0.0 & 0.98 & 1e-05 & 256 & 0 & 0.1 & 2.827 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-1.2b-48B-muon09cdeclr0.004-wd0.1-minlr0.0-warmup0.0-b10.8--4f2850}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% muon - 1.2b on 8x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Muon on 1.2b on 8x Chinchilla Data}
+\label{tab:ablation_muon_1.2b_8}
+\begin{tabular}{cccccccccccccccc}
+\toprule
+$\eta_{adam}$ & $\beta_1$ & $\beta_2$ & $\mathrm{Decay (WSD)}$ & $\epsilon$ & $\eta$ & $\mathrm{Schedule}$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{\beta_{muon}}$ & $\epsilon_{muon}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.0012 & 0.8 & 0.98 & 1.0 & 1e-15 & 0.004 & linear & 2 & 0.0 & 0.98 & 1e-05 & 256 & 0 & 0.1 & 2.748 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-1.2b-193B-muon4a7234lr0.004-wd0.1-minlr0.0-warmup0.0-b10.8-2335ab}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% muon - 1.2b on 1x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Muon on 1.2b on 1x Chinchilla Data}
+\label{tab:ablation_muon_1.2b_1}
+\begin{tabular}{cccccccccccccccc}
+\toprule
+$\eta_{adam}$ & $\beta_1$ & $\beta_2$ & $\mathrm{Decay (WSD)}$ & $\epsilon$ & $\eta$ & $\mathrm{Schedule}$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{\beta_{muon}}$ & $\epsilon_{muon}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.0012 & 0.8 & 0.98 & 1.0 & 1e-15 & 0.004 & linear & 2 & 0.0 & 0.98 & 1e-05 & 256 & 0 & 0.1 & 2.891 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-1.2b-24B-muon42df73lr0.004-wd0.1-minlr0.0-warmup0.0-b10.8--70a4b4}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+

@@ -1,0 +1,180 @@
+\subsection{Sweeping Results for Adam-Mini}% mini - 520m on 8x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Adam-Mini on 520m on 8x Chinchilla Data}
+\label{tab:ablation_adam-mini_520m_8}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.9 & 0.98 & 1e-10 & 0.004 & 1 & 0 & 256 & 4000 & 0.1 & 2.912 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-85B-minidfe5aclr0.004-wd0.1-minlr0-warmup4000-b10.9-b-a76572}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% mini - 520m on 2x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Adam-Mini on 520m on 2x Chinchilla Data}
+\label{tab:ablation_adam-mini_520m_2}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.9 & 0.98 & 1e-10 & 0.004 & 1 & 0 & 128 & 4000 & 0.1 & 3.027 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-21B-mini4e584elr0.004-wd0.1-minlr0-warmup4000-b10.9-b-eceb71}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% mini - 520m on 1x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Adam-Mini on 520m on 1x Chinchilla Data}
+\label{tab:ablation_adam-mini_520m_1}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.9 & 0.98 & 1e-10 & 0.004 & 0 & 0 & 128 & 4000 & 0.1 & 3.112 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-10B-mini9187d7lr0.004-wd0.1-minlr0-warmup4000-b10.9-b-398e5f}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% mini - 520m on 4x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Adam-Mini on 520m on 4x Chinchilla Data}
+\label{tab:ablation_adam-mini_520m_4}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.9 & 0.98 & 1e-10 & 0.004 & 1 & 0 & 128 & 4000 & 0.1 & 2.966 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-42B-minikdfe5aclr0.004-wd0.1-minlr0-warmup4000-b10.9--5de7af}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% mini - 300m on 4x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Adam-Mini on 300m on 4x Chinchilla Data}
+\label{tab:ablation_adam-mini_300m_4}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.9 & 0.98 & 1e-25 & 0.004 & 2 & 0 & 128 & 2000 & 0.1 & 3.103 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-24B-mini09d394lr0.004-wd0.1-minlr0-warmup2000-b10.9-b-4e8de7}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% mini - 300m on 8x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Adam-Mini on 300m on 8x Chinchilla Data}
+\label{tab:ablation_adam-mini_300m_8}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.9 & 0.98 & 1e-25 & 0.002 & 2 & 0 & 128 & 2000 & 0.2 & 3.049 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-48B-minic8695flr0.002-wd0.2-minlr0-warmup2000-b10.9-b-952cc4}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% mini - 300m on 2x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Adam-Mini on 300m on 2x Chinchilla Data}
+\label{tab:ablation_adam-mini_300m_2}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.9 & 0.98 & 1e-25 & 0.004 & 2 & 0 & 128 & 2000 & 0.2 & 3.178 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-12B-mini9676c0lr0.004-wd0.2-minlr0-warmup2000-b10.9-b-80350d}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% mini - 300m on 1x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Adam-Mini on 300m on 1x Chinchilla Data}
+\label{tab:ablation_adam-mini_300m_1}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.9 & 0.98 & 1e-25 & 0.004 & 2 & 0 & 128 & 2000 & 0.2 & 3.272 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-6B-minimf93988lr0.004-wd0.2-minlr0-warmup2000-b10.9-b-1a622b}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% mini - 130m on 4x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Adam-Mini on 130m on 4x Chinchilla Data}
+\label{tab:ablation_adam-mini_130m_4}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.9 & 0.98 & 1e-10 & 0.008 & 1 & 0 & 128 & 2000 & 0.1 & 3.328 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-10B-mini8e0689lr0.008-wd0.1-minlr0-warmup2000-b10.9-b-1de787}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% mini - 130m on 8x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Adam-Mini on 130m on 8x Chinchilla Data}
+\label{tab:ablation_adam-mini_130m_8}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.9 & 0.98 & 1e-10 & 0.008 & 1 & 0 & 128 & 2000 & 0.1 & 3.266 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-21B-miniac2e1elr0.008-wd0.1-minlr0-warmup2000-b10.9-b-d489dc}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% mini - 130m on 2x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Adam-Mini on 130m on 2x Chinchilla Data}
+\label{tab:ablation_adam-mini_130m_2}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.9 & 0.98 & 1e-20 & 0.008 & 2 & 0 & 128 & 2000 & 0.1 & 3.416 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-5B-mini609ad2lr0.008-wd0.1-minlr0-warmup2000-b10.9-b2-b557c0}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% mini - 130m on 1x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Adam-Mini on 130m on 1x Chinchilla Data}
+\label{tab:ablation_adam-mini_130m_1}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.9 & 0.98 & 1e-15 & 0.008 & 1 & 0 & 128 & 2000 & 0.1 & 3.542 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-2B-minif4e66flr0.008-wd0.1-minlr0-warmup2000-b10.9-b2-4d3c05}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+

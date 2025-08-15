@@ -1,0 +1,270 @@
+\subsection{Sweeping Results for NAdamW}% nadamw - 130m on 16x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for NAdamW on 130m on 16x Chinchilla Data}
+\label{tab:ablation_nadamw_130m_16}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.95 & 0.98 & 1e-10 & 0.008 & 1 & 0 & 256 & 2000 & 0.1 & 3.200 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-42B-nadamw6383f8lr0.008-wd0.1-minlr0-warmup2000-b10.9-d7e8d3}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% nadamw - 130m on 4x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for NAdamW on 130m on 4x Chinchilla Data}
+\label{tab:ablation_nadamw_130m_4}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.95 & 0.98 & 1e-10 & 0.008 & 1 & 0 & 128 & 2000 & 0.1 & 3.319 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-10B-nadamwaee88elr0.008-wd0.1-minlr0-warmup2000-b10.9-75fe1d}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% nadamw - 130m on 1x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for NAdamW on 130m on 1x Chinchilla Data}
+\label{tab:ablation_nadamw_130m_1}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.95 & 0.98 & 1e-25 & 0.008 & 1 & 0 & 128 & 2000 & 0.1 & 3.531 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-2B-nadamw2de195lr0.008-wd0.1-minlr0-warmup2000-b10.95-437e7c}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% nadamw - 130m on 8x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for NAdamW on 130m on 8x Chinchilla Data}
+\label{tab:ablation_nadamw_130m_8}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.95 & 0.98 & 1e-10 & 0.008 & 1 & 0 & 128 & 2000 & 0.1 & 3.251 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-21B-nadamw6383f8lr0.008-wd0.1-minlr0-warmup2000-b10.9-044a64}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% nadamw - 130m on 2x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for NAdamW on 130m on 2x Chinchilla Data}
+\label{tab:ablation_nadamw_130m_2}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.95 & 0.98 & 1e-10 & 0.008 & 1 & 0 & 128 & 2000 & 0.1 & 3.394 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-5B-nadamw1c5657lr0.008-wd0.1-minlr0-warmup2000-b10.95-2e57b5}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% nadamw - 1.2b on 2x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for NAdamW on 1.2b on 2x Chinchilla Data}
+\label{tab:ablation_nadamw_1.2b_2}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.98 & 0.98 & 1e-10 & 0.004 & 1 & 0.0 & 256 & 4000 & 0.1 & 2.833 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-1.2b-48B-nadamwcb7c09lr0.004-wd0.1-minlr0.0-warmup4000-b10-cf4ac5}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% nadamw - 1.2b on 8x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for NAdamW on 1.2b on 8x Chinchilla Data}
+\label{tab:ablation_nadamw_1.2b_8}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.98 & 0.98 & 1e-10 & 0.004 & 1 & 0.0 & 256 & 4000 & 0.1 & 2.749 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-1.2b-193B-nadamwa486b9lr0.004-wd0.1-minlr0.0-warmup4000-b1-563e6e}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% nadamw - 1.2b on 1x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for NAdamW on 1.2b on 1x Chinchilla Data}
+\label{tab:ablation_nadamw_1.2b_1}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.98 & 0.98 & 1e-10 & 0.004 & 1 & 0.0 & 256 & 4000 & 0.1 & 2.902 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-1.2b-24B-nadamwf62d1blr0.004-wd0.1-minlr0.0-warmup4000-b10-642070}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% nadamw - 1.2b on 4x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for NAdamW on 1.2b on 4x Chinchilla Data}
+\label{tab:ablation_nadamw_1.2b_4}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.98 & 0.98 & 1e-10 & 0.004 & 1 & 0.0 & 256 & 4000 & 0.1 & 2.785 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-1.2b-96B-nadamw8e7088lr0.004-wd0.1-minlr0.0-warmup4000-b10-3c3e6a}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% nadamw - 300m on 1x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for NAdamW on 300m on 1x Chinchilla Data}
+\label{tab:ablation_nadamw_300m_1}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.95 & 0.98 & 1e-10 & 0.008 & 1 & 0 & 128 & 2000 & 0.1 & 3.248 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-6B-nadamwf15cf6lr0.008-wd0.1-minlr0-warmup2000-b10.95-28ca3a}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% nadamw - 300m on 8x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for NAdamW on 300m on 8x Chinchilla Data}
+\label{tab:ablation_nadamw_300m_8}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.95 & 0.98 & 1e-10 & 0.008 & 1 & 0 & 256 & 2000 & 0.1 & 3.039 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-48B-nadamw506173lr0.008-wd0.1-minlr0-warmup2000-b10.9-a344a3}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% nadamw - 300m on 2x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for NAdamW on 300m on 2x Chinchilla Data}
+\label{tab:ablation_nadamw_300m_2}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.95 & 0.98 & 1e-10 & 0.008 & 1 & 0 & 128 & 2000 & 0.1 & 3.160 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-12B-nadamwd89df2lr0.008-wd0.1-minlr0-warmup2000-b10.9-07cb43}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% nadamw - 300m on 16x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for NAdamW on 300m on 16x Chinchilla Data}
+\label{tab:ablation_nadamw_300m_16}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.95 & 0.98 & 1e-10 & 0.004 & 1 & 0 & 256 & 2000 & 0.1 & 2.998 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-96B-nadamw860e52lr0.004-wd0.1-minlr0-warmup2000-b10.9-8d9fe1}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% nadamw - 300m on 4x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for NAdamW on 300m on 4x Chinchilla Data}
+\label{tab:ablation_nadamw_300m_4}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.95 & 0.98 & 1e-10 & 0.008 & 1 & 0 & 256 & 2000 & 0.1 & 3.090 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-24B-nadamwd89df2lr0.008-wd0.1-minlr0-warmup2000-b10.9-c667e7}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% nadamw - 520m on 8x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for NAdamW on 520m on 8x Chinchilla Data}
+\label{tab:ablation_nadamw_520m_8}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.98 & 0.98 & 1e-10 & 0.004 & 1 & 0 & 256 & 4000 & 0.1 & 2.907 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-85B-nadamwcf9d95lr0.004-wd0.1-minlr0-warmup4000-b10.9-d09912}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% nadamw - 520m on 2x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for NAdamW on 520m on 2x Chinchilla Data}
+\label{tab:ablation_nadamw_520m_2}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.98 & 0.98 & 1e-10 & 0.004 & 1 & 0 & 128 & 4000 & 0.1 & 3.013 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-21B-nadamw0a1fe6lr0.004-wd0.1-minlr0-warmup4000-b10.9-2d3f42}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% nadamw - 520m on 1x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for NAdamW on 520m on 1x Chinchilla Data}
+\label{tab:ablation_nadamw_520m_1}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.95 & 0.98 & 1e-10 & 0.008 & 1 & 0 & 128 & 4000 & 0.1 & 3.100 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-10B-nadamwd3819dlr0.008-wd0.1-minlr0-warmup4000-b10.9-b6c23d}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% nadamw - 520m on 4x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for NAdamW on 520m on 4x Chinchilla Data}
+\label{tab:ablation_nadamw_520m_4}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.98 & 0.98 & 1e-10 & 0.004 & 1 & 0 & 128 & 4000 & 0.1 & 2.955 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-42B-nadamwcf9d95lr0.004-wd0.1-minlr0-warmup4000-b10.9-40428f}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+

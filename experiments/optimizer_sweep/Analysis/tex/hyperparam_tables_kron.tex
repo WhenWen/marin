@@ -1,0 +1,180 @@
+\subsection{Sweeping Results for Kron}% kron - 130m on 4x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Kron on 130m on 4x Chinchilla Data}
+\label{tab:ablation_kron_130m_4}
+\begin{tabular}{cccccccccccccccc}
+\toprule
+$\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{NormGrad}$ & $\mathrm{Blocking}$ & $Init_{pc}$ & $\eta_{pc}$ & $p_{pc}$ & $\mathrm{BSZ}$ & $Step_{pc}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.95 & 256 & 0.002 & 1 & 0 & True & True & 1 & 0.2 & 0.05 & 128 & 2000 & 1000 & 0.5 & 3.307 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-10B-kronm1a1c3blr0.002-wd0.5-b10.95-plr0.2-pis1-gn1-n-b8692a}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% kron - 130m on 8x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Kron on 130m on 8x Chinchilla Data}
+\label{tab:ablation_kron_130m_8}
+\begin{tabular}{cccccccccccccccc}
+\toprule
+$\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{NormGrad}$ & $\mathrm{Blocking}$ & $Init_{pc}$ & $\eta_{pc}$ & $p_{pc}$ & $\mathrm{BSZ}$ & $Step_{pc}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.95 & 256 & 0.001 & 1 & 0 & True & True & 1 & 0.2 & 0.1 & 128 & 2000 & 1000 & 0.5 & 3.239 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-21B-kronz680ae4lr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-n-f84dac}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% kron - 130m on 2x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Kron on 130m on 2x Chinchilla Data}
+\label{tab:ablation_kron_130m_2}
+\begin{tabular}{cccccccccccccccc}
+\toprule
+$\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{NormGrad}$ & $\mathrm{Blocking}$ & $Init_{pc}$ & $\eta_{pc}$ & $p_{pc}$ & $\mathrm{BSZ}$ & $Step_{pc}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.95 & 256 & 0.002 & 1 & 0 & True & True & 1 & 0.2 & 0.05 & 128 & 2000 & 1000 & 0.5 & 3.389 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-5B-kron45d4b7lr0.002-wd0.5-b10.95-plr0.2-pis1-gn1-nor-c54de5}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% kron - 130m on 1x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Kron on 130m on 1x Chinchilla Data}
+\label{tab:ablation_kron_130m_1}
+\begin{tabular}{cccccccccccccccc}
+\toprule
+$\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{NormGrad}$ & $\mathrm{Blocking}$ & $Init_{pc}$ & $\eta_{pc}$ & $p_{pc}$ & $\mathrm{BSZ}$ & $Step_{pc}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.95 & 256 & 0.002 & 1 & 0 & True & True & 1.0 & 0.2 & 0.05 & 128 & 2000 & 1000 & 0.7 & 3.492 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-2B-kron811b3clr0.002-wd0.7-b10.95-plr0.2-pis1-gn1-nor-45d11f}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% kron - 300m on 1x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Kron on 300m on 1x Chinchilla Data}
+\label{tab:ablation_kron_300m_1}
+\begin{tabular}{cccccccccccccccc}
+\toprule
+$\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{NormGrad}$ & $\mathrm{Blocking}$ & $Init_{pc}$ & $\eta_{pc}$ & $p_{pc}$ & $\mathrm{BSZ}$ & $Step_{pc}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.95 & 256 & 0.001 & 1 & 0 & True & True & 1 & 0.2 & 0.1 & 128 & 2000 & 1000 & 0.5 & 3.244 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-6B-kron9fb147lr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-nor-d54c60}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% kron - 300m on 2x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Kron on 300m on 2x Chinchilla Data}
+\label{tab:ablation_kron_300m_2}
+\begin{tabular}{cccccccccccccccc}
+\toprule
+$\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{NormGrad}$ & $\mathrm{Blocking}$ & $Init_{pc}$ & $\eta_{pc}$ & $p_{pc}$ & $\mathrm{BSZ}$ & $Step_{pc}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.95 & 256 & 0.001 & 1 & 0 & True & True & 1 & 0.2 & 0.1 & 128 & 2000 & 1000 & 0.7 & 3.151 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-12B-kronb21812lr0.001-wd0.7-b10.95-plr0.2-pis1-gn1-no-48c292}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% kron - 300m on 8x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Kron on 300m on 8x Chinchilla Data}
+\label{tab:ablation_kron_300m_8}
+\begin{tabular}{cccccccccccccccc}
+\toprule
+$\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{NormGrad}$ & $\mathrm{Blocking}$ & $Init_{pc}$ & $\eta_{pc}$ & $p_{pc}$ & $\mathrm{BSZ}$ & $Step_{pc}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.95 & 256 & 0.0005 & 1 & 0 & True & True & 1 & 0.2 & 0.1 & 128 & 2000 & 1000 & 0.7 & 3.031 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-48B-kronabb76feelr0.0005-wd0.7-b10.95-plr0.2-pis1-gn1-0ed5c4}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% kron - 300m on 4x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Kron on 300m on 4x Chinchilla Data}
+\label{tab:ablation_kron_300m_4}
+\begin{tabular}{cccccccccccccccc}
+\toprule
+$\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{NormGrad}$ & $\mathrm{Blocking}$ & $Init_{pc}$ & $\eta_{pc}$ & $p_{pc}$ & $\mathrm{BSZ}$ & $Step_{pc}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.95 & 256 & 0.0005 & 1 & 0 & True & True & 1 & 0.2 & 0.1 & 128 & 2000 & 1000 & 0.7 & 3.083 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-24B-kronb55572lr0.0005-wd0.7-b10.95-plr0.2-pis1-gn1-n-9479df}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% kron - 520m on 1x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Kron on 520m on 1x Chinchilla Data}
+\label{tab:ablation_kron_520m_1}
+\begin{tabular}{cccccccccccccccc}
+\toprule
+$\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{NormGrad}$ & $\mathrm{Blocking}$ & $Init_{pc}$ & $\eta_{pc}$ & $p_{pc}$ & $\mathrm{BSZ}$ & $Step_{pc}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.95 & 256 & 0.001 & 1 & 0 & True & True & 1 & 0.2 & 0.1 & 128 & 2000 & 1000 & 0.5 & 3.084 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-10B-kronb99966lr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-no-99dc7c}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% kron - 520m on 2x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Kron on 520m on 2x Chinchilla Data}
+\label{tab:ablation_kron_520m_2}
+\begin{tabular}{cccccccccccccccc}
+\toprule
+$\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{NormGrad}$ & $\mathrm{Blocking}$ & $Init_{pc}$ & $\eta_{pc}$ & $p_{pc}$ & $\mathrm{BSZ}$ & $Step_{pc}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.95 & 256 & 0.0005 & 1 & 0 & True & True & 1 & 0.2 & 0.1 & 128 & 2000 & 1000 & 0.5 & 3.009 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-21B-krona6b124lr0.0005-wd0.5-b10.95-plr0.2-pis1-gn1-n-6acf07}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% kron - 520m on 8x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Kron on 520m on 8x Chinchilla Data}
+\label{tab:ablation_kron_520m_8}
+\begin{tabular}{cccccccccccccccc}
+\toprule
+$\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{NormGrad}$ & $\mathrm{Blocking}$ & $Init_{pc}$ & $\eta_{pc}$ & $p_{pc}$ & $\mathrm{BSZ}$ & $Step_{pc}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.95 & 256 & 0.0005 & 1 & 0 & True & True & 1 & 0.2 & 0.1 & 128 & 2000 & 1000 & 0.5 & 2.900 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-85B-kronc2a9f5lr0.0005-wd0.5-b10.95-plr0.2-pis1-gn1-n-7f654e}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% kron - 520m on 4x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Kron on 520m on 4x Chinchilla Data}
+\label{tab:ablation_kron_520m_4}
+\begin{tabular}{cccccccccccccccc}
+\toprule
+$\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{NormGrad}$ & $\mathrm{Blocking}$ & $Init_{pc}$ & $\eta_{pc}$ & $p_{pc}$ & $\mathrm{BSZ}$ & $Step_{pc}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.95 & 256 & 0.0005 & 1 & 0 & True & True & 1 & 0.2 & 0.1 & 128 & 2000 & 1000 & 0.5 & 2.946 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-42B-kronf21245lr0.0005-wd0.5-b10.95-plr0.2-pis1-gn1-n-e5e732}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+

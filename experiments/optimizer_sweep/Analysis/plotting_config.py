@@ -19,6 +19,7 @@ color_map = {
     "soape": "#bcbd22",  # yellow-green
     "sophia": "#17becf",  # cyan
     "mini": "#aec7e8",  # light blue
+    "mudam": "#1f77b4",  # blue
 }
 
 correct_name = {
@@ -32,7 +33,8 @@ correct_name = {
     "muon": "Muon",
     "soape": "Soap",
     "kron": "Kron",
-}
+    "mudam": "Shampoo",
+    }
 
 
 line_style = {
@@ -46,4 +48,5 @@ line_style = {
     "mini": "--",
     "scion": "-",
     "cautious": "--",
+    "mudam": "-",
 }

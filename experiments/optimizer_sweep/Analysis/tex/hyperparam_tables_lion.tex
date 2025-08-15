@@ -1,0 +1,180 @@
+\subsection{Sweeping Results for Lion}% lion - 300m on 4x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Lion on 300m on 4x Chinchilla Data}
+\label{tab:ablation_lion_300m_4}
+\begin{tabular}{cccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.9 & 0.98 & 0.001 & 1 & 0 & 256 & 2000 & 0.7 & 3.100 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-24B-lion5aad2alr0.001-wd0.7-minlr0-warmup2000-b10.9-b-edb7fa}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% lion - 300m on 1x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Lion on 300m on 1x Chinchilla Data}
+\label{tab:ablation_lion_300m_1}
+\begin{tabular}{cccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.9 & 0.95 & 0.001 & 1 & 0 & 128 & 2000 & 0.6 & 3.268 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-6B-lion00979clr0.001-wd0.6-minlr0-warmup2000-b10.9-b2-81fdf3}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% lion - 300m on 8x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Lion on 300m on 8x Chinchilla Data}
+\label{tab:ablation_lion_300m_8}
+\begin{tabular}{cccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.9 & 0.98 & 0.001 & 1 & 0 & 256 & 2000 & 0.7 & 3.046 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-48B-lioneb1a25lr0.001-wd0.7-minlr0-warmup2000-b10.9-b-2006af}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% lion - 300m on 2x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Lion on 300m on 2x Chinchilla Data}
+\label{tab:ablation_lion_300m_2}
+\begin{tabular}{cccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.9 & 0.98 & 0.001 & 1 & 0 & 128 & 2000 & 0.7 & 3.170 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-12B-lion5aad2alr0.001-wd0.7-minlr0-warmup2000-b10.9-b-b039e3}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% lion - 520m on 4x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Lion on 520m on 4x Chinchilla Data}
+\label{tab:ablation_lion_520m_4}
+\begin{tabular}{cccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.9 & 0.95 & 0.001 & 1 & 0 & 256 & 2000 & 0.6 & 2.965 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-42B-lion30535dlr0.001-wd0.6-minlr0-warmup2000-b10.9-b-b687e1}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% lion - 520m on 2x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Lion on 520m on 2x Chinchilla Data}
+\label{tab:ablation_lion_520m_2}
+\begin{tabular}{cccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.9 & 0.95 & 0.001 & 1 & 0 & 128 & 2000 & 0.6 & 3.029 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-21B-lion30535dlr0.001-wd0.6-minlr0-warmup2000-b10.9-b-c72b9c}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% lion - 520m on 8x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Lion on 520m on 8x Chinchilla Data}
+\label{tab:ablation_lion_520m_8}
+\begin{tabular}{cccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.9 & 0.95 & 0.0005 & 1 & 0 & 256 & 2000 & 0.6 & 2.915 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-85B-lionf86a38lr0.0005-wd0.6-minlr0-warmup2000-b10.9--54ea21}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% lion - 520m on 1x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Lion on 520m on 1x Chinchilla Data}
+\label{tab:ablation_lion_520m_1}
+\begin{tabular}{cccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.9 & 0.95 & 0.001 & 1 & 0 & 128 & 2000 & 0.7 & 3.108 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-10B-liond8061alr0.001-wd0.7-minlr0-warmup2000-b10.9-b-942db7}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% lion - 130m on 4x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Lion on 130m on 4x Chinchilla Data}
+\label{tab:ablation_lion_130m_4}
+\begin{tabular}{cccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.9 & 0.95 & 0.001 & 1 & 0 & 128 & 2000 & 0.7 & 3.331 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-10B-liondd8061alr0.001-wd0.7-minlr0-warmup2000-b10.9--72b789}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% lion - 130m on 8x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Lion on 130m on 8x Chinchilla Data}
+\label{tab:ablation_lion_130m_8}
+\begin{tabular}{cccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.9 & 0.98 & 0.001 & 1 & 0 & 128 & 2000 & 0.7 & 3.252 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-21B-lion85b813lr0.001-wd0.7-minlr0-warmup2000-b10.9-b-eef545}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% lion - 130m on 2x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Lion on 130m on 2x Chinchilla Data}
+\label{tab:ablation_lion_130m_2}
+\begin{tabular}{cccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.9 & 0.98 & 0.001 & 1 & 0 & 128 & 2000 & 0.7 & 3.409 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-5B-lion5d07e9lr0.001-wd0.7-minlr0-warmup2000-b10.9-b2-6d65d0}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% lion - 130m on 1x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Lion on 130m on 1x Chinchilla Data}
+\label{tab:ablation_lion_130m_1}
+\begin{tabular}{cccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.9 & 0.95 & 0.002 & 1 & 0 & 128 & 2000 & 0.7 & 3.552 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-2B-lion3532d0lr0.002-wd0.7-minlr0-warmup2000-b10.9-b2-2f88e4}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+

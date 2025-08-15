@@ -1,0 +1,75 @@
+\subsection{Sweeping Results for Shampoo}% mudam - 300m on 1x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Shampoo on 300m on 1x Chinchilla Data}
+\label{tab:ablation_shampoo_300m_1}
+\begin{tabular}{cccccccccccccccc}
+\toprule
+$\eta_{adam}$ & $\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\mathrm{Schedule}$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{\beta_{muon}}$ & \texttt{normalization} & $\beta_{shampoo}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.004 & 0.98 & 0.98 & 1e-15 & 0.004 & cosine & 1 & 0 & 0.95 & muon & 0.95 & 128 & 500 & 0.2 & 3.233 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-6B-mudamha48f33lr0.004-alr0.004-wd0.2-minlr0-warmup50-0f876a}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% mudam - 520m on 1x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Shampoo on 520m on 1x Chinchilla Data}
+\label{tab:ablation_shampoo_520m_1}
+\begin{tabular}{cccccccccccccccc}
+\toprule
+$\eta_{adam}$ & $\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\mathrm{Schedule}$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{\beta_{muon}}$ & \texttt{normalization} & $\beta_{shampoo}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.004 & 0.95 & 0.98 & 1e-15 & 0.004 & cosine & 1 & 0 & 0.95 & muon & 0.95 & 128 & 500 & 0.2 & 3.086 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-10B-mudamv87e43clr0.004-alr0.004-wd0.2-minlr0-warmup5-152be6}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% mudam - 130m on 2x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Shampoo on 130m on 2x Chinchilla Data}
+\label{tab:ablation_shampoo_130m_2}
+\begin{tabular}{cccccccccccccccc}
+\toprule
+$\eta_{adam}$ & $\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\mathrm{Schedule}$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{\beta_{muon}}$ & \texttt{normalization} & $\beta_{shampoo}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.008 & 0.95 & 0.99 & 1e-15 & 0.008 & cosine & 1 & 0 & 0.95 & muon & 0.95 & 128 & 500 & 0.2 & 3.380 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-5B-mudamh504ba7lr0.008-alr0.008-wd0.2-minlr0-warmup50-9aff3d}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% mudam - 130m on 8x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Shampoo on 130m on 8x Chinchilla Data}
+\label{tab:ablation_shampoo_130m_8}
+\begin{tabular}{cccccccccccccccc}
+\toprule
+$\eta_{adam}$ & $\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\mathrm{Schedule}$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{\beta_{muon}}$ & \texttt{normalization} & $\beta_{shampoo}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.004 & 0.95 & 0.99 & 1e-15 & 0.004 & cosine & 1 & 0 & 0.95 & muon & 0.95 & 128 & 500 & 0.1 & 3.240 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-21B-mudamk138b15lr0.004-alr0.004-wd0.1-minlr0-warmup5-239972}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% mudam - 130m on 4x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Shampoo on 130m on 4x Chinchilla Data}
+\label{tab:ablation_shampoo_130m_4}
+\begin{tabular}{cccccccccccccccc}
+\toprule
+$\eta_{adam}$ & $\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\mathrm{Schedule}$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{\beta_{muon}}$ & \texttt{normalization} & $\beta_{shampoo}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.008 & 0.95 & 0.99 & 1e-15 & 0.004 & cosine & 1 & 0 & 0.95 & muon & 0.95 & 128 & 500 & 0.2 & 3.300 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-10B-mudamhcf2e65lr0.004-alr0.008-wd0.2-minlr0-warmup5-8614e7}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+

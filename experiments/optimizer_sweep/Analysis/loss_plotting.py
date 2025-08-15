@@ -103,6 +103,12 @@ if df_loss.empty:
 figs_dir = "experiments/optimizer_sweep/Analysis/figs"
 os.makedirs(figs_dir, exist_ok=True)
 
+selected_optimizers = ["mudam", "adamw", "soape", "muon"]
+
+df_loss = df_loss[df_loss["optimizer"].isin(selected_optimizers)]
+df_loss = df_loss[df_loss["chinchilla"] <= 8]
+
+
 for size in sorted(df_loss["model_size"].unique()):
     data = df_loss[df_loss["model_size"] == size]
 

@@ -1,0 +1,354 @@
+{
+  "result": {
+    "Baseline": 3.232628583908081,
+    "learning_rate=0.002": 3.24914288520813,
+    "learning_rate=0.008": 3.29765248298645,
+    "weight_decay=0": 3.298689365386963,
+    "weight_decay=0.1": 3.24423885345459,
+    "weight_decay=0.3": 3.2340147495269775,
+    "beta1=0.9": 3.2338707447052,
+    "beta1=0.95": 3.233830690383911,
+    "beta1=0.99": 3.2355363368988037,
+    "beta2=0.95": 3.236243963241577,
+    "beta2=0.99": 3.231710433959961,
+    "shampoo_beta=0.98": 3.233497858047486,
+    "shampoo_beta=0.99": 3.2364463806152344,
+    "momentum=0.9": 3.240065097808838,
+    "momentum=0.98": null,
+    "adam_lr=0.001": 3.245819568634033,
+    "adam_lr=0.002": null,
+    "adam_lr=0.008": 3.23364782333374,
+    "warmup=1000": 3.236757755279541,
+    "train_batch_size=256": 3.255794048309326
+  },
+  "name": {
+    "Baseline": "sweep-300m-6B-mudamha48f33lr0.004-alr0.004-wd0.2-minlr0-warmup50-0f876a",
+    "learning_rate=0.002": "sweep-300m-6B-mudamg122c75lr0.002-alr0.004-wd0.2-minlr0-warmup50-c1eabd",
+    "learning_rate=0.008": "sweep-300m-6B-mudamg017773lr0.008-alr0.004-wd0.2-minlr0-warmup50-40d709",
+    "weight_decay=0": "sweep-300m-6B-mudamg2a5fa3lr0.004-alr0.004-wd0-minlr0-warmup500--690b1b",
+    "weight_decay=0.1": "sweep-300m-6B-mudamg811746lr0.004-alr0.004-wd0.1-minlr0-warmup50-a26f3d",
+    "weight_decay=0.3": "sweep-300m-6B-mudamg723c38lr0.004-alr0.004-wd0.3-minlr0-warmup50-372eee",
+    "beta1=0.9": "sweep-300m-6B-mudamh5a62ealr0.004-alr0.004-wd0.2-minlr0-warmup50-a9d4fe",
+    "beta1=0.95": "sweep-300m-6B-mudamh9aa795lr0.004-alr0.004-wd0.2-minlr0-warmup50-e78f66",
+    "beta1=0.99": "sweep-300m-6B-mudamh981291lr0.004-alr0.004-wd0.2-minlr0-warmup50-fdab5b",
+    "beta2=0.95": "sweep-300m-6B-mudamgeb2971lr0.004-alr0.004-wd0.2-minlr0-warmup50-b3e689",
+    "beta2=0.99": "sweep-300m-6B-mudamg0d8c16lr0.004-alr0.004-wd0.2-minlr0-warmup50-330a0d",
+    "shampoo_beta=0.98": "sweep-300m-6B-mudamg51f0e2lr0.004-alr0.004-wd0.2-minlr0-warmup50-748111",
+    "shampoo_beta=0.99": "sweep-300m-6B-mudamg5c78d9lr0.004-alr0.004-wd0.2-minlr0-warmup50-3d87f8",
+    "momentum=0.9": "sweep-300m-6B-mudamga30215lr0.004-alr0.004-wd0.2-minlr0-warmup50-ab5a5b",
+    "momentum=0.98": null,
+    "adam_lr=0.001": "sweep-300m-6B-mudamgb23e57lr0.004-alr0.001-wd0.2-minlr0-warmup50-149b67",
+    "adam_lr=0.002": null,
+    "adam_lr=0.008": "sweep-300m-6B-mudamgbb0beelr0.004-alr0.008-wd0.2-minlr0-warmup50-0f6ab3",
+    "warmup=1000": "sweep-300m-6B-mudamg96a081lr0.004-alr0.004-wd0.2-minlr0-warmup10-95c3b8",
+    "train_batch_size=256": "sweep-300m-6B-mudamg91d82flr0.004-alr0.004-wd0.2-minlr0-warmup50-28498c"
+  },
+  "num_left": 2,
+  "best_config": {
+    "learning_rate": 0.004,
+    "adam_lr": 0.004,
+    "weight_decay": 0.2,
+    "min_lr_ratio": 0,
+    "warmup": 500,
+    "beta1": 0.98,
+    "momentum": 0.95,
+    "beta2": 0.98,
+    "shampoo_beta": 0.95,
+    "epsilon": 1e-15,
+    "max_grad_norm": 1,
+    "lr_schedule": "cosine",
+    "train_batch_size": 128,
+    "normalization": "muon"
+  },
+  "min_loss": 3.231710433959961,
+  "approximate_best_config_list": [
+    {
+      "warmup": 500,
+      "beta1": 0.95,
+      "momentum": 0.95,
+      "learning_rate": 0.004,
+      "adam_lr": 0.004,
+      "normalization": "muon",
+      "weight_decay": 0.2,
+      "train_batch_size": 128,
+      "beta2": 0.95,
+      "shampoo_beta": 0.95
+    },
+    {
+      "warmup": 500,
+      "beta1": 0.9,
+      "momentum": 0.95,
+      "learning_rate": 0.004,
+      "adam_lr": 0.004,
+      "normalization": "muon",
+      "weight_decay": 0.2,
+      "train_batch_size": 128,
+      "beta2": 0.98,
+      "shampoo_beta": 0.95
+    },
+    {
+      "warmup": 500,
+      "beta1": 0.95,
+      "momentum": 0.95,
+      "learning_rate": 0.004,
+      "adam_lr": 0.004,
+      "normalization": "muon",
+      "weight_decay": 0.2,
+      "train_batch_size": 128,
+      "beta2": 0.98,
+      "shampoo_beta": 0.95
+    },
+    {
+      "warmup": 500,
+      "beta1": 0.99,
+      "momentum": 0.95,
+      "learning_rate": 0.004,
+      "adam_lr": 0.004,
+      "normalization": "muon",
+      "weight_decay": 0.2,
+      "train_batch_size": 128,
+      "beta2": 0.98,
+      "shampoo_beta": 0.95
+    },
+    {
+      "warmup": 500,
+      "beta1": 0.95,
+      "momentum": 0.95,
+      "learning_rate": 0.004,
+      "adam_lr": 0.004,
+      "normalization": "muon",
+      "weight_decay": 0.3,
+      "train_batch_size": 128,
+      "beta2": 0.98,
+      "shampoo_beta": 0.95
+    },
+    {
+      "warmup": 500,
+      "beta1": 0.98,
+      "momentum": 0.95,
+      "learning_rate": 0.004,
+      "adam_lr": 0.004,
+      "normalization": "muon",
+      "weight_decay": 0.2,
+      "train_batch_size": 128,
+      "beta2": 0.98,
+      "shampoo_beta": 0.95
+    },
+    {
+      "warmup": 500,
+      "beta1": 0.98,
+      "momentum": 0.95,
+      "learning_rate": 0.004,
+      "adam_lr": 0.004,
+      "normalization": "muon",
+      "weight_decay": 0.2,
+      "train_batch_size": 128,
+      "beta2": 0.98,
+      "shampoo_beta": 0.99
+    },
+    {
+      "warmup": 500,
+      "beta1": 0.98,
+      "momentum": 0.95,
+      "learning_rate": 0.004,
+      "adam_lr": 0.004,
+      "normalization": "muon",
+      "weight_decay": 0.2,
+      "train_batch_size": 128,
+      "beta2": 0.99,
+      "shampoo_beta": 0.95
+    },
+    {
+      "warmup": 500,
+      "beta1": 0.98,
+      "momentum": 0.95,
+      "learning_rate": 0.004,
+      "adam_lr": 0.004,
+      "normalization": "muon",
+      "weight_decay": 0.2,
+      "train_batch_size": 128,
+      "beta2": 0.95,
+      "shampoo_beta": 0.95
+    },
+    {
+      "warmup": 500,
+      "beta1": 0.98,
+      "momentum": 0.95,
+      "learning_rate": 0.004,
+      "adam_lr": 0.004,
+      "normalization": "muon",
+      "weight_decay": 0.2,
+      "train_batch_size": 128,
+      "beta2": 0.98,
+      "shampoo_beta": 0.98
+    },
+    {
+      "warmup": 500,
+      "beta1": 0.98,
+      "momentum": 0.95,
+      "learning_rate": 0.004,
+      "adam_lr": 0.004,
+      "normalization": "muon",
+      "weight_decay": 0.3,
+      "train_batch_size": 128,
+      "beta2": 0.98,
+      "shampoo_beta": 0.95
+    },
+    {
+      "warmup": 1000,
+      "beta1": 0.98,
+      "momentum": 0.95,
+      "learning_rate": 0.004,
+      "adam_lr": 0.004,
+      "normalization": "muon",
+      "weight_decay": 0.2,
+      "train_batch_size": 128,
+      "beta2": 0.98,
+      "shampoo_beta": 0.95
+    },
+    {
+      "warmup": 500,
+      "beta1": 0.98,
+      "momentum": 0.95,
+      "learning_rate": 0.004,
+      "adam_lr": 0.008,
+      "normalization": "muon",
+      "weight_decay": 0.2,
+      "train_batch_size": 128,
+      "beta2": 0.98,
+      "shampoo_beta": 0.95
+    },
+    {
+      "warmup": 500,
+      "beta1": 0.98,
+      "momentum": 0.95,
+      "learning_rate": 0.004,
+      "adam_lr": 0.002,
+      "normalization": "muon",
+      "weight_decay": 0.2,
+      "train_batch_size": 128,
+      "beta2": 0.98,
+      "shampoo_beta": 0.95
+    }
+  ],
+  "baseline": {
+    "loss": 3.232628583908081,
+    "wandb_id": "sweep-300m-6B-mudamha48f33lr0.004-alr0.004-wd0.2-minlr0-warmup50-0f876a"
+  },
+  "ablations": [
+    {
+      "param": "learning_rate",
+      "value": 0.002,
+      "loss": 3.24914288520813,
+      "wandb_id": "sweep-300m-6B-mudamg122c75lr0.002-alr0.004-wd0.2-minlr0-warmup50-c1eabd"
+    },
+    {
+      "param": "learning_rate",
+      "value": 0.008,
+      "loss": 3.29765248298645,
+      "wandb_id": "sweep-300m-6B-mudamg017773lr0.008-alr0.004-wd0.2-minlr0-warmup50-40d709"
+    },
+    {
+      "param": "weight_decay",
+      "value": 0,
+      "loss": 3.298689365386963,
+      "wandb_id": "sweep-300m-6B-mudamg2a5fa3lr0.004-alr0.004-wd0-minlr0-warmup500--690b1b"
+    },
+    {
+      "param": "weight_decay",
+      "value": 0.1,
+      "loss": 3.24423885345459,
+      "wandb_id": "sweep-300m-6B-mudamg811746lr0.004-alr0.004-wd0.1-minlr0-warmup50-a26f3d"
+    },
+    {
+      "param": "weight_decay",
+      "value": 0.3,
+      "loss": 3.2340147495269775,
+      "wandb_id": "sweep-300m-6B-mudamg723c38lr0.004-alr0.004-wd0.3-minlr0-warmup50-372eee"
+    },
+    {
+      "param": "beta1",
+      "value": 0.9,
+      "loss": 3.2338707447052,
+      "wandb_id": "sweep-300m-6B-mudamh5a62ealr0.004-alr0.004-wd0.2-minlr0-warmup50-a9d4fe"
+    },
+    {
+      "param": "beta1",
+      "value": 0.95,
+      "loss": 3.233830690383911,
+      "wandb_id": "sweep-300m-6B-mudamh9aa795lr0.004-alr0.004-wd0.2-minlr0-warmup50-e78f66"
+    },
+    {
+      "param": "beta1",
+      "value": 0.99,
+      "loss": 3.2355363368988037,
+      "wandb_id": "sweep-300m-6B-mudamh981291lr0.004-alr0.004-wd0.2-minlr0-warmup50-fdab5b"
+    },
+    {
+      "param": "beta2",
+      "value": 0.95,
+      "loss": 3.236243963241577,
+      "wandb_id": "sweep-300m-6B-mudamgeb2971lr0.004-alr0.004-wd0.2-minlr0-warmup50-b3e689"
+    },
+    {
+      "param": "beta2",
+      "value": 0.99,
+      "loss": 3.231710433959961,
+      "wandb_id": "sweep-300m-6B-mudamg0d8c16lr0.004-alr0.004-wd0.2-minlr0-warmup50-330a0d"
+    },
+    {
+      "param": "shampoo_beta",
+      "value": 0.98,
+      "loss": 3.233497858047486,
+      "wandb_id": "sweep-300m-6B-mudamg51f0e2lr0.004-alr0.004-wd0.2-minlr0-warmup50-748111"
+    },
+    {
+      "param": "shampoo_beta",
+      "value": 0.99,
+      "loss": 3.2364463806152344,
+      "wandb_id": "sweep-300m-6B-mudamg5c78d9lr0.004-alr0.004-wd0.2-minlr0-warmup50-3d87f8"
+    },
+    {
+      "param": "momentum",
+      "value": 0.9,
+      "loss": 3.240065097808838,
+      "wandb_id": "sweep-300m-6B-mudamga30215lr0.004-alr0.004-wd0.2-minlr0-warmup50-ab5a5b"
+    },
+    {
+      "param": "momentum",
+      "value": 0.98,
+      "loss": null,
+      "wandb_id": null
+    },
+    {
+      "param": "adam_lr",
+      "value": 0.001,
+      "loss": 3.245819568634033,
+      "wandb_id": "sweep-300m-6B-mudamgb23e57lr0.004-alr0.001-wd0.2-minlr0-warmup50-149b67"
+    },
+    {
+      "param": "adam_lr",
+      "value": 0.002,
+      "loss": null,
+      "wandb_id": null
+    },
+    {
+      "param": "adam_lr",
+      "value": 0.008,
+      "loss": 3.23364782333374,
+      "wandb_id": "sweep-300m-6B-mudamgbb0beelr0.004-alr0.008-wd0.2-minlr0-warmup50-0f6ab3"
+    },
+    {
+      "param": "warmup",
+      "value": 1000,
+      "loss": 3.236757755279541,
+      "wandb_id": "sweep-300m-6B-mudamg96a081lr0.004-alr0.004-wd0.2-minlr0-warmup10-95c3b8"
+    },
+    {
+      "param": "train_batch_size",
+      "value": 256,
+      "loss": 3.255794048309326,
+      "wandb_id": "sweep-300m-6B-mudamg91d82flr0.004-alr0.004-wd0.2-minlr0-warmup50-28498c"
+    }
+  ]
+}

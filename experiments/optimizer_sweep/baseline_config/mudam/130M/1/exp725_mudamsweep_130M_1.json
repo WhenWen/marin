@@ -1,0 +1,23 @@
+{
+  "baseline_config": {
+    "learning_rate": 0.008,
+    "adam_lr": 0.008,
+    "weight_decay": 0.2,
+    "min_lr_ratio": 0,
+    "warmup": 1000,
+    "beta1": 0.95,
+    "momentum": 0.95,
+    "momentum_2": 1.0,
+    "beta2": 0.98,
+    "shampoo_beta": 0.95,
+    "epsilon": 1e-15,
+    "max_grad_norm": 1.0,
+    "lr_schedule": "cosine",
+    "train_batch_size": 128,
+    "normalization": "muon",
+    "another_muon": null
+  },
+  "model_size": "130m",
+  "optimizer_name": "mudam",
+  "target_chinchilla": 1
+}

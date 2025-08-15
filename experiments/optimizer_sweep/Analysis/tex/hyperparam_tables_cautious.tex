@@ -1,0 +1,180 @@
+\subsection{Sweeping Results for Cautious}% cautious - 300m on 1x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Cautious on 300m on 1x Chinchilla Data}
+\label{tab:ablation_cautious_300m_1}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.98 & 0.98 & 1e-25 & 0.008 & 2 & 0 & 128 & 2000 & 0.1 & 3.260 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-6B-cautiousc8346clr0.008-wd0.1-minlr0-warmup2000-b10.-852297}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% cautious - 300m on 8x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Cautious on 300m on 8x Chinchilla Data}
+\label{tab:ablation_cautious_300m_8}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.98 & 0.98 & 1e-25 & 0.008 & 1 & 0 & 256 & 2000 & 0.1 & 3.043 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-48B-cautious1c558clr0.008-wd0.1-minlr0-warmup2000-b10-cae294}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% cautious - 300m on 2x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Cautious on 300m on 2x Chinchilla Data}
+\label{tab:ablation_cautious_300m_2}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.98 & 0.98 & 1e-25 & 0.008 & 1 & 0 & 256 & 2000 & 0.1 & 3.165 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-12B-cautious008d65lr0.008-wd0.1-minlr0-warmup2000-b10-69dcda}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% cautious - 300m on 4x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Cautious on 300m on 4x Chinchilla Data}
+\label{tab:ablation_cautious_300m_4}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.98 & 0.98 & 1e-25 & 0.008 & 1 & 0 & 256 & 2000 & 0.1 & 3.094 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-24B-cautious820e4dlr0.008-wd0.1-minlr0-warmup2000-b10-fe0a65}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% cautious - 520m on 1x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Cautious on 520m on 1x Chinchilla Data}
+\label{tab:ablation_cautious_520m_1}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.98 & 0.98 & 1e-25 & 0.008 & 1 & 0 & 256 & 2000 & 0.1 & 3.100 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-10B-cautiouscda486lr0.008-wd0.1-minlr0-warmup2000-b10-1d8924}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% cautious - 520m on 8x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Cautious on 520m on 8x Chinchilla Data}
+\label{tab:ablation_cautious_520m_8}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.98 & 0.98 & 1e-25 & 0.004 & 1 & 0 & 256 & 2000 & 0.1 & 2.910 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-85B-cautious66b1b7lr0.004-wd0.1-minlr0-warmup2000-b10-d99a40}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% cautious - 520m on 2x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Cautious on 520m on 2x Chinchilla Data}
+\label{tab:ablation_cautious_520m_2}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.98 & 0.98 & 1e-25 & 0.008 & 1 & 0 & 256 & 2000 & 0.1 & 3.017 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-21B-cautiousc38916lr0.008-wd0.1-minlr0-warmup2000-b10-e8000b}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% cautious - 520m on 4x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Cautious on 520m on 4x Chinchilla Data}
+\label{tab:ablation_cautious_520m_4}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.98 & 0.98 & 1e-25 & 0.004 & 1 & 0 & 256 & 2000 & 0.1 & 2.956 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-42B-cautious553798lr0.004-wd0.1-minlr0-warmup2000-b10-e08bbe}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% cautious - 130m on 4x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Cautious on 130m on 4x Chinchilla Data}
+\label{tab:ablation_cautious_130m_4}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.98 & 0.98 & 1e-15 & 0.008 & 2 & 0 & 128 & 2000 & 0.1 & 3.332 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-10B-cautious3e1de9lr0.008-wd0.1-minlr0-warmup2000-b10-3b5403}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% cautious - 130m on 1x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Cautious on 130m on 1x Chinchilla Data}
+\label{tab:ablation_cautious_130m_1}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.95 & 0.98 & 1e-15 & 0.008 & 1 & 0 & 128 & 2000 & 0.1 & 3.535 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-2B-cautious7b0572lr0.008-wd0.1-minlr0-warmup2000-b10.-085cb0}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% cautious - 130m on 2x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Cautious on 130m on 2x Chinchilla Data}
+\label{tab:ablation_cautious_130m_2}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.98 & 0.98 & 1e-15 & 0.008 & 2 & 0 & 128 & 2000 & 0.1 & 3.403 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-5B-cautiousce8123lr0.008-wd0.1-minlr0-warmup2000-b10.-fd1867}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+% cautious - 130m on 8x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Cautious on 130m on 8x Chinchilla Data}
+\label{tab:ablation_cautious_130m_8}
+\begin{tabular}{ccccccccccc}
+\toprule
+$\beta_1$ & $\beta_2$ & $\epsilon$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{BSZ}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.98 & 0.98 & 1e-15 & 0.008 & 2 & 0 & 256 & 2000 & 0.1 & 3.253 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-21B-cautious3e1de9lr0.008-wd0.1-minlr0-warmup2000-b10-8f1bb6}{0} \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+

@@ -199,7 +199,8 @@ def _augment_result_json_with_ablations(results_path: str, result_map: dict, nam
 
 def main() -> None:
     combined_results: dict[str, dict] = {}
-    optimizers = [d for d in os.listdir(BASELINE_ROOT) if os.path.isdir(os.path.join(BASELINE_ROOT, d))]
+    # optimizers = [d for d in os.listdir(BASELINE_ROOT) if os.path.isdir(os.path.join(BASELINE_ROOT, d))]
+    optimizers = ["mudam"]
     with tqdm.tqdm(total=len(optimizers), desc="Optimizers") as pbar:
         for optimizer in optimizers:
             optimizer_lower = optimizer.lower()

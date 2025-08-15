@@ -14,7 +14,8 @@ def get_wandb_api():
 
 
 # Define your details
-username = "marin-community"
+# username = "marin-community"
+username = "stanford-mercury"
 project = "optimizer-scaling"
 
 
@@ -24,7 +25,7 @@ def convert_run_to_config(run, keys):
         # too early
         return None
     return {
-        key: run.config["optimizer"][key] if (key != "train_batch_size") else run.config["trainer"][key] for key in keys
+        key: run.config["optimizer"].get(key, 1.0) if (key != "train_batch_size") else run.config["trainer"][key] for key in keys
     }
 
 
