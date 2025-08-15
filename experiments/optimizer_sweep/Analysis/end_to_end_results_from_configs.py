@@ -208,13 +208,14 @@ def main() -> None:
             model_sizes = [d for d in os.listdir(optimizer_dir) if os.path.isdir(os.path.join(optimizer_dir, d))]
 
             collected_for_opt: dict = {}
-
+            model_sizes = ["130M"]
             for model_dir in model_sizes:
                 chin_dirs = [
                     d
                     for d in os.listdir(os.path.join(optimizer_dir, model_dir))
                     if os.path.isdir(os.path.join(optimizer_dir, model_dir, d))
                 ]
+                chin_dirs = ["1"]
                 for chin_ratio_str in chin_dirs:
                     baseline_json_path = _first_json_in_dir(os.path.join(optimizer_dir, model_dir, chin_ratio_str))
                     baseline_payload = _load_json(baseline_json_path)
@@ -240,7 +241,7 @@ def main() -> None:
 
                     # Best runs from W&B
                     current_best_config, approximate_best_config_list, min_loss = grab_best_run(
-                        keys, tags, return_loss=True, thshold=7e-3
+                        keys, tags, return_loss=True, thshold=6.4e-3
                     )
                     if not approximate_best_config_list:
                         continue

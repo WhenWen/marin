@@ -100,6 +100,11 @@ def approximate(baseline, config):
     if config is None:
         return False
     for key in baseline:
+        if key == "momentum_2":
+            if baseline[key] is None:
+                baseline[key] = 1.0
+            if config[key] is None:
+                config[key] = 1.0
         if type(baseline[key]) is not float:
             if baseline[key] != config[key]:
                 return False

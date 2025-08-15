@@ -1,29 +1,34 @@
-\subsection{Sweeping Results for Kron}% kron - 130m on 4x Chinchilla Data
+\subsection{Sweeping Results for Kron}% kron - 130m on 1x Chinchilla Data
 \begin{table}[H]
 \centering
-\caption{Hyperparameter ablation for Kron on 130m on 4x Chinchilla Data}
-\label{tab:ablation_kron_130m_4}
-\begin{tabular}{cccccccccccccccc}
+\caption{Hyperparameter ablation for Kron on 130m on 1x Chinchilla Data}
+\label{tab:ablation_kron_130m_1}
+\begin{tabular}{cccccccccccccc}
 \toprule
-$\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{NormGrad}$ & $\mathrm{Blocking}$ & $Init_{pc}$ & $\eta_{pc}$ & $p_{pc}$ & $\mathrm{BSZ}$ & $Step_{pc}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+$\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\mathrm{NormGrad}$ & $\mathrm{Blocking}$ & $Init_{pc}$ & $\eta_{pc}$ & $p_{pc}$ & $\mathrm{BSZ}$ & $Step_{pc}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
 \midrule
-0.95 & 256 & 0.002 & 1 & 0 & True & True & 1 & 0.2 & 0.05 & 128 & 2000 & 1000 & 0.5 & 3.307 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-10B-kronm1a1c3blr0.002-wd0.5-b10.95-plr0.2-pis1-gn1-n-b8692a}{0} \\
+0.95 & 256 & 0.002 & True & True & 1.0 & 0.2 & 0.05 & 128 & 2000 & 1000 & 0.7 & 3.492 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-2B-kron811b3clr0.002-wd0.7-b10.95-plr0.2-pis1-gn1-nor-45d11f}{0} \\
 \midrule
-\bottomrule
-\end{tabular}
-\end{table}
-
-% kron - 130m on 8x Chinchilla Data
-\begin{table}[H]
-\centering
-\caption{Hyperparameter ablation for Kron on 130m on 8x Chinchilla Data}
-\label{tab:ablation_kron_130m_8}
-\begin{tabular}{cccccccccccccccc}
-\toprule
-$\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{NormGrad}$ & $\mathrm{Blocking}$ & $Init_{pc}$ & $\eta_{pc}$ & $p_{pc}$ & $\mathrm{BSZ}$ & $Step_{pc}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
-\midrule
-0.95 & 256 & 0.001 & 1 & 0 & True & True & 1 & 0.2 & 0.1 & 128 & 2000 & 1000 & 0.5 & 3.239 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-21B-kronz680ae4lr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-n-f84dac}{0} \\
-\midrule
+0.9 & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 3.500 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-2B-kron18ad0flr0.002-wd0.7-b10.9-plr0.2-pis1-gn1-norm-7cd768}{1} \\
+0.98 & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 3.497 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-2B-kron13e12blr0.002-wd0.7-b10.98-plr0.2-pis1-gn1-nor-259ac0}{2} \\
+-- & 128 & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 3.492 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-2B-kroncd6d30lr0.002-wd0.7-b10.95-plr0.2-pis1-gn1-nor-1527d0}{3} \\
+-- & 512 & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 3.494 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-2B-krond41926lr0.002-wd0.7-b10.95-plr0.2-pis1-gn1-nor-e72480}{4} \\
+-- & -- & 0.0005 & -- & -- & -- & -- & -- & -- & -- & -- & -- & 3.528 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-2B-kron6787f2lr0.0005-wd0.7-b10.95-plr0.2-pis1-gn1-no-d99f80}{5} \\
+-- & -- & 0.001 & -- & -- & -- & -- & -- & -- & -- & -- & -- & 3.501 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-2B-kron5fbd9blr0.001-wd0.7-b10.95-plr0.2-pis1-gn1-nor-fbd5ad}{6} \\
+-- & -- & 0.004 & -- & -- & -- & -- & -- & -- & -- & -- & -- & 3.514 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-2B-krone14983lr0.004-wd0.7-b10.95-plr0.2-pis1-gn1-nor-0f833d}{7} \\
+-- & -- & 0.008 & -- & -- & -- & -- & -- & -- & -- & -- & -- & 7.838 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-2B-kroncc6d1clr0.008-wd0.7-b10.95-plr0.2-pis1-gn1-nor-5daa90}{8} \\
+-- & -- & -- & False & -- & -- & -- & -- & -- & -- & -- & -- & 3.493 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-2B-kron15f63alr0.002-wd0.7-b10.95-plr0.2-pis1-gn1-nor-c86fe3}{9} \\
+-- & -- & -- & -- & -- & -- & 0.1 & -- & -- & -- & -- & -- & 3.498 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-2B-krone65b57lr0.002-wd0.7-b10.95-plr0.1-pis1-gn1-nor-83c7e9}{10} \\
+-- & -- & -- & -- & -- & -- & -- & 0.1 & -- & -- & -- & -- & 3.493 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-2B-krone7ca20lr0.002-wd0.7-b10.95-plr0.2-pis1-gn1-nor-836663}{11} \\
+-- & -- & -- & -- & -- & -- & -- & -- & 256 & -- & -- & -- & 3.525 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-2B-kron6a290elr0.002-wd0.7-b10.95-plr0.2-pis1-gn1-nor-00e7d9}{12} \\
+-- & -- & -- & -- & -- & -- & -- & -- & 512 & -- & -- & -- & 3.632 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-2B-kronbe1c48lr0.002-wd0.7-b10.95-plr0.2-pis1-gn1-nor-6b988f}{13} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & 500 & -- & -- & 3.503 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-2B-kron8b3feelr0.002-wd0.7-b10.95-plr0.2-pis1-gn1-nor-dac9d4}{14} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & 1000 & -- & -- & 3.498 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-2B-kron8264balr0.002-wd0.7-b10.95-plr0.2-pis1-gn1-nor-52689f}{15} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 2000 & -- & 3.507 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-2B-kron9117dclr0.002-wd0.7-b10.95-plr0.2-pis1-gn1-nor-df1fa7}{16} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 4000 & -- & 3.583 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-2B-kron1999a2lr0.002-wd0.7-b10.95-plr0.2-pis1-gn1-nor-a2c96d}{17} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 0.0 & 3.519 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-2B-kron26d3dclr0.002-wd0.0-b10.95-plr0.2-pis1-gn1-nor-978d74}{18} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 0.5 & 3.491 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-2B-kronf8119alr0.002-wd0.5-b10.95-plr0.2-pis1-gn1-nor-2ef7b8}{19} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 0.9 & 3.495 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-2B-kron476954lr0.002-wd0.9-b10.95-plr0.2-pis1-gn1-nor-356b60}{20} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -33,27 +38,104 @@ $\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\math
 \centering
 \caption{Hyperparameter ablation for Kron on 130m on 2x Chinchilla Data}
 \label{tab:ablation_kron_130m_2}
-\begin{tabular}{cccccccccccccccc}
+\begin{tabular}{cccccccccccccc}
 \toprule
-$\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{NormGrad}$ & $\mathrm{Blocking}$ & $Init_{pc}$ & $\eta_{pc}$ & $p_{pc}$ & $\mathrm{BSZ}$ & $Step_{pc}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+$\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\mathrm{NormGrad}$ & $\mathrm{Blocking}$ & $Init_{pc}$ & $\eta_{pc}$ & $p_{pc}$ & $\mathrm{BSZ}$ & $Step_{pc}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
 \midrule
-0.95 & 256 & 0.002 & 1 & 0 & True & True & 1 & 0.2 & 0.05 & 128 & 2000 & 1000 & 0.5 & 3.389 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-5B-kron45d4b7lr0.002-wd0.5-b10.95-plr0.2-pis1-gn1-nor-c54de5}{0} \\
+0.95 & 256 & 0.002 & True & True & 1 & 0.2 & 0.05 & 128 & 2000 & 1000 & 0.5 & 3.389 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-5B-kron45d4b7lr0.002-wd0.5-b10.95-plr0.2-pis1-gn1-nor-c54de5}{0} \\
 \midrule
+0.9 & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 3.393 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-5B-kronc6e4f0lr0.002-wd0.5-b10.9-plr0.2-pis1-gn1-norm-b99f14}{1} \\
+0.98 & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 3.391 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-5B-kron446e3clr0.002-wd0.5-b10.98-plr0.2-pis1-gn1-nor-60f801}{2} \\
+-- & 512 & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 3.390 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-5B-kron47f90elr0.002-wd0.5-b10.95-plr0.2-pis1-gn1-nor-50b12f}{3} \\
+-- & -- & 0.0005 & -- & -- & -- & -- & -- & -- & -- & -- & -- & 3.409 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-5B-kronc5113alr0.0005-wd0.5-b10.95-plr0.2-pis1-gn1-no-25eea5}{4} \\
+-- & -- & 0.001 & -- & -- & -- & -- & -- & -- & -- & -- & -- & 3.391 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-5B-kron0d84f8lr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-nor-9cbb80}{5} \\
+-- & -- & 0.004 & -- & -- & -- & -- & -- & -- & -- & -- & -- & 3.410 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-5B-krone91591lr0.004-wd0.5-b10.95-plr0.2-pis1-gn1-nor-46e2ae}{6} \\
+-- & -- & 0.008 & -- & -- & -- & -- & -- & -- & -- & -- & -- & 7.458 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-5B-kron4e53f2lr0.008-wd0.5-b10.95-plr0.2-pis1-gn1-nor-6c3cc4}{7} \\
+-- & -- & -- & False & -- & -- & -- & -- & -- & -- & -- & -- & 3.419 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-5B-krone5b648lr0.002-wd0.5-b10.95-plr0.2-pis1-gn1-nor-3d80f2}{8} \\
+-- & -- & -- & -- & -- & -- & 0.1 & -- & -- & -- & -- & -- & 3.390 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-5B-kronb4e3a9lr0.002-wd0.5-b10.95-plr0.1-pis1-gn1-nor-b5c63e}{9} \\
+-- & -- & -- & -- & -- & -- & -- & 0.1 & -- & -- & -- & -- & 3.388 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-5B-kron856f4elr0.002-wd0.5-b10.95-plr0.2-pis1-gn1-nor-9bbacc}{10} \\
+-- & -- & -- & -- & -- & -- & -- & -- & 256 & -- & -- & -- & 3.402 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-5B-kronf8119alr0.002-wd0.5-b10.95-plr0.2-pis1-gn1-nor-73cf68}{11} \\
+-- & -- & -- & -- & -- & -- & -- & -- & 512 & -- & -- & -- & 3.438 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-5B-kron80879elr0.002-wd0.5-b10.95-plr0.2-pis1-gn1-nor-57a36a}{12} \\
+-- & -- & -- & -- & -- & -- & -- & -- & 1024 & -- & -- & -- & 3.532 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-5B-kron897453lr0.002-wd0.5-b10.95-plr0.2-pis1-gn1-nor-92b5b8}{13} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & 500 & -- & -- & 3.393 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-5B-kron5226b3lr0.002-wd0.5-b10.95-plr0.2-pis1-gn1-nor-49e5be}{14} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & 1000 & -- & -- & 3.391 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-5B-kron0c9405lr0.002-wd0.5-b10.95-plr0.2-pis1-gn1-nor-d2903e}{15} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 2000 & -- & 3.392 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-5B-kron3d8947lr0.002-wd0.5-b10.95-plr0.2-pis1-gn1-nor-b13176}{16} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 4000 & -- & 3.407 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-5B-kron16e6c3lr0.002-wd0.5-b10.95-plr0.2-pis1-gn1-nor-d79e88}{17} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 0.0 & 3.420 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-5B-kron7554eclr0.002-wd0.0-b10.95-plr0.2-pis1-gn1-nor-068703}{18} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 0.7 & 3.392 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-5B-kron21448alr0.002-wd0.7-b10.95-plr0.2-pis1-gn1-nor-9b5416}{19} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 0.9 & 3.401 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-5B-kron8b782elr0.002-wd0.9-b10.95-plr0.2-pis1-gn1-nor-f63969}{20} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-% kron - 130m on 1x Chinchilla Data
+% kron - 130m on 4x Chinchilla Data
 \begin{table}[H]
 \centering
-\caption{Hyperparameter ablation for Kron on 130m on 1x Chinchilla Data}
-\label{tab:ablation_kron_130m_1}
-\begin{tabular}{cccccccccccccccc}
+\caption{Hyperparameter ablation for Kron on 130m on 4x Chinchilla Data}
+\label{tab:ablation_kron_130m_4}
+\begin{tabular}{cccccccccccccc}
 \toprule
-$\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{NormGrad}$ & $\mathrm{Blocking}$ & $Init_{pc}$ & $\eta_{pc}$ & $p_{pc}$ & $\mathrm{BSZ}$ & $Step_{pc}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+$\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\mathrm{NormGrad}$ & $\mathrm{Blocking}$ & $Init_{pc}$ & $\eta_{pc}$ & $p_{pc}$ & $\mathrm{BSZ}$ & $Step_{pc}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
 \midrule
-0.95 & 256 & 0.002 & 1 & 0 & True & True & 1.0 & 0.2 & 0.05 & 128 & 2000 & 1000 & 0.7 & 3.492 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-2B-kron811b3clr0.002-wd0.7-b10.95-plr0.2-pis1-gn1-nor-45d11f}{0} \\
+0.95 & 256 & 0.002 & True & True & 1 & 0.2 & 0.05 & 128 & 2000 & 1000 & 0.5 & 3.307 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-10B-kronm1a1c3blr0.002-wd0.5-b10.95-plr0.2-pis1-gn1-n-b8692a}{0} \\
 \midrule
+0.9 & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 3.316 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-10B-kronc8cdf3lr0.002-wd0.5-b10.9-plr0.2-pis1-gn1-nor-e40586}{1} \\
+0.98 & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 3.310 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-10B-kron05da28lr0.002-wd0.5-b10.98-plr0.2-pis1-gn1-no-be2fbc}{2} \\
+-- & 128 & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 3.308 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-10B-kron494d83lr0.002-wd0.5-b10.95-plr0.2-pis1-gn1-no-134f26}{3} \\
+-- & 512 & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 3.313 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-10B-krond4b6e6lr0.002-wd0.5-b10.95-plr0.2-pis1-gn1-no-439652}{4} \\
+-- & -- & 0.0005 & -- & -- & -- & -- & -- & -- & -- & -- & -- & 3.316 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-10B-kron53973dlr0.0005-wd0.5-b10.95-plr0.2-pis1-gn1-n-7bcfe7}{5} \\
+-- & -- & 0.001 & -- & -- & -- & -- & -- & -- & -- & -- & -- & 3.303 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-10B-kron2f3c38lr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-no-a0a910}{6} \\
+-- & -- & 0.004 & -- & -- & -- & -- & -- & -- & -- & -- & -- & 6.703 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-10B-kron053fe8lr0.004-wd0.5-b10.95-plr0.2-pis1-gn1-no-611f99}{7} \\
+-- & -- & 0.008 & -- & -- & -- & -- & -- & -- & -- & -- & -- & 7.492 & N/A \\
+-- & -- & -- & False & -- & -- & -- & -- & -- & -- & -- & -- & 5.676 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-10B-kron1d44fclr0.002-wd0.5-b10.95-plr0.2-pis1-gn1-no-70d4aa}{9} \\
+-- & -- & -- & -- & -- & -- & 0.1 & -- & -- & -- & -- & -- & 3.311 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-10B-kronb95d56lr0.002-wd0.5-b10.95-plr0.1-pis1-gn1-no-75ac83}{10} \\
+-- & -- & -- & -- & -- & -- & -- & 0.1 & -- & -- & -- & -- & 3.304 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-10B-kron5b495flr0.002-wd0.5-b10.95-plr0.2-pis1-gn1-no-989d60}{11} \\
+-- & -- & -- & -- & -- & -- & -- & -- & 256 & -- & -- & -- & 3.307 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-10B-kron45d4b7lr0.002-wd0.5-b10.95-plr0.2-pis1-gn1-no-cdf266}{12} \\
+-- & -- & -- & -- & -- & -- & -- & -- & 512 & -- & -- & -- & 3.327 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-10B-kronf8119alr0.002-wd0.5-b10.95-plr0.2-pis1-gn1-no-e1c458}{13} \\
+-- & -- & -- & -- & -- & -- & -- & -- & 1024 & -- & -- & -- & 3.370 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-10B-kron80879elr0.002-wd0.5-b10.95-plr0.2-pis1-gn1-no-214b96}{14} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & 500 & -- & -- & 3.311 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-10B-kron9eb75blr0.002-wd0.5-b10.95-plr0.2-pis1-gn1-no-294485}{15} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & 1000 & -- & -- & 3.310 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-10B-kron2c6da9lr0.002-wd0.5-b10.95-plr0.2-pis1-gn1-no-f705c8}{16} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 2000 & -- & 3.310 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-10B-kron7e7565lr0.002-wd0.5-b10.95-plr0.2-pis1-gn1-no-5425b1}{17} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 4000 & -- & 3.317 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-10B-kron35a609lr0.002-wd0.5-b10.95-plr0.2-pis1-gn1-no-42f16b}{18} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 0.0 & 3.341 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-10B-kronf6cdb4lr0.002-wd0.0-b10.95-plr0.2-pis1-gn1-no-aeed18}{19} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 0.7 & 3.326 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-10B-kroncf91b2lr0.002-wd0.7-b10.95-plr0.2-pis1-gn1-no-bb43f6}{20} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 0.9 & 3.340 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-10B-kron5e6407lr0.002-wd0.9-b10.95-plr0.2-pis1-gn1-no-8578c1}{21} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% kron - 130m on 8x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Kron on 130m on 8x Chinchilla Data}
+\label{tab:ablation_kron_130m_8}
+\begin{tabular}{cccccccccccccc}
+\toprule
+$\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\mathrm{NormGrad}$ & $\mathrm{Blocking}$ & $Init_{pc}$ & $\eta_{pc}$ & $p_{pc}$ & $\mathrm{BSZ}$ & $Step_{pc}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.95 & 256 & 0.001 & True & True & 1 & 0.2 & 0.1 & 128 & 2000 & 1000 & 0.5 & 3.239 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-21B-kronz680ae4lr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-n-f84dac}{0} \\
+\midrule
+0.9 & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 3.243 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-21B-kron5f284blr0.001-wd0.5-b10.9-plr0.2-pis1-gn1-nor-853b92}{1} \\
+0.98 & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 3.239 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-21B-kron6aaf70lr0.001-wd0.5-b10.98-plr0.2-pis1-gn1-no-c11287}{2} \\
+-- & 512 & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 3.239 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-21B-kron545c17lr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-no-826ad5}{3} \\
+-- & -- & 0.0005 & -- & -- & -- & -- & -- & -- & -- & -- & -- & 3.245 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-21B-krona6b124lr0.0005-wd0.5-b10.95-plr0.2-pis1-gn1-n-220dba}{4} \\
+-- & -- & 0.002 & -- & -- & -- & -- & -- & -- & -- & -- & -- & 3.252 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-21B-kron570784lr0.002-wd0.5-b10.95-plr0.2-pis1-gn1-no-52c059}{5} \\
+-- & -- & 0.004 & -- & -- & -- & -- & -- & -- & -- & -- & -- & 6.279 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-21B-krona75eb9lr0.004-wd0.5-b10.95-plr0.2-pis1-gn1-no-b73759}{6} \\
+-- & -- & 0.008 & -- & -- & -- & -- & -- & -- & -- & -- & -- & 7.504 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-21B-kron5a8102lr0.008-wd0.5-b10.95-plr0.2-pis1-gn1-no-475004}{7} \\
+-- & -- & -- & False & -- & -- & -- & -- & -- & -- & -- & -- & 3.247 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-21B-kron655886lr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-no-9fcd23}{8} \\
+-- & -- & -- & -- & False & -- & -- & -- & -- & -- & -- & -- & 3.240 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-21B-kron3be334lr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-no-189c09}{9} \\
+-- & -- & -- & -- & -- & -- & 0.1 & -- & -- & -- & -- & -- & 3.242 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-21B-kron2c06b9lr0.001-wd0.5-b10.95-plr0.1-pis1-gn1-no-156c36}{10} \\
+-- & -- & -- & -- & -- & -- & -- & 0.05 & -- & -- & -- & -- & 3.240 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-21B-kronf63620lr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-no-8d37da}{11} \\
+-- & -- & -- & -- & -- & -- & -- & -- & 256 & -- & -- & -- & 3.247 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-21B-kronb99966lr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-no-87a643}{12} \\
+-- & -- & -- & -- & -- & -- & -- & -- & 512 & -- & -- & -- & 3.264 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-21B-kronz798587lr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-n-b546f9}{13} \\
+-- & -- & -- & -- & -- & -- & -- & -- & 1024 & -- & -- & -- & 3.294 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-21B-kron8f965elr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-no-5a3434}{14} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & 500 & -- & -- & 3.240 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-21B-krona3d4b1lr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-no-734cae}{15} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & 1000 & -- & -- & 3.239 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-21B-kronaca326lr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-no-ac5a71}{16} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 2000 & -- & 3.239 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-21B-kron10a92elr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-no-3032fa}{17} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 4000 & -- & 3.240 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-21B-kron05e14blr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-no-e82a82}{18} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 0.0 & 3.282 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-21B-kron5f7b04lr0.001-wd0.0-b10.95-plr0.2-pis1-gn1-no-f3b5d3}{19} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 0.7 & 3.241 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-21B-kronc9ae15lr0.001-wd0.7-b10.95-plr0.2-pis1-gn1-no-db4b18}{20} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 0.9 & 3.246 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-130m-21B-kron4898eflr0.001-wd0.9-b10.95-plr0.2-pis1-gn1-no-313f60}{21} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -63,12 +145,32 @@ $\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\math
 \centering
 \caption{Hyperparameter ablation for Kron on 300m on 1x Chinchilla Data}
 \label{tab:ablation_kron_300m_1}
-\begin{tabular}{cccccccccccccccc}
+\begin{tabular}{cccccccccccccc}
 \toprule
-$\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{NormGrad}$ & $\mathrm{Blocking}$ & $Init_{pc}$ & $\eta_{pc}$ & $p_{pc}$ & $\mathrm{BSZ}$ & $Step_{pc}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+$\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\mathrm{NormGrad}$ & $\mathrm{Blocking}$ & $Init_{pc}$ & $\eta_{pc}$ & $p_{pc}$ & $\mathrm{BSZ}$ & $Step_{pc}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
 \midrule
-0.95 & 256 & 0.001 & 1 & 0 & True & True & 1 & 0.2 & 0.1 & 128 & 2000 & 1000 & 0.5 & 3.244 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-6B-kron9fb147lr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-nor-d54c60}{0} \\
+0.95 & 256 & 0.001 & True & True & 1 & 0.2 & 0.1 & 128 & 2000 & 1000 & 0.5 & 3.244 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-6B-kron9fb147lr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-nor-d54c60}{0} \\
 \midrule
+0.9 & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 3.248 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-6B-kron9ac4c0lr0.001-wd0.5-b10.9-plr0.2-pis1-gn1-norm-2f58ed}{1} \\
+0.98 & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 3.244 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-6B-kron06f9b7lr0.001-wd0.5-b10.98-plr0.2-pis1-gn1-nor-67674b}{2} \\
+-- & 512 & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 3.243 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-6B-kron1bfdd1lr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-nor-534bfe}{3} \\
+-- & -- & 0.0005 & -- & -- & -- & -- & -- & -- & -- & -- & -- & 3.263 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-6B-kron4eb26flr0.0005-wd0.5-b10.95-plr0.2-pis1-gn1-no-3b9228}{4} \\
+-- & -- & 0.002 & -- & -- & -- & -- & -- & -- & -- & -- & -- & 3.245 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-6B-krond49014lr0.002-wd0.5-b10.95-plr0.2-pis1-gn1-nor-b57c7c}{5} \\
+-- & -- & 0.004 & -- & -- & -- & -- & -- & -- & -- & -- & -- & 7.636 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-6B-kron351c0clr0.004-wd0.5-b10.95-plr0.2-pis1-gn1-nor-dea42d}{6} \\
+-- & -- & 0.008 & -- & -- & -- & -- & -- & -- & -- & -- & -- & 6.923 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-6B-kronb28e04lr0.008-wd0.5-b10.95-plr0.2-pis1-gn1-nor-8d91a1}{7} \\
+-- & -- & -- & False & -- & -- & -- & -- & -- & -- & -- & -- & 3.253 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-6B-kronbd9170lr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-nor-0add5a}{8} \\
+-- & -- & -- & -- & -- & -- & 0.1 & -- & -- & -- & -- & -- & 3.247 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-6B-kron2dfba4lr0.001-wd0.5-b10.95-plr0.1-pis1-gn1-nor-276c3b}{9} \\
+-- & -- & -- & -- & -- & -- & -- & 0.05 & -- & -- & -- & -- & 3.245 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-6B-kron79a66dlr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-nor-11f4a3}{10} \\
+-- & -- & -- & -- & -- & -- & -- & -- & 256 & -- & -- & -- & 3.268 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-6B-kron3e44e0lr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-nor-e9e4f3}{11} \\
+-- & -- & -- & -- & -- & -- & -- & -- & 512 & -- & -- & -- & 3.309 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-6B-krond7d67alr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-nor-85324c}{12} \\
+-- & -- & -- & -- & -- & -- & -- & -- & 1024 & -- & -- & -- & 3.393 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-6B-kron8b18a1lr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-nor-4605e0}{13} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & 500 & -- & -- & 3.248 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-6B-krondc1418lr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-nor-f0e290}{14} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & 1000 & -- & -- & 3.245 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-6B-krona5b2cclr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-nor-c5851e}{15} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 2000 & -- & 3.249 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-6B-kron624f48lr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-nor-30df74}{16} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 4000 & -- & 3.255 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-6B-kron725c70lr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-nor-641c26}{17} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 0.0 & 3.280 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-6B-kron1939b5lr0.001-wd0.0-b10.95-plr0.2-pis1-gn1-nor-2af8b7}{18} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 0.7 & 3.241 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-6B-kron0a397clr0.001-wd0.7-b10.95-plr0.2-pis1-gn1-nor-f6a567}{19} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 0.9 & 3.243 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-6B-kron844b62lr0.001-wd0.9-b10.95-plr0.2-pis1-gn1-nor-5156e6}{20} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -78,27 +180,13 @@ $\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\math
 \centering
 \caption{Hyperparameter ablation for Kron on 300m on 2x Chinchilla Data}
 \label{tab:ablation_kron_300m_2}
-\begin{tabular}{cccccccccccccccc}
+\begin{tabular}{cccccccccccccc}
 \toprule
-$\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{NormGrad}$ & $\mathrm{Blocking}$ & $Init_{pc}$ & $\eta_{pc}$ & $p_{pc}$ & $\mathrm{BSZ}$ & $Step_{pc}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+$\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\mathrm{NormGrad}$ & $\mathrm{Blocking}$ & $Init_{pc}$ & $\eta_{pc}$ & $p_{pc}$ & $\mathrm{BSZ}$ & $Step_{pc}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
 \midrule
-0.95 & 256 & 0.001 & 1 & 0 & True & True & 1 & 0.2 & 0.1 & 128 & 2000 & 1000 & 0.7 & 3.151 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-12B-kronb21812lr0.001-wd0.7-b10.95-plr0.2-pis1-gn1-no-48c292}{0} \\
+0.95 & 256 & 0.001 & True & True & 1 & 0.2 & 0.1 & 128 & 2000 & 1000 & 0.7 & 3.151 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-12B-kronb21812lr0.001-wd0.7-b10.95-plr0.2-pis1-gn1-no-48c292}{0} \\
 \midrule
-\bottomrule
-\end{tabular}
-\end{table}
-
-% kron - 300m on 8x Chinchilla Data
-\begin{table}[H]
-\centering
-\caption{Hyperparameter ablation for Kron on 300m on 8x Chinchilla Data}
-\label{tab:ablation_kron_300m_8}
-\begin{tabular}{cccccccccccccccc}
-\toprule
-$\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{NormGrad}$ & $\mathrm{Blocking}$ & $Init_{pc}$ & $\eta_{pc}$ & $p_{pc}$ & $\mathrm{BSZ}$ & $Step_{pc}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
-\midrule
-0.95 & 256 & 0.0005 & 1 & 0 & True & True & 1 & 0.2 & 0.1 & 128 & 2000 & 1000 & 0.7 & 3.031 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-48B-kronabb76feelr0.0005-wd0.7-b10.95-plr0.2-pis1-gn1-0ed5c4}{0} \\
-\midrule
+-- & -- & 0.0005 & -- & -- & -- & -- & -- & -- & -- & -- & -- & 3.157 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-12B-kron7436a9lr0.0005-wd0.7-b10.95-plr0.2-pis1-gn1-n-68efd2}{1} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -108,12 +196,29 @@ $\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\math
 \centering
 \caption{Hyperparameter ablation for Kron on 300m on 4x Chinchilla Data}
 \label{tab:ablation_kron_300m_4}
-\begin{tabular}{cccccccccccccccc}
+\begin{tabular}{cccccccccccccc}
 \toprule
-$\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{NormGrad}$ & $\mathrm{Blocking}$ & $Init_{pc}$ & $\eta_{pc}$ & $p_{pc}$ & $\mathrm{BSZ}$ & $Step_{pc}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+$\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\mathrm{NormGrad}$ & $\mathrm{Blocking}$ & $Init_{pc}$ & $\eta_{pc}$ & $p_{pc}$ & $\mathrm{BSZ}$ & $Step_{pc}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
 \midrule
-0.95 & 256 & 0.0005 & 1 & 0 & True & True & 1 & 0.2 & 0.1 & 128 & 2000 & 1000 & 0.7 & 3.083 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-24B-kronb55572lr0.0005-wd0.7-b10.95-plr0.2-pis1-gn1-n-9479df}{0} \\
+0.95 & 256 & 0.0005 & True & True & 1 & 0.2 & 0.1 & 128 & 2000 & 1000 & 0.7 & 3.083 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-24B-kronb55572lr0.0005-wd0.7-b10.95-plr0.2-pis1-gn1-n-9479df}{0} \\
 \midrule
+-- & -- & 0.001 & -- & -- & -- & -- & -- & -- & -- & -- & -- & 3.090 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-24B-kron7aa525lr0.001-wd0.7-b10.95-plr0.2-pis1-gn1-no-127f30}{1} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% kron - 300m on 8x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Kron on 300m on 8x Chinchilla Data}
+\label{tab:ablation_kron_300m_8}
+\begin{tabular}{cccccccccccccc}
+\toprule
+$\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\mathrm{NormGrad}$ & $\mathrm{Blocking}$ & $Init_{pc}$ & $\eta_{pc}$ & $p_{pc}$ & $\mathrm{BSZ}$ & $Step_{pc}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.95 & 256 & 0.0005 & True & True & 1 & 0.2 & 0.1 & 128 & 2000 & 1000 & 0.7 & 3.031 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-48B-kronabb76feelr0.0005-wd0.7-b10.95-plr0.2-pis1-gn1-0ed5c4}{0} \\
+\midrule
+-- & -- & 0.001 & -- & -- & -- & -- & -- & -- & -- & -- & -- & 3.074 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-300m-48B-kronk1aa5b2lr0.001-wd0.7-b10.95-plr0.2-pis1-gn1-n-e34850}{1} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -123,12 +228,31 @@ $\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\math
 \centering
 \caption{Hyperparameter ablation for Kron on 520m on 1x Chinchilla Data}
 \label{tab:ablation_kron_520m_1}
-\begin{tabular}{cccccccccccccccc}
+\begin{tabular}{cccccccccccccc}
 \toprule
-$\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{NormGrad}$ & $\mathrm{Blocking}$ & $Init_{pc}$ & $\eta_{pc}$ & $p_{pc}$ & $\mathrm{BSZ}$ & $Step_{pc}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+$\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\mathrm{NormGrad}$ & $\mathrm{Blocking}$ & $Init_{pc}$ & $\eta_{pc}$ & $p_{pc}$ & $\mathrm{BSZ}$ & $Step_{pc}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
 \midrule
-0.95 & 256 & 0.001 & 1 & 0 & True & True & 1 & 0.2 & 0.1 & 128 & 2000 & 1000 & 0.5 & 3.084 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-10B-kronb99966lr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-no-99dc7c}{0} \\
+0.95 & 256 & 0.001 & True & True & 1 & 0.2 & 0.1 & 128 & 2000 & 1000 & 0.5 & 3.084 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-10B-kronb99966lr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-no-99dc7c}{0} \\
 \midrule
+0.9 & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 3.088 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-10B-kron8de5balr0.001-wd0.5-b10.9-plr0.2-pis1-gn1-nor-bd8414}{1} \\
+0.98 & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 6.663 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-10B-kron40f5fdlr0.001-wd0.5-b10.98-plr0.2-pis1-gn1-no-d16344}{2} \\
+-- & 512 & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 3.087 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-10B-kronb561bdlr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-no-1c08ad}{3} \\
+-- & -- & 0.0005 & -- & -- & -- & -- & -- & -- & -- & -- & -- & 3.095 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-10B-krondf7ba9lr0.0005-wd0.5-b10.95-plr0.2-pis1-gn1-n-d65d46}{4} \\
+-- & -- & 0.002 & -- & -- & -- & -- & -- & -- & -- & -- & -- & 6.412 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-10B-kron5b495flr0.002-wd0.5-b10.95-plr0.2-pis1-gn1-no-c64c4f}{5} \\
+-- & -- & 0.004 & -- & -- & -- & -- & -- & -- & -- & -- & -- & 6.927 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-10B-kron6d4a78lr0.004-wd0.5-b10.95-plr0.2-pis1-gn1-no-018cac}{6} \\
+-- & -- & 0.008 & -- & -- & -- & -- & -- & -- & -- & -- & -- & 7.018 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-10B-kron93bd52lr0.008-wd0.5-b10.95-plr0.2-pis1-gn1-no-a3a0f8}{7} \\
+-- & -- & -- & False & -- & -- & -- & -- & -- & -- & -- & -- & 5.487 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-10B-kronb8e354lr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-no-928921}{8} \\
+-- & -- & -- & -- & -- & -- & 0.1 & -- & -- & -- & -- & -- & 3.088 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-10B-kron2ec659lr0.001-wd0.5-b10.95-plr0.1-pis1-gn1-no-22bed3}{9} \\
+-- & -- & -- & -- & -- & -- & -- & 0.05 & -- & -- & -- & -- & 3.093 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-10B-kron2f3c38lr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-no-99d3a4}{10} \\
+-- & -- & -- & -- & -- & -- & -- & -- & 256 & -- & -- & -- & 3.099 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-10B-kron798587lr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-no-fcd346}{11} \\
+-- & -- & -- & -- & -- & -- & -- & -- & 512 & -- & -- & -- & 3.126 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-10B-kron8f965elr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-no-589914}{12} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & 500 & -- & -- & 3.087 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-10B-krona2e0delr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-no-f9eafc}{13} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & 1000 & -- & -- & 3.085 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-10B-kron4297d5lr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-no-b6a2c5}{14} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 2000 & -- & 3.090 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-10B-kron7f1bb9lr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-no-4a18ea}{15} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 4000 & -- & 3.094 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-10B-krona25d57lr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-no-c8cf50}{16} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 0.0 & 3.127 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-10B-kronb94006lr0.001-wd0.0-b10.95-plr0.2-pis1-gn1-no-00711c}{17} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 0.7 & 3.088 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-10B-kron80f4e9lr0.001-wd0.7-b10.95-plr0.2-pis1-gn1-no-a97c93}{18} \\
+-- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 0.9 & 3.089 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-10B-krona7c046lr0.001-wd0.9-b10.95-plr0.2-pis1-gn1-no-e1f440}{19} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -138,27 +262,13 @@ $\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\math
 \centering
 \caption{Hyperparameter ablation for Kron on 520m on 2x Chinchilla Data}
 \label{tab:ablation_kron_520m_2}
-\begin{tabular}{cccccccccccccccc}
+\begin{tabular}{cccccccccccccc}
 \toprule
-$\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{NormGrad}$ & $\mathrm{Blocking}$ & $Init_{pc}$ & $\eta_{pc}$ & $p_{pc}$ & $\mathrm{BSZ}$ & $Step_{pc}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+$\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\mathrm{NormGrad}$ & $\mathrm{Blocking}$ & $Init_{pc}$ & $\eta_{pc}$ & $p_{pc}$ & $\mathrm{BSZ}$ & $Step_{pc}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
 \midrule
-0.95 & 256 & 0.0005 & 1 & 0 & True & True & 1 & 0.2 & 0.1 & 128 & 2000 & 1000 & 0.5 & 3.009 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-21B-krona6b124lr0.0005-wd0.5-b10.95-plr0.2-pis1-gn1-n-6acf07}{0} \\
+0.95 & 256 & 0.0005 & True & True & 1 & 0.2 & 0.1 & 128 & 2000 & 1000 & 0.5 & 3.009 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-21B-krona6b124lr0.0005-wd0.5-b10.95-plr0.2-pis1-gn1-n-6acf07}{0} \\
 \midrule
-\bottomrule
-\end{tabular}
-\end{table}
-
-% kron - 520m on 8x Chinchilla Data
-\begin{table}[H]
-\centering
-\caption{Hyperparameter ablation for Kron on 520m on 8x Chinchilla Data}
-\label{tab:ablation_kron_520m_8}
-\begin{tabular}{cccccccccccccccc}
-\toprule
-$\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{NormGrad}$ & $\mathrm{Blocking}$ & $Init_{pc}$ & $\eta_{pc}$ & $p_{pc}$ & $\mathrm{BSZ}$ & $Step_{pc}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
-\midrule
-0.95 & 256 & 0.0005 & 1 & 0 & True & True & 1 & 0.2 & 0.1 & 128 & 2000 & 1000 & 0.5 & 2.900 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-85B-kronc2a9f5lr0.0005-wd0.5-b10.95-plr0.2-pis1-gn1-n-7f654e}{0} \\
-\midrule
+-- & -- & 0.001 & -- & -- & -- & -- & -- & -- & -- & -- & -- & 3.009 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-21B-kron680ae4lr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-no-405d3d}{1} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -168,12 +278,30 @@ $\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\math
 \centering
 \caption{Hyperparameter ablation for Kron on 520m on 4x Chinchilla Data}
 \label{tab:ablation_kron_520m_4}
-\begin{tabular}{cccccccccccccccc}
+\begin{tabular}{cccccccccccccc}
 \toprule
-$\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\gradnorm$ & $\eta_{min}$ & $\mathrm{NormGrad}$ & $\mathrm{Blocking}$ & $Init_{pc}$ & $\eta_{pc}$ & $p_{pc}$ & $\mathrm{BSZ}$ & $Step_{pc}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+$\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\mathrm{NormGrad}$ & $\mathrm{Blocking}$ & $Init_{pc}$ & $\eta_{pc}$ & $p_{pc}$ & $\mathrm{BSZ}$ & $Step_{pc}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
 \midrule
-0.95 & 256 & 0.0005 & 1 & 0 & True & True & 1 & 0.2 & 0.1 & 128 & 2000 & 1000 & 0.5 & 2.946 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-42B-kronf21245lr0.0005-wd0.5-b10.95-plr0.2-pis1-gn1-n-e5e732}{0} \\
+0.95 & 256 & 0.0005 & True & True & 1 & 0.2 & 0.1 & 128 & 2000 & 1000 & 0.5 & 2.946 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-42B-kronf21245lr0.0005-wd0.5-b10.95-plr0.2-pis1-gn1-n-e5e732}{0} \\
 \midrule
+-- & -- & 0.001 & -- & -- & -- & -- & -- & -- & -- & -- & -- & 2.950 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-42B-kron644022lr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-no-bbd127}{1} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% kron - 520m on 8x Chinchilla Data
+\begin{table}[H]
+\centering
+\caption{Hyperparameter ablation for Kron on 520m on 8x Chinchilla Data}
+\label{tab:ablation_kron_520m_8}
+\begin{tabular}{cccccccccccccc}
+\toprule
+$\beta_1$ & $\mathrm{block size}$ & $\eta$ & $\mathrm{NormGrad}$ & $\mathrm{Blocking}$ & $Init_{pc}$ & $\eta_{pc}$ & $p_{pc}$ & $\mathrm{BSZ}$ & $Step_{pc}$ & $\mathrm{warmup}$ & $\lambda$ & Loss & Link \\
+\midrule
+0.95 & 256 & 0.0005 & True & True & 1 & 0.2 & 0.1 & 128 & 2000 & 1000 & 0.5 & 2.900 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-85B-kronc2a9f5lr0.0005-wd0.5-b10.95-plr0.2-pis1-gn1-n-7f654e}{0} \\
+\midrule
+-- & -- & 0.001 & -- & -- & -- & -- & -- & -- & -- & -- & -- & 2.909 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-85B-kronea1c73lr0.001-wd0.5-b10.95-plr0.2-pis1-gn1-no-82b169}{1} \\
+-- & -- & -- & -- & -- & -- & -- & -- & 256 & -- & -- & -- & 2.902 & \href{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/sweep-520m-85B-kronf21245lr0.0005-wd0.5-b10.95-plr0.2-pis1-gn1-n-6bceac}{2} \\
 \bottomrule
 \end{tabular}
 \end{table}

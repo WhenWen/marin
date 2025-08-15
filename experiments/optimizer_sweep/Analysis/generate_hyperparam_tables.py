@@ -136,19 +136,48 @@ def generate_config_table(optimizer_name, model_size, chinchilla_ratio, config_d
     # Extract unique hyperparameters
     hyperparams = set()
     hyperparam_data = defaultdict(dict)
-    
+    # Keep original value token strings for W&B link lookups
+    value_token_map = defaultdict(dict)
+
+    def _parse_value_token(token):
+        try:
+            if token.isdigit() or (token.startswith('-') and token[1:].isdigit()):
+                return int(token)
+            return float(token)
+        except Exception:
+            return token
+        
+
+
     for key, loss_value in result_data.items():
+        if key == 'Baseline':
+            continue
         if isinstance(key, tuple) and len(key) == 2:
             param_name, param_value = key
             hyperparams.add(param_name)
             hyperparam_data[param_name][param_value] = loss_value
+            value_token_map[param_name][param_value] = str(param_value)
+        elif isinstance(key, str) and '=' in key:
+            param_name, value_token = key.split('=', 1)
+            numeric_value = _parse_value_token(value_token)
+            hyperparams.add(param_name)
+            hyperparam_data[param_name][numeric_value] = loss_value
+            value_token_map[param_name][numeric_value] = value_token
     
-    hyperparams = sorted(set(baseline_config.keys()))
+    # Include all hyperparameters from both baseline config and ablation data
+    all_hyperparams = set(baseline_config.keys()) | hyperparams
+    all_hyperparams = all_hyperparams - {'lr_schedule', 'min_lr_ratio', "max_grad_norm"}
+    hyperparams = sorted(all_hyperparams)
     
     # Find baseline configuration
     baseline_loss = result_data.get('Baseline')
     if baseline_loss is None:
         return None
+    
+    # Optional debug prints
+    # print(f"Debug - Hyperparameters: {hyperparams}")
+    # print(f"Debug - Baseline config: {baseline_config}")
+    # print(f"Debug - Hyperparam data: {dict(hyperparam_data)}")
     
     # Generate LaTeX table
     latex_lines = []
@@ -205,12 +234,15 @@ def generate_config_table(optimizer_name, model_size, chinchilla_ratio, config_d
                     if row[-1] is None:
                         continue
                     idx += 1
-                    # Add W&B link
-                    key = (param_name, param_value)
-                    if key in result_name:
-                        row.append(f"\\href{{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/{result_name[key]}}}{{{idx}}}")
-                    else:
-                        row.append("N/A")
+                    # Add W&B link: prefer string key 'param=valueToken'
+                    value_token = value_token_map[param_name].get(param_value, str(param_value))
+                    string_key = f"{param_name}={value_token}"
+                    run_id = None
+                    if isinstance(result_name, dict):
+                        run_id = result_name.get(string_key)
+                        if run_id is None:
+                            run_id = result_name.get((param_name, param_value))
+                    row.append(f"\\href{{https://wandb.ai/stanford-mercury/optimizer-scaling/runs/{run_id}}}{{{idx}}}" if run_id else "N/A")
                     latex_lines.append(" & ".join(row) + " \\\\")
     
     latex_lines.append(f"\\bottomrule")
@@ -274,12 +306,14 @@ def main():
     
     # Generate tables for each optimizer and config
     unmapped_hyperparams = set()
-    
     for optimizer_name, optimizer_data in data.items():
         all_tables = []
         if optimizer_data:  # Skip empty optimizers
             # Generate table for each config
-            for config_key, config_info in optimizer_data.items():
+            config_key_and_info = list(optimizer_data.items())
+            # sort by config key
+            config_key_and_info.sort(key=lambda x: x[0])
+            for config_key, config_info in config_key_and_info:
                 model_size, chinchilla_ratio = config_key
                 table = generate_config_table(optimizer_name, model_size, chinchilla_ratio, config_info, unmapped_list=unmapped_hyperparams)
                 if table:
