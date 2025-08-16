@@ -166,7 +166,7 @@ def generate_config_table(optimizer_name, model_size, chinchilla_ratio, config_d
     
     # Include all hyperparameters from both baseline config and ablation data
     all_hyperparams = set(baseline_config.keys()) | hyperparams
-    all_hyperparams = all_hyperparams - {'lr_schedule', 'min_lr_ratio', "max_grad_norm"}
+    all_hyperparams = all_hyperparams - {'lr_schedule', 'min_lr_ratio', "max_grad_norm", "another_muon"}
     hyperparams = sorted(all_hyperparams)
     
     # Find baseline configuration

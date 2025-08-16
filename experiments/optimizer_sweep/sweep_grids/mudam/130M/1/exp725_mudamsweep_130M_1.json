@@ -46,7 +46,9 @@
       500,
       1000,
       2000
-    ]
+    ],
+    "normalization": ["muon", null],
+    "another_muon": [null, true]
   },
   "target_chinchilla": 1
 }

@@ -109,7 +109,9 @@ def approximate(baseline, config):
             if baseline[key] != config[key]:
                 return False
         else:
-            if abs(baseline[key] - config[key]) > 1e-25:
+            if config[key] is None:
+                config[key] = 0.0
+            if abs(baseline[key] - float(config[key])) > 1e-25:
                 return False
     return True
 
