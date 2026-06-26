@@ -33,7 +33,11 @@ def scale_by_adamh(
         nu = otu.tree_zeros_like(params)
         return ScaleByAdamHState(count=jnp.zeros([], jnp.int32), mu=mu, nu=nu)
 
-    def update_fn(updates, state, params):
+    def update_fn(updates, state, params, *, lr_scale=1.0, **_extra):
+        # ``lr_scale`` (default 1.0) multiplies the effective LR *inside* the
+        # hyperball so the norm-preserving (angular) step is recomputed at the
+        # true scaled LR — the step is NONLINEAR in the LR, so scaling the
+        # output delta would be wrong. ``_extra`` (e.g. value=loss) is dropped.
         mu = otu.tree_update_moment(updates, state.mu, b1, 1)
         nu = otu.tree_update_moment_per_elem_norm(updates, state.nu, b2, 2)
         count_inc = optax.safe_increment(state.count)
@@ -47,12 +51,13 @@ def scale_by_adamh(
             is_leaf=lambda x: x is None,
         )
         mu = otu.tree_cast(mu, mu_dtype)
+        lr = learning_rate * lr_scale
 
         def _scale_invariant_2d(p, u):
             """Core update for a 2-D (matrix) parameter."""
             p_norm = jnp.linalg.norm(p)
             u_norm = jnp.linalg.norm(u)
-            new_p = p - learning_rate * u * p_norm / jnp.maximum(u_norm, 1e-10)
+            new_p = p - lr * u * p_norm / jnp.maximum(u_norm, 1e-10)
             return new_p / jnp.linalg.norm(new_p) * p_norm - p
 
         def scale_invariant_update(p, u):
@@ -72,7 +77,7 @@ def scale_by_adamh(
 
         return adamh_updates, ScaleByAdamHState(count=count_inc, mu=mu, nu=nu)
 
-    return optax.GradientTransformation(init_fn, update_fn)
+    return optax.GradientTransformationExtraArgs(init_fn, update_fn)
 
 
 __all__ = ["ScaleByAdamHState", "scale_by_adamh"]

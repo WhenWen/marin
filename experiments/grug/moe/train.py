@@ -39,7 +39,9 @@ from levanter.utils.logging import LoadingTimeTrackerIterator
 
 from experiments.grug.checkpointing import restore_grug_state_from_checkpoint
 from experiments.grug.dispatch import dispatch_grug_training_run
+from experiments.grug.moe.amuse import find_amuse_state
 from experiments.grug.moe.model import GrugModelConfig, Transformer
+from experiments.grug.moe.optimizer import GrugMoeAmuseConfig
 
 # This file intentionally mirrors `experiments/grug/base/train.py` with
 # variant-specific model/loss/FLOP wiring, per the grug copy-first workflow in
@@ -70,8 +72,16 @@ class GrugEvalConfig:
     max_eval_batches: int | None = None
     prefix: str = "eval"
     eval_current: bool = True
+    # When True and an AMUSE optimizer is in use, the X (averaged) sequence is
+    # mirrored into ``ema_params`` each step and evaluated as the X-model under
+    # the ``{prefix}/ema/...`` namespace (e.g. ``eval/ema/paloma/c4_en/loss``).
+    # Also honored for a plain EMA model when ``trainer.ema_beta`` is set.
     eval_ema: bool = True
     compute_bpb: bool = True
+    # Diagnostic only (AMUSE): tuple of betas to probe the Z->X interpolation
+    # line at eval time. Accepted for config compatibility with the AMUSE
+    # launcher; the minimal May-arch loop does not run the probe.
+    amuse_probe_betas: tuple[float, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -261,11 +271,17 @@ def initial_state(
 ) -> GrugTrainState:
     params = mp.cast_to_param(Transformer.init(model_config, key=key))
     num_moe_layers = sum(1 for b in params.blocks if b.mlp is not None)
+    opt_state = optimizer.init(params)
+    # AMUSE maintains the averaged X sequence inside its optimizer state and we
+    # mirror it into ``ema_params`` each step (X is the AMUSE eval model, arxiv
+    # 2605.22432). So allocate ``ema_params`` whenever EMA is on OR an AMUSE
+    # optimizer is in use, even if ``ema_beta`` is None.
+    needs_ema_params = (ema_beta is not None) or (find_amuse_state(opt_state) is not None)
     return GrugTrainState(
         step=jnp.array(0, dtype=jnp.int32),
         params=params,
-        opt_state=optimizer.init(params),
-        ema_params=params if ema_beta is not None else None,
+        opt_state=opt_state,
+        ema_params=params if needs_ema_params else None,
         pending_qb_betas=jnp.zeros((num_moe_layers, model_config.num_experts)),
     )
 
@@ -276,6 +292,7 @@ def _make_train_step(
     *,
     z_loss_weight: float,
     ema_beta: float | None,
+    is_amuse: bool = False,
     watch_config: WatchConfig | None = None,
 ):
     one = jnp.array(1, dtype=jnp.int32)
@@ -311,10 +328,29 @@ def _make_train_step(
 
         (loss, summarized_metrics), grads = jax.value_and_grad(loss_fn, has_aux=True)(qb_params)
         metrics = {"train/loss": loss, **summarized_metrics}
-        updates, opt_state = optimizer.update(grads, state.opt_state, qb_params)
+        # AMUSE optimizers accept ``value=loss`` via optax extra_args (used by the
+        # Polyak variant as the f(z_t) proxy; vanilla AMUSE drops it). Non-AMUSE
+        # optimizers are plain GradientTransformations that don't accept it, so
+        # only pass it when an AMUSE optimizer is in use.
+        if is_amuse:
+            updates, opt_state = optimizer.update(grads, state.opt_state, qb_params, value=loss)
+        else:
+            updates, opt_state = optimizer.update(grads, state.opt_state, qb_params)
         params = optax.apply_updates(qb_params, updates)
 
-        if ema_beta is None:
+        # AMUSE: the averaged sequence X (the model used for inference, arxiv
+        # 2605.22432) is maintained inside the optimizer state. Mirror it into
+        # ``ema_params`` so the existing eval_ema flow evaluates X instead of Y.
+        # Falls back to the plain EMA recurrence otherwise.
+        amuse_state = find_amuse_state(opt_state)
+        if amuse_state is not None:
+            ema_params = amuse_state.x
+            # Polyak variant exposes the step size via ``last_gamma``; log it when
+            # present (getattr keeps this safe for vanilla AMUSE).
+            last_gamma = getattr(amuse_state, "last_gamma", None)
+            if last_gamma is not None:
+                metrics["optim/gamma_polyak"] = last_gamma
+        elif ema_beta is None:
             ema_params = None
         else:
             if qb_ema_params is None:
@@ -366,11 +402,13 @@ def _run_grug_local(config: GrugRunConfig) -> None:
 
     optimizer = config.optimizer.build(trainer.num_train_steps)
     watch_config = trainer.watch
+    is_amuse = isinstance(config.optimizer, GrugMoeAmuseConfig)
     train_step = _make_train_step(
         optimizer,
         trainer.mp,
         z_loss_weight=config.trainer.z_loss_weight,
         ema_beta=config.trainer.ema_beta,
+        is_amuse=is_amuse,
         watch_config=watch_config if watch_config.is_enabled else None,
     )
 
@@ -464,7 +502,10 @@ def _run_grug_local(config: GrugRunConfig) -> None:
         state_callbacks.add_hook(_make_mixture_stage_callback(train_dataset, batch_schedule), every=1)
         if evaluator is not None and eval_cfg is not None:
             interval = eval_cfg.steps_per_eval
-            eval_ema = eval_cfg.eval_ema and config.trainer.ema_beta is not None
+            # The ``ema_params`` slot carries AMUSE's X sequence when an AMUSE
+            # optimizer is in use; honor eval_ema in that case too (not just when
+            # a plain EMA model is enabled via ``trainer.ema_beta``).
+            eval_ema = eval_cfg.eval_ema and (config.trainer.ema_beta is not None or is_amuse)
             if interval is not None and interval > 0 and (eval_cfg.eval_current or eval_ema):
                 state_callbacks.add_hook(
                     cb_tagged_evaluate(

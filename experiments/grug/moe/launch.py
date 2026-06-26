@@ -57,6 +57,9 @@ class GrugMoeLaunchConfig:
     eval: GrugEvalConfig | None = field(default_factory=GrugEvalConfig)
     # Mesh size along the "expert" axis (expert-parallelism). 1 = no EP.
     expert_parallel: int = 1
+    # Permanent-checkpoint interval (steps). None keeps the levanter default.
+    # Raise for long runs to avoid writing many multi-GB checkpoints to GCS.
+    checkpoint_keep_every: int | None = None
 
 
 NEMOTRON_MIX_WITH_DEFAULT_VALIDATION = add_validation_sets_to_mixture(
@@ -99,7 +102,7 @@ def run_grug_moe_trial(config: GrugMoeLaunchConfig) -> None:
             temporary_base_path=temporary_checkpoint_base_path(config.output_path),
             append_run_id_to_base_path=False,
             save_interval=timedelta(minutes=10),
-            keep=None,
+            keep=[{"every": config.checkpoint_keep_every}] if config.checkpoint_keep_every is not None else None,
         ),
     )
 
