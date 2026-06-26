@@ -15,7 +15,7 @@ from fray.types import ResourceConfig
 from iris.cluster.client.job_info import JobInfo, get_job_info, set_job_info
 from iris.cluster.types import JobName
 from marin.execution.artifact import Artifact, PathMetadata
-from marin.execution.executor import Executor, _dag_tpu_regions, resolve_executor_step
+from marin.execution.executor import Executor, _step_dag_tpu_regions, resolve_executor_step
 from marin.execution.remote import RemoteCallable, remote
 from marin.execution.step_runner import StepRunner
 from marin.execution.step_spec import StepSpec
@@ -328,6 +328,26 @@ def test_step_spec_as_executor_step_round_trip():
     assert resolved.output_path_prefix == prefix
     assert resolved.dep_paths == [dep.output_path]
     assert resolved.resources == step.resources
+
+
+def test_prefixless_step_resolves_under_run_prefix(monkeypatch):
+    """A prefix-less StepSpec built in us-west4 resolves under the us-central1 run.
+
+    ``as_executor_step()`` must hand the executor a *relative* override rather than
+    an absolute build-region path; otherwise the run-region output disagrees with
+    the frozen path and the cross-region guard trips. ``output_path`` itself stays
+    absolute for direct ``StepRunner`` use.
+    """
+    monkeypatch.setenv("MARIN_PREFIX", "gs://marin-us-west4")
+    step = StepSpec(name="raw/dolma", override_output_path="raw/dolma")
+    assert step.output_path == "gs://marin-us-west4/raw/dolma"
+
+    build_step = step.as_executor_step()
+    assert build_step.override_output_path == "raw/dolma"  # relative, no region frozen in
+
+    executor = Executor(prefix="gs://marin-us-central1", executor_info_base_path="gs://marin-us-central1/experiments")
+    executor.compute_version(build_step, is_pseudo_dep=False)
+    assert executor.output_paths[build_step] == "gs://marin-us-central1/raw/dolma"
 
 
 def _build_three_level_dag(prefix: str) -> tuple[StepSpec, StepSpec, StepSpec]:
@@ -737,6 +757,31 @@ class _SubmitSpy:
         return getattr(self._inner, item)
 
 
+def _run_step_with_submit_spy(step: StepSpec, fray_client) -> _SubmitSpy:
+    spy = _SubmitSpy(fray_client)
+    with set_current_client(spy):
+        StepRunner().run([step])
+    return spy
+
+
+def _call_remote_with_submit_spy(fn, fray_client) -> _SubmitSpy:
+    spy = _SubmitSpy(fray_client)
+    with set_current_client(spy):
+        fn()
+    return spy
+
+
+def _assert_single_submit_extras(spy: _SubmitSpy, expected: list[str]) -> None:
+    assert len(spy.requests) == 1
+    assert spy.requests[0].environment.extras == expected
+
+
+def _assert_single_submit_env(spy: _SubmitSpy, expected: dict[str, str]) -> None:
+    assert len(spy.requests) == 1
+    for key, value in expected.items():
+        assert spy.requests[0].environment.env_vars[key] == value
+
+
 def test_step_resources_dispatches_via_fray(tmp_path: Path, fray_client):
     """Setting ``resources`` on a StepSpec submits ``fn`` as a Fray job."""
     spy = _SubmitSpy(fray_client)
@@ -760,6 +805,93 @@ def test_step_resources_dispatches_via_fray(tmp_path: Path, fray_client):
     assert spy.requests[0].resources == custom
     loaded = Artifact.from_path(tmp_path.as_posix(), PathMetadata)
     assert loaded.path == tmp_path.as_posix()
+
+
+def test_step_resources_dispatch_uses_device_extra(tmp_path: Path, fray_client):
+    resources = ResourceConfig.with_gpu("H100", count=8)
+
+    def my_step(output_path: str) -> PathMetadata:
+        return PathMetadata(path=output_path)
+
+    step = StepSpec(
+        name="gpu_resourced_step",
+        override_output_path=tmp_path.as_posix(),
+        fn=my_step,
+        resources=resources,
+    )
+
+    _assert_single_submit_extras(_run_step_with_submit_spy(step, fray_client), ["gpu"])
+
+
+def test_remote_resources_dispatch_uses_device_extra(tmp_path: Path, fray_client):
+    resources = ResourceConfig.with_gpu("H100", count=8)
+
+    @remote(resources=resources)
+    def my_step(output_path: str) -> PathMetadata:
+        return PathMetadata(path=output_path)
+
+    step = StepSpec(
+        name="remote_gpu_step",
+        override_output_path=tmp_path.as_posix(),
+        fn=my_step,
+    )
+
+    _assert_single_submit_extras(_run_step_with_submit_spy(step, fray_client), ["gpu"])
+
+
+def test_remote_dependency_groups_can_override_device_extra(tmp_path: Path, fray_client):
+    resources = ResourceConfig.with_gpu("H100", count=8)
+
+    @remote(resources=resources, pip_dependency_groups=[])
+    def my_step(output_path: str) -> PathMetadata:
+        return PathMetadata(path=output_path)
+
+    step = StepSpec(
+        name="remote_gpu_step_without_extras",
+        override_output_path=tmp_path.as_posix(),
+        fn=my_step,
+    )
+
+    _assert_single_submit_extras(_run_step_with_submit_spy(step, fray_client), [])
+
+
+def test_remote_vllm_tpu_dependency_group_sets_target_device(tmp_path: Path, fray_client):
+    resources = ResourceConfig.with_tpu("v6e-4")
+
+    @remote(resources=resources, pip_dependency_groups=["eval", "vllm"])
+    def my_step(output_path: str) -> PathMetadata:
+        return PathMetadata(path=output_path)
+
+    step = StepSpec(
+        name="remote_vllm_tpu_step",
+        override_output_path=tmp_path.as_posix(),
+        fn=my_step,
+    )
+
+    spy = _run_step_with_submit_spy(step, fray_client)
+
+    _assert_single_submit_extras(spy, ["eval", "vllm"])
+    _assert_single_submit_env(spy, {"VLLM_TARGET_DEVICE": "tpu"})
+
+
+def test_remote_direct_call_uses_device_extra(fray_client):
+    resources = ResourceConfig.with_gpu("H100", count=8)
+
+    @remote(resources=resources)
+    def my_step() -> None:
+        return None
+
+    _assert_single_submit_extras(_call_remote_with_submit_spy(my_step, fray_client), ["gpu"])
+
+
+def test_remote_direct_call_dependency_groups_can_override_device_extra(fray_client):
+    resources = ResourceConfig.with_gpu("H100", count=8)
+
+    @remote(resources=resources, pip_dependency_groups=[])
+    def my_step() -> None:
+        return None
+
+    _assert_single_submit_extras(_call_remote_with_submit_spy(my_step, fray_client), [])
 
 
 # ---------------------------------------------------------------------------
@@ -1103,23 +1235,26 @@ def _two_tpu_steps(first_regions: list[str], second_regions: list[str]) -> list[
     ]
 
 
-def test_dag_tpu_regions_intersects_explicit_regions():
-    steps = _two_tpu_steps(["us-central2", "us-west4"], ["us-central2", "us-east1"])
-    assert _dag_tpu_regions(steps) == ["us-central2"]
+def test_step_dag_tpu_regions_narrows_producer_by_downstream_consumer():
+    """A producer's region set is intersected with its downstream TPU consumer's."""
+    producer, consumer = _two_tpu_steps(["us-central2", "us-west4"], ["us-central2", "us-east1"])
+    regions = _step_dag_tpu_regions([producer, consumer], {consumer: [producer]})
+    assert regions[producer] == ["us-central2"]
+    assert regions[consumer] == ["us-central2", "us-east1"]
 
 
 @pytest.mark.parametrize("set_override_env", [False, True], ids=["no_override", "with_override"])
-def test_dag_tpu_regions_raises_on_disjoint_explicit_regions(monkeypatch, set_override_env):
-    """Disjoint TPU pin sets must fail regardless of the override env var —
+def test_step_dag_tpu_regions_raises_on_disjoint_consumer(monkeypatch, set_override_env):
+    """Disjoint producer/consumer pin sets must fail regardless of the override env var —
     cross-region overrides do not silently broaden TPU placement."""
     if set_override_env:
         monkeypatch.setenv(MARIN_CROSS_REGION_OVERRIDE_ENV, "1")
-    steps = _two_tpu_steps(["us-west4"], ["us-central2"])
-    with pytest.raises(ValueError, match="No common region satisfies all TPU steps"):
-        _dag_tpu_regions(steps)
+    producer, consumer = _two_tpu_steps(["us-west4"], ["us-central2"])
+    with pytest.raises(ValueError, match="No common region satisfies TPU consumers downstream"):
+        _step_dag_tpu_regions([producer, consumer], {consumer: [producer]})
 
 
-def test_dag_tpu_regions_uses_iris_variant_regions_when_not_pinned():
+def test_step_dag_tpu_regions_uses_iris_variant_regions_when_not_pinned():
     @remote(resources=ResourceConfig.with_tpu("v5p-8"))
     def first(_config):
         pass
@@ -1128,19 +1263,19 @@ def test_dag_tpu_regions_uses_iris_variant_regions_when_not_pinned():
     def second(_config):
         pass
 
-    steps = [
-        ExecutorStep(name="first", fn=first, config=None),
-        ExecutorStep(name="second", fn=second, config=None),
-    ]
+    first_step = ExecutorStep(name="first", fn=first, config=None)
+    second_step = ExecutorStep(name="second", fn=second, config=None)
 
     with patch(
         "marin.execution.executor._regions_for_tpu_variant_from_iris",
         return_value={"us-central2", "us-west4"},
     ):
-        assert _dag_tpu_regions(steps) == ["us-central2", "us-west4"]
+        regions = _step_dag_tpu_regions([first_step, second_step], {})
+    assert regions[first_step] == ["us-central2", "us-west4"]
+    assert regions[second_step] == ["us-central2", "us-west4"]
 
 
-def test_dag_tpu_regions_unions_device_alternative_regions():
+def test_step_dag_tpu_regions_unions_device_alternative_regions():
     @remote(resources=ResourceConfig.with_tpu(["v5p-8", "v6e-4"]))
     def first(_config):
         pass
@@ -1154,7 +1289,8 @@ def test_dag_tpu_regions_unions_device_alternative_regions():
             "v6e-4": {"us-east1"},
         }[variant],
     ):
-        assert _dag_tpu_regions([step]) == ["us-central2", "us-east1", "us-west4"]
+        regions = _step_dag_tpu_regions([step], {})
+    assert regions[step] == ["us-central2", "us-east1", "us-west4"]
 
 
 def test_step_without_remote_is_plain_fn():

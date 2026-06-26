@@ -2,13 +2,71 @@
 
 **Issue**: [#2822 -- Iris: Implement CoreWeave platform](https://github.com/marin-community/marin/issues/2822)
 
+## 0. Quickstart — `marin-gpu` (US-EAST-02A)
+
+Zero to a running job on the `marin-gpu` H100 cluster. The rest of this document
+is the full operator runbook (RBAC, NodePools, troubleshooting, other regions).
+
+**Cluster:** `marin-gpu`, region US-EAST-02A — 32× H100 (256 GPUs) + 4× CPU
+Genoa, all pinned warm. Iris config: `lib/iris/config/cw-us-east-02a.yaml`
+(cluster name `cw-us-east-02a`).
+
+Console links:
+- Tokens (kubeconfig): https://console.coreweave.com/tokens
+- Cluster details: https://console.coreweave.com/zones/US-EAST-02A/clusters/marin-gpu#details
+- Health dashboard: https://cks-grafana.coreweave.com/d/cluster-health/cluster-health?var-cluster-org=208261&var-cluster=marin-gpu&var-region=US-EAST-02
+
+**1. Make a token / kubeconfig.** In the [Tokens console](https://console.coreweave.com/tokens),
+create a token for `marin-gpu` and download its kubeconfig.
+
+**2. Install the kubeconfig** at `~/.kube/coreweave-iris-gpu` (context
+`marin-gpu_US-EAST-02A`), plus controller extras and R2 credentials:
+
+```bash
+mkdir -p ~/.kube
+mv ~/Downloads/kubeconfig.yaml ~/.kube/coreweave-iris-gpu
+export KUBECONFIG=~/.kube/coreweave-iris-gpu
+kubectl cluster-info   # sanity check
+
+uv pip install 'marin-iris[controller]'
+export R2_ACCESS_KEY_ID=<your-r2-access-key-id>
+export R2_SECRET_ACCESS_KEY=<your-r2-secret-access-key>
+```
+
+**3. Check cluster status.** `--cluster=cw-us-east-02a` resolves the in-tree
+config and opens a `kubectl port-forward` to the controller for you:
+
+```bash
+uv run iris --cluster=cw-us-east-02a cluster status
+```
+
+If the controller isn't up yet, start it (idempotent):
+`uv run iris --cluster=cw-us-east-02a cluster start`.
+
+**4. Hello world.**
+
+```bash
+# CPU
+uv run iris --cluster=cw-us-east-02a job run \
+  --cpu 1 --memory 2GB --extra cpu \
+  -- python -c "print('Hello from CoreWeave!')"
+
+# One H100, proving JAX sees the GPU
+uv run iris --cluster=cw-us-east-02a job run \
+  --cpu 8 --memory 64GB --gpu H100x1 --enable-extra-resources --extra gpu \
+  -- python -c "import jax; print(jax.devices())"
+```
+
+Follow logs of a detached job with
+`uv run iris --cluster=cw-us-east-02a job logs <job-id> -f`.
+
 ## 1. Overview
 
 Iris runs on CoreWeave CKS (bare-metal Kubernetes) using a shared NodePool model.
 Each Iris scale group maps to one CoreWeave NodePool with autoscaling enabled.
 CoreWeave manages node provisioning and deprovisioning; Iris manages only Pods.
-Tasks execute as independent Kubernetes Pods via `KubernetesRuntime` (Pod-per-task),
-which replaced an originally-planned containerd/crictl approach during implementation.
+Tasks execute as independent Kubernetes Pods via `KubernetesRuntime`
+(Pod-per-task).
 
 Example config: `lib/iris/config/coreweave.yaml`
 
@@ -53,6 +111,17 @@ Example config: `lib/iris/config/coreweave.yaml`
 
 Key architectural properties:
 
+- **`CLUSTER_VIEW` `TaskBackend`**: When the cluster config sets
+  `kubernetes_provider`, the controller runs `K8sTaskProvider`
+  (`src/iris/cluster/backends/k8s/tasks.py`) — a `TaskBackend` whose
+  `capabilities` is `{CLUSTER_VIEW}`. Kueue performs scheduling and the cluster
+  autoscaler provisions nodes, so its `schedule`/`autoscale` are effectively
+  no-ops and `reconcile` only reconciles desired vs. observed Pods each tick. The
+  controller calls the same three uniform phase methods regardless. The dashboard
+  reflects this via the backend descriptor served by
+  `/auth/config`: capability `cluster` shows the **Cluster** panel, and the
+  Workers/Autoscaler panels are hidden (no worker daemons, no Iris autoscaler).
+  See `docs/architecture.md` "The TaskBackend contract".
 - **Shared NodePool model**: One NodePool per scale group (not per slice). CoreWeave
   autoscaling is enabled (`autoscaling: true`). NodePool names follow
   `{label_prefix}-{scale_group_name}`. NodePools scale to zero when idle.
@@ -104,47 +173,37 @@ and Network (traffic, latency). No setup required.
 
 ## 4. Operator Setup Guide
 
+§0 is the quickstart for the `marin-gpu` cluster. This section is the generic
+operator reference (any `--cluster=NAME`) and the lifecycle details behind it.
+
 ### Prerequisites
 
 - A CoreWeave CKS cluster (created via Console or Terraform)
-- A kubeconfig downloaded from CoreWeave Console > Tokens
+- A kubeconfig downloaded from CoreWeave Console > Tokens (see §0)
 - Images pushed to `ghcr.io/marin-community/`
-- Controller extras in the local Iris venv:
-  `uv pip install 'marin-iris[controller]'`
+- Controller extras: `uv pip install 'marin-iris[controller]'`
 
-This document is the canonical runbook for day-to-day CoreWeave operations.
-
-### Step 1: Save kubeconfig
-
-```bash
-mkdir -p ~/.kube
-mv ~/Downloads/kubeconfig.yaml ~/.kube/coreweave-iris
-export KUBECONFIG=~/.kube/coreweave-iris
-kubectl cluster-info
-```
-
-### Step 2: Set S3 credentials (if using S3 storage)
-
-```bash
-export R2_ACCESS_KEY_ID=<your-r2-access-key-id>
-export R2_SECRET_ACCESS_KEY=<your-r2-secret-access-key>
-```
-
-`iris cluster start` creates a K8s Secret (`iris-s3-credentials`) from these
-environment variables automatically.
+For S3 storage, export `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`;
+`iris cluster start` folds them — plus the derived endpoint/region/`FSSPEC_S3`
+config — into the `iris-task-env` Secret, projected into the controller and task
+pods via `envFrom`.
 
 > **Note**: CoreWeave AI Object Storage (`cwobject.com`, `cwlota.com`) uses
-> virtual-hosted-style S3 addressing, which is auto-detected and configured.
-> However, this addressing style is incompatible with JAX's GCS/S3 backend.
-> Use Cloudflare R2 or another path-style-compatible endpoint for JAX workloads.
+> virtual-hosted-style S3 addressing, which is auto-detected and configured but
+> is incompatible with JAX's GCS/S3 backend. Use Cloudflare R2 or another
+> path-style-compatible endpoint for JAX workloads.
 
-### Step 3: Start the cluster
+### Lifecycle
 
 ```bash
-iris --cluster=coreweave cluster start
+iris --cluster=<name> cluster start      # idempotent; reconciles everything below
+iris --cluster=<name> cluster status
+iris --cluster=<name> cluster dashboard
+iris --cluster=<name> cluster stop       # deletes Pods + controller; NodePools survive
 ```
 
-This is fully idempotent. It creates/reconciles:
+`cluster start` creates/reconciles, in order:
+
 1. Namespace (`iris`) and RBAC (ServiceAccount, ClusterRole, ClusterRoleBinding)
 2. S3 credentials Secret (if S3 storage URIs are configured)
 3. ConfigMap (`iris-cluster-config`) with the cluster config as JSON
@@ -152,21 +211,8 @@ This is fully idempotent. It creates/reconciles:
 5. Controller Deployment (`iris-controller`) — images are built and pushed automatically
 6. Controller Service (`iris-controller-svc`, ClusterIP)
 
-### Step 4: Use the cluster
-
-```bash
-iris --cluster=coreweave cluster status
-iris --cluster=coreweave cluster dashboard
-```
-
-### Step 5: Stop
-
-```bash
-iris --cluster=coreweave cluster stop
-```
-
-Deletes worker Pods and controller resources. NodePools are left in place (they
-scale to zero when idle).
+`cluster stop` leaves NodePools in place; they scale to zero when idle (but
+still bill — see the NodePool cleanup under §4 Gotchas).
 
 ### Connecting
 
@@ -179,7 +225,7 @@ iris cluster list
 
 `--cluster=NAME` resolves to a config under `lib/iris/config/` and opens a
 `kubectl port-forward` to the controller service. This path requires the
-`iris[controller]` extras (`duckdb`, `pyarrow`, `kubernetes`). Without them,
+`iris[controller]` extras (`kubernetes`). Without them,
 auto-tunneled CoreWeave commands fail before connecting:
 `ImportError: Install iris[controller] to use CloudK8sService`.
 
@@ -214,6 +260,22 @@ prove `nvidia-smi`, GPU-backed JAX, and a tiny matmul.
 Marin's `gpu` extra installs the JAX CUDA 13 wheel stack from PyPI. CoreWeave
 GPU nodes must expose NVIDIA driver 580 or newer; `nvidia-smi` should report
 CUDA 13.x.
+
+The `gpu` extra also pulls the CUDA toolchain wheels (`ptxas`/`nvlink` from
+`nvidia-cuda-nvcc`, `libdevice.10.bc` from `nvidia-nvvm`) into the task venv. A
+GPU job's setup scripts then expose them (see
+`iris.cluster.setup.cuda_toolchain_setup_script`): the toolchain binaries are
+symlinked into the venv's `bin` (already on `PATH` once the venv is activated),
+and `libdevice.10.bc` is staged into XLA's default CUDA data dir
+(`./cuda_sdk_lib`) and the working directory, where XLA and Mosaic probe.
+JAX/Pallas Mosaic GPU kernels therefore compile without per-job
+`ptxas`/`nvlink`/`libdevice` setup. The staging is a no-op unless the venv
+carries the toolchain, so CPU/TPU jobs and bring-your-own images are untouched.
+
+This staging is appended only to the default setup for a job that requests the
+`gpu` extra. A job that supplies its own `setup_scripts` (run verbatim) or
+installs JAX another way must stage the toolchain itself — call
+`cuda_toolchain_setup_script()` in its setup.
 
 ### Grug MoE Canary Warm-Node Multinode Smoke
 
@@ -556,11 +618,11 @@ The platform detects fatal errors before the full timeout expires:
 | `IRIS_POD_NAME` | Downward API (`metadata.name`) | Pod's name |
 | `IRIS_POD_UID` | Downward API (`metadata.uid`) | Pod's UID |
 | `IRIS_SERVICE_ACCOUNT_NAME` | Platform | ServiceAccount for task Pods (set when `runtime: kubernetes`) |
-| `IRIS_S3_SECRET_NAME` | Platform | K8s Secret name for S3 credentials |
-| `AWS_ACCESS_KEY_ID` | Secret ref | From `iris-s3-credentials` Secret |
-| `AWS_SECRET_ACCESS_KEY` | Secret ref | From `iris-s3-credentials` Secret |
-| `AWS_ENDPOINT_URL` | Config | S3 endpoint URL |
-| `FSSPEC_S3` | Platform | JSON-encoded fsspec S3 config (includes endpoint and addressing style) |
+| `AWS_ACCESS_KEY_ID` | `envFrom` | From the `iris-task-env` Secret |
+| `AWS_SECRET_ACCESS_KEY` | `envFrom` | From the `iris-task-env` Secret |
+| `AWS_ENDPOINT_URL` | `envFrom` | From `iris-task-env`; derived from `object_storage_endpoint` |
+| `AWS_REGION` / `AWS_DEFAULT_REGION` | `envFrom` | From `iris-task-env`; `auto` for R2 / CoreWeave endpoints |
+| `FSSPEC_S3` | `envFrom` | From `iris-task-env`; JSON-encoded fsspec S3 config (endpoint + addressing style) |
 
 ## 11. Timeouts
 
@@ -607,8 +669,8 @@ See `lib/iris/src/iris/providers/k8s/coreweave.py`.
 Worker Pod runs `iris.cluster.worker.main serve --runtime=kubernetes`. It:
 1. Reads config from ConfigMap mount (`/etc/iris/config.json`)
 2. Discovers controller via `iris-controller-svc.iris.svc.cluster.local:10000`
-3. Creates `KubernetesRuntime` (reads `IRIS_SERVICE_ACCOUNT_NAME`,
-   `IRIS_S3_SECRET_NAME` from environment)
+3. Creates `KubernetesRuntime` (reads `IRIS_SERVICE_ACCOUNT_NAME` from
+   environment; S3 credentials arrive via `envFrom` on the `iris-task-env` Secret)
 4. Registers with controller, enters heartbeat loop
 
 ### Task execution
@@ -710,7 +772,7 @@ by polling.
 | Resource | Purpose | Created By |
 |----------|---------|------------|
 | `iris` Namespace + RBAC | K8s API auth and permissions | `start_controller()` via `ensure_rbac()` |
-| `iris-s3-credentials` Secret | S3 object storage auth | `start_controller()`, from `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` env vars |
+| `iris-task-env` Secret | S3 object storage auth + operator-injected env (`defaults.inject_env`) | `start_controller()` via `ensure_task_env_secret()`, from `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` + the configured `object_storage_endpoint` |
 | `iris-cluster-config` ConfigMap | Cluster config for controller and workers | `start_controller()` |
 | In-cluster ServiceAccount token | kubectl calls from controller Pod | Auto-mounted by Kubernetes |
 

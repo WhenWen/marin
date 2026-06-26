@@ -15,12 +15,14 @@ from connectrpc.errors import ConnectError
 from connectrpc.interceptor import InterceptorSync
 from finelog.client import LogClient
 from finelog.rpc import logging_pb2
+from rigging.connect import proxy_path
 from rigging.timing import Deadline, Duration, ExponentialBackoff
 
-from iris.cluster.client.bundle import BundleCreator
+from iris.cluster.client.bundle import create_workspace_zip
 from iris.cluster.endpoints import LOG_SERVER_ENDPOINT_NAME
 from iris.cluster.log_keys import build_log_source
 from iris.cluster.runtime.entrypoint import build_runtime_entrypoint
+from iris.cluster.runtime.env import with_slice_topology_env
 from iris.cluster.types import Entrypoint, EnvironmentSpec, JobName, TaskAttempt, adjust_tpu_replicas, is_job_finished
 from iris.cluster.worker.stats import TASK_STATUS_NAMESPACE, TASK_STATUS_STORAGE_POLICY, TaskStatusRow
 from iris.rpc import controller_pb2, job_pb2
@@ -31,6 +33,7 @@ from iris.time_proto import duration_to_proto
 from iris.version import client_revision_date
 
 logger = logging.getLogger(__name__)
+
 
 # How long to tolerate controller unavailability before giving up on monitoring.
 # The job itself keeps running server-side; this only affects the client's ability
@@ -110,7 +113,7 @@ class RemoteClusterClient:
         # adds no RPC for CLI calls that never touch logs.
         self._log_client = LogClient.connect(
             LOG_SERVER_ENDPOINT_NAME,
-            resolver=self._resolve_endpoint,
+            resolver=self.resolve_endpoint,
             timeout_ms=timeout_ms,
             interceptors=interceptors,
         )
@@ -132,11 +135,11 @@ class RemoteClusterClient:
         max_retries_failure: int = 0,
         max_retries_preemption: int = 1000,
         timeout: Duration | None = None,
-        reservation: job_pb2.ReservationConfig | None = None,
         preemption_policy: job_pb2.JobPreemptionPolicy = job_pb2.JOB_PREEMPTION_POLICY_UNSPECIFIED,
         existing_job_policy: job_pb2.ExistingJobPolicy = job_pb2.EXISTING_JOB_POLICY_UNSPECIFIED,
         task_image: str | None = None,
         priority_band: job_pb2.PriorityBand = job_pb2.PRIORITY_BAND_UNSPECIFIED,
+        container_profile: job_pb2.ContainerProfile = job_pb2.CONTAINER_PROFILE_UNSPECIFIED,
         submit_argv: list[str] | None = None,
     ) -> JobName:
         if replicas < 1:
@@ -145,7 +148,7 @@ class RemoteClusterClient:
 
         if environment is None:
             environment = EnvironmentSpec().to_proto()
-        env_config = environment
+        env_config = with_slice_topology_env(environment, resources, replicas)
 
         runtime_ep = build_runtime_entrypoint(entrypoint, env_config)
 
@@ -163,6 +166,7 @@ class RemoteClusterClient:
             existing_job_policy=existing_job_policy,
             task_image=task_image or "",
             priority_band=priority_band,
+            container_profile=container_profile,
             submit_argv=submit_argv or [],
             client_revision_date=client_revision_date(),
         )
@@ -170,8 +174,7 @@ class RemoteClusterClient:
             request.bundle_id = self._bundle_id
         else:
             if self._bundle_blob is None and self._workspace is not None:
-                creator = BundleCreator(self._workspace)
-                self._bundle_blob = creator.create_bundle()
+                self._bundle_blob = create_workspace_zip(self._workspace)
                 logger.info(f"Workspace bundle size: {len(self._bundle_blob) / 1024 / 1024:.1f} MB")
             request.bundle_blob = self._bundle_blob or b""
 
@@ -181,8 +184,6 @@ class RemoteClusterClient:
             request.timeout.CopyFrom(duration_to_proto(timeout))
         if coscheduling is not None:
             request.coscheduling.CopyFrom(coscheduling)
-        if reservation is not None:
-            request.reservation.CopyFrom(reservation)
 
         launch_timeout_ms = max(self._timeout_ms, LAUNCH_JOB_TIMEOUT_FLOOR_MS)
 
@@ -200,7 +201,7 @@ class RemoteClusterClient:
 
         return call_with_retry(f"get_job_status({job_id})", _call)
 
-    def get_job_states(self, job_ids: list[JobName]) -> dict[str, int]:
+    def get_job_states(self, job_ids: list[JobName]) -> dict[str, job_pb2.JobState]:
         """Lightweight batch query returning only the state enum per job."""
 
         def _call():
@@ -212,7 +213,7 @@ class RemoteClusterClient:
 
         return call_with_retry(f"get_job_states({len(job_ids)} jobs)", _call)
 
-    def _poll_job_state(self, job_id: JobName) -> int:
+    def _poll_job_state(self, job_id: JobName) -> job_pb2.JobState:
         """Fetch only the state enum for a single job via the lightweight RPC."""
         states = self.get_job_states([job_id])
         wire_id = job_id.to_wire()
@@ -404,16 +405,16 @@ class RemoteClusterClient:
 
         return call_with_retry("list_endpoints", _call)
 
-    def _resolve_endpoint(self, endpoint_name: str) -> str:
+    def resolve_endpoint(self, endpoint_name: str) -> str:
         """Resolve ``endpoint_name`` to a service address.
 
         When ``use_controller_proxy`` is set (external clients), returns the
-        controller address so RPCs flow through its proxies; otherwise looks
+        endpoint's path under the controller's generic proxy; otherwise looks
         the name up in the controller's endpoint registry and returns the
         backing service's direct address.
         """
         if self._use_controller_proxy:
-            return self._address
+            return f"{self._address.rstrip('/')}{proxy_path(endpoint_name)}"
         endpoints = self.list_endpoints(endpoint_name, exact=True)
         if not endpoints:
             raise ConnectionError(f"No {endpoint_name!r} endpoint registered on controller")
@@ -505,6 +506,25 @@ class RemoteClusterClient:
             return list(response.tasks)
 
         return call_with_retry(f"list_tasks({job_id})", _call)
+
+    def kick_tasks(
+        self,
+        targets: list[str],
+        desired_state: job_pb2.TaskState,
+        reason: str,
+    ) -> list[controller_pb2.Controller.KickResult]:
+        """Force task attempts into a terminal state out-of-band (emergency override)."""
+
+        def _call():
+            request = controller_pb2.Controller.KickTasksRequest(
+                targets=targets,
+                desired_state=desired_state,
+                reason=reason,
+            )
+            response = self._client.kick_tasks(request)
+            return list(response.results)
+
+        return call_with_retry(f"kick_tasks({', '.join(targets)})", _call)
 
     def fetch_logs(
         self,

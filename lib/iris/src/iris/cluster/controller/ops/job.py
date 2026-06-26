@@ -3,44 +3,119 @@
 
 """Aggregate-scoped commands for jobs: submit, cancel, remove_finished."""
 
+import logging
+
 from rigging.timing import Timestamp
 from sqlalchemy import Integer, bindparam, cast, func, insert, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
-from iris.cluster.constraints import Constraint, constraints_from_resources, merge_constraints
+from iris.cluster.constraints import availability_constraints_from_reservation
 from iris.cluster.controller import reads, writes
 from iris.cluster.controller.audit_logging import log_event
 from iris.cluster.controller.codec import (
     constraints_to_json,
     entrypoint_to_json,
     proto_to_json,
-    reservation_to_json,
 )
 from iris.cluster.controller.db import Tx
-from iris.cluster.controller.direct_provider import RunTemplateCache
 from iris.cluster.controller.projections.endpoints import EndpointsProjection
 from iris.cluster.controller.reconcile import ReconcileState
 from iris.cluster.controller.reconcile.commit import commit_effects
 from iris.cluster.controller.reconcile.loader import load_closed_snapshot
 from iris.cluster.controller.reconcile.policy import (
-    DEFAULT_MAX_RETRIES_PREEMPTION,
     MAX_REPLICAS_PER_JOB,
-    RESERVATION_HOLDER_JOB_NAME,
 )
+from iris.cluster.controller.run_template import RunTemplateCache
 from iris.cluster.controller.schema import (
     job_workdir_files_table,
     jobs_table,
     users_table,
 )
-from iris.cluster.controller.worker_health import WorkerHealthTracker
 from iris.cluster.types import TERMINAL_JOB_STATES, JobName
 from iris.rpc import controller_pb2, job_pb2
 from iris.time_proto import duration_from_proto
 
+logger = logging.getLogger(__name__)
 
-def request_has_reservation(request: controller_pb2.Controller.LaunchJobRequest) -> bool:
-    """Return True if the request carries reservation entries, else False."""
-    return request.HasField("reservation") and bool(request.reservation.entries)
+
+def _job_constraints_json(request: controller_pb2.Controller.LaunchJobRequest, job_id: JobName) -> str | None:
+    """Serialize the job's constraints, folding in the deprecated reservation field.
+
+    Reservations were replaced by hard ``availability:<variant>`` constraints. A
+    pre-availability client may still set ``request.reservation``; we convert each
+    entry to an availability constraint here (the single server-side ingestion point)
+    and never persist anything reservation-shaped. Converted constraints are
+    deduplicated against constraints the request already carries.
+    """
+    constraints = list(request.constraints)
+    if not (request.HasField("reservation") and request.reservation.entries):
+        return constraints_to_json(constraints)
+
+    existing_keys = {c.key for c in constraints}
+    converted = [
+        c.to_proto()
+        for c in availability_constraints_from_reservation(request.reservation)
+        if c.key not in existing_keys
+    ]
+    if converted:
+        logger.warning(
+            "Job %s submitted with the deprecated `reservation` field; converting it to "
+            "availability constraints %s. Update the client to pass availability constraints directly.",
+            job_id.to_wire(),
+            [c.key for c in converted],
+        )
+        constraints.extend(converted)
+    return constraints_to_json(constraints)
+
+
+def _extract_resource_cols(resources: job_pb2.ResourceSpecProto | None) -> tuple[int, int, int, str | None]:
+    """Return ``(cpu_millicores, memory_bytes, disk_bytes, device_json)`` columns.
+
+    Missing resources map to zeros and a NULL device json.
+    """
+    if resources is None:
+        return 0, 0, 0, None
+    return (
+        int(resources.cpu_millicores),
+        int(resources.memory_bytes),
+        int(resources.disk_bytes),
+        proto_to_json(resources.device),
+    )
+
+
+def _materialize_tasks(
+    cur: Tx,
+    *,
+    job_id: JobName,
+    num_tasks: int,
+    submitted_at_ms: int,
+    max_retries_failure: int,
+    max_retries_preemption: int,
+    priority_root_submitted_ms: int,
+    priority_band: int,
+) -> None:
+    """Insert ``num_tasks`` PENDING task rows for ``job_id``.
+
+    Reserves a contiguous ``priority_insertion`` block so the job's tasks sort together.
+    """
+    insertion_base = writes.reserve_priority_insertion_base(cur)
+    rows = [
+        writes.task_row(
+            task_id=job_id.task(idx),
+            job_id=job_id,
+            task_index=idx,
+            state=job_pb2.TASK_STATE_PENDING,
+            submitted_at_ms=submitted_at_ms,
+            max_retries_failure=max_retries_failure,
+            max_retries_preemption=max_retries_preemption,
+            priority_neg_depth=-job_id.depth,
+            priority_root_submitted_ms=priority_root_submitted_ms,
+            priority_insertion=insertion_base + idx,
+            priority_band=priority_band,
+        )
+        for idx in range(num_tasks)
+    ]
+    writes.bulk_insert_tasks(cur, rows)
 
 
 def submit(
@@ -70,13 +145,13 @@ def submit(
     parent_job_id = job_id.parent.to_wire() if job_id.parent is not None else None
     root_submitted_ms = effective_submission_ms
     if job_id.parent is not None:
-        _parent_row = cur.execute(
+        parent_row = cur.execute(
             select(jobs_table.c.root_submitted_at_ms).where(jobs_table.c.job_id == bindparam("job_id")),
             {"job_id": job_id.parent},
         ).first()
-        if _parent_row is None:
+        if parent_row is None:
             raise ValueError(f"Cannot submit job {job_id}: parent {parent_job_id} is absent from the database")
-        root_submitted_ms = _parent_row.root_submitted_at_ms.epoch_ms()
+        root_submitted_ms = parent_row.root_submitted_at_ms.epoch_ms()
 
     deadline_epoch_ms: int | None = None
     if request.HasField("scheduling_timeout") and request.scheduling_timeout.milliseconds > 0:
@@ -112,14 +187,10 @@ def submit(
 
     state = job_pb2.JOB_STATE_PENDING if validation_error is None else job_pb2.JOB_STATE_FAILED
     finished_ms = None if validation_error is None else effective_submission_ms
-    has_reservation = request_has_reservation(request)
 
     res = request.resources if request.HasField("resources") else None
-    res_cpu = int(res.cpu_millicores) if res else 0
-    res_mem = int(res.memory_bytes) if res else 0
-    res_disk = int(res.disk_bytes) if res else 0
-    res_device = proto_to_json(res.device) if res else None
-    constraints_json = constraints_to_json(request.constraints)
+    res_cpu, res_mem, res_disk, res_device = _extract_resource_cols(res)
+    constraints_json = _job_constraints_json(request, job_id)
     has_cosched = 1 if request.HasField("coscheduling") else 0
     cosched_group = request.coscheduling.group_by if has_cosched else ""
     sched_timeout: int | None = (
@@ -131,7 +202,6 @@ def submit(
     entrypoint_json = entrypoint_to_json(request.entrypoint)
     environment_json = proto_to_json(request.environment)
     ports_json = list(request.ports)
-    reservation_json = reservation_to_json(request)
     timeout_ms: int | None = int(request.timeout.milliseconds) if request.timeout.milliseconds > 0 else None
 
     job_name_lower = request.name.lower()
@@ -151,15 +221,12 @@ def submit(
         error=validation_error,
         exit_code=None,
         num_tasks=replicas,
-        is_reservation_holder=False,
         name=job_name_lower,
-        has_reservation=has_reservation,
     )
     writes.insert_job_config(
         cur,
         job_id=job_id,
         name=job_name_lower,
-        has_reservation=has_reservation,
         res_cpu_millicores=res_cpu,
         res_memory_bytes=res_mem,
         res_disk_bytes=res_disk,
@@ -180,130 +247,29 @@ def submit(
         existing_job_policy=int(request.existing_job_policy),
         priority_band=int(request.priority_band),
         task_image=request.task_image,
+        container_profile=int(request.container_profile),
         submit_argv_json=list(request.submit_argv),
-        reservation_json=reservation_json,
         fail_if_exists=bool(request.fail_if_exists),
     )
 
-    _workdir_files = dict(request.entrypoint.workdir_files)
-    if _workdir_files:
+    workdir_files = dict(request.entrypoint.workdir_files)
+    if workdir_files:
         cur.execute(
             insert(job_workdir_files_table),
-            [{"job_id": job_id, "filename": name, "data": data} for name, data in _workdir_files.items()],
+            [{"job_id": job_id, "filename": name, "data": data} for name, data in workdir_files.items()],
         )
 
     if validation_error is None:
-        insertion_base = writes.reserve_priority_insertion_base(cur)
-        replica_rows: list[dict] = []
-        for idx in range(replicas):
-            task_id = job_id.task(idx)
-            replica_rows.append(
-                writes.task_row(
-                    task_id=task_id,
-                    job_id=job_id,
-                    task_index=idx,
-                    state=job_pb2.TASK_STATE_PENDING,
-                    submitted_at_ms=effective_submission_ms,
-                    max_retries_failure=int(request.max_retries_failure),
-                    max_retries_preemption=int(request.max_retries_preemption),
-                    priority_neg_depth=-job_id.depth,
-                    priority_root_submitted_ms=root_submitted_ms,
-                    priority_insertion=insertion_base + idx,
-                    priority_band=band_sort_key,
-                )
-            )
-        writes.bulk_insert_tasks(cur, replica_rows)
-        if request.HasField("reservation") and request.reservation.entries:
-            holder_id = job_id.child(RESERVATION_HOLDER_JOB_NAME)
-            entry = request.reservation.entries[0]
-            holder_request = controller_pb2.Controller.LaunchJobRequest(
-                name=holder_id.to_wire(),
-                entrypoint=request.entrypoint,
-                resources=entry.resources,
-                environment=request.environment,
-                replicas=len(request.reservation.entries),
-                max_retries_preemption=DEFAULT_MAX_RETRIES_PREEMPTION,
-            )
-            merged = merge_constraints(
-                constraints_from_resources(entry.resources),
-                [Constraint.from_proto(c) for c in entry.constraints],
-            )
-            for constraint in merged:
-                holder_request.constraints.append(constraint.to_proto())
-            holder_res = holder_request.resources if holder_request.HasField("resources") else None
-            holder_res_cpu = int(holder_res.cpu_millicores) if holder_res else 0
-            holder_res_mem = int(holder_res.memory_bytes) if holder_res else 0
-            holder_res_disk = int(holder_res.disk_bytes) if holder_res else 0
-            holder_res_device = proto_to_json(holder_res.device) if holder_res else None
-            holder_constraints_json = constraints_to_json(holder_request.constraints)
-            holder_name_lower = holder_request.name.lower()
-            writes.insert_job(
-                cur,
-                job_id=holder_id,
-                user_id=holder_id.user,
-                parent_job_id=job_id.to_wire(),
-                root_job_id=holder_id.root_job.to_wire(),
-                depth=holder_id.depth,
-                state=job_pb2.JOB_STATE_PENDING,
-                submitted_at_ms=effective_submission_ms,
-                root_submitted_at_ms=root_submitted_ms,
-                started_at_ms=None,
-                finished_at_ms=None,
-                scheduling_deadline_epoch_ms=None,
-                error=None,
-                exit_code=None,
-                num_tasks=len(request.reservation.entries),
-                is_reservation_holder=True,
-                name=holder_name_lower,
-                has_reservation=False,
-            )
-            holder_entrypoint_json = entrypoint_to_json(holder_request.entrypoint)
-            holder_environment_json = proto_to_json(holder_request.environment)
-            writes.insert_job_config(
-                cur,
-                job_id=holder_id,
-                name=holder_name_lower,
-                has_reservation=False,
-                res_cpu_millicores=holder_res_cpu,
-                res_memory_bytes=holder_res_mem,
-                res_disk_bytes=holder_res_disk,
-                res_device_json=holder_res_device,
-                constraints_json=holder_constraints_json,
-                has_coscheduling=False,
-                coscheduling_group_by="",
-                scheduling_timeout_ms=None,
-                max_task_failures=0,
-                entrypoint_json=holder_entrypoint_json,
-                environment_json=holder_environment_json,
-                bundle_id="",
-                ports_json=[],
-                max_retries_failure=0,
-                max_retries_preemption=DEFAULT_MAX_RETRIES_PREEMPTION,
-                timeout_ms=None,
-                preemption_policy=0,
-                existing_job_policy=0,
-                priority_band=0,
-                task_image="",
-            )
-            holder_base = writes.reserve_priority_insertion_base(cur)
-            holder_rows: list[dict] = []
-            for idx in range(len(request.reservation.entries)):
-                holder_rows.append(
-                    writes.task_row(
-                        task_id=holder_id.task(idx),
-                        job_id=holder_id,
-                        task_index=idx,
-                        state=job_pb2.TASK_STATE_PENDING,
-                        submitted_at_ms=effective_submission_ms,
-                        max_retries_failure=0,
-                        max_retries_preemption=DEFAULT_MAX_RETRIES_PREEMPTION,
-                        priority_neg_depth=-holder_id.depth,
-                        priority_root_submitted_ms=root_submitted_ms,
-                        priority_insertion=holder_base + idx,
-                        priority_band=band_sort_key,
-                    )
-                )
-            writes.bulk_insert_tasks(cur, holder_rows)
+        _materialize_tasks(
+            cur,
+            job_id=job_id,
+            num_tasks=replicas,
+            submitted_at_ms=effective_submission_ms,
+            max_retries_failure=int(request.max_retries_failure),
+            max_retries_preemption=int(request.max_retries_preemption),
+            priority_root_submitted_ms=root_submitted_ms,
+            priority_band=band_sort_key,
+        )
 
     cur.register(
         lambda: log_event(
@@ -321,7 +287,6 @@ def cancel(
     job_id: JobName,
     reason: str,
     endpoints: EndpointsProjection,
-    health: WorkerHealthTracker,
 ) -> None:
     """Cancel ``job_id`` and its descendant subtree through the kernel.
 
@@ -343,12 +308,12 @@ def cancel(
     # No per-job state preload: the cascade-kill merge guard skips already-
     # terminal rows (excluding WORKER_FAILED, which cancel overwrites).
     effects = ReconcileState.open(snapshot).cancel_job(job_id, reason, now)
-    commit_effects(cur, effects, health=health, endpoints=endpoints, now=now)
+    commit_effects(cur, effects, endpoints=endpoints)
     # Sweep endpoints that survived because their owning task was already
     # terminal before cancel ran (kernel only emits EndpointDeletion for
     # tasks we actively killed). Derive the same subtree the kernel cancelled
     # from the snapshot's transitive descendants.
-    subtree = [job_id, *snapshot.job_descendants[job_id].descendants_full]
+    subtree = [job_id, *snapshot.job_descendants[job_id].descendants]
     endpoints.remove_by_job_ids(cur, subtree)
 
 

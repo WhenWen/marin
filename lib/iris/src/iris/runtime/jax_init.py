@@ -9,13 +9,12 @@ Single-task jobs skip distributed init entirely — JAX defaults suffice.
 JAX is imported at call time — iris does not depend on jax.
 """
 
-from __future__ import annotations
-
 import atexit
 import logging
 import os
 import time
 
+from rigging.filesystem import marin_prefix
 from rigging.timing import Deadline, Duration, ExponentialBackoff
 
 from iris.actor.resolver import Resolver
@@ -23,6 +22,8 @@ from iris.client.client import iris_ctx
 from iris.cluster.client.job_info import get_job_info
 
 logger = logging.getLogger(__name__)
+
+_COMPILATION_CACHE_SUBDIR = "compilation-cache"
 
 _JAX_ENV_KEYS = (
     "IRIS_TASK_ID",
@@ -58,6 +59,26 @@ def _log_jax_bootstrap_inputs(job_info, *, port: int, endpoint_name: str) -> Non
         port,
         env_snapshot or "none",
     )
+
+
+def configure_jax_compilation_cache() -> None:
+    """Default the JAX compilation cache to a subdir of the active Marin prefix.
+
+    Without a cache dir, every process re-runs XLA compilation and kernel
+    autotune sweeps at startup. An explicit setting (``JAX_COMPILATION_CACHE_DIR``
+    or ``jax.config``) wins; otherwise the cache lands under the cluster's
+    region-local storage prefix, which may be a ``gs://``/``s3://`` URL that JAX
+    writes directly.
+    """
+    import jax  # noqa: PLC0415  # optional dep: jax (iris does not depend on jax)
+
+    if os.environ.get("JAX_COMPILATION_CACHE_DIR") or jax.config.jax_compilation_cache_dir:
+        return
+
+    cache_dir = f"{marin_prefix().rstrip('/')}/{_COMPILATION_CACHE_SUBDIR}"
+    os.environ["JAX_COMPILATION_CACHE_DIR"] = cache_dir
+    jax.config.update("jax_compilation_cache_dir", cache_dir)
+    logger.info("JAX compilation cache: %s", cache_dir)
 
 
 def _poll_for_coordinator(
@@ -121,7 +142,24 @@ def initialize_jax(
         poll_timeout: Maximum seconds for non-coordinator tasks to wait.
         poll_interval: Initial backoff delay for polling (seconds).
     """
-    import jax  # heavy import; lazy by design
+    import jax  # noqa: PLC0415  # optional dep: jax (iris does not depend on jax)
+
+    # Configure the compilation cache before any compile happens, on every
+    # distributed-init path below (TPU, single-task, or the endpoint dance).
+    configure_jax_compilation_cache()
+
+    # Idempotent: skip if jax.distributed has already been initialized. This
+    # lets a caller that must touch JAX before levanter.initialize (e.g. via
+    # `hax.named` → `jnp.asarray` while building loss-config args) call
+    # `initialize_jax()` explicitly first; levanter's later call then lands
+    # here as a no-op instead of hitting JAX 0.9+'s
+    # `xla_bridge.backends_are_initialized()` guard, which raises on a second
+    # `jax.distributed.initialize()`. Note this only covers a prior *initialize*
+    # call — merely materializing a JAX array initializes the XLA backend, not
+    # jax.distributed, so `is_initialized()` stays False in that case.
+    if jax.distributed.is_initialized():
+        logger.info("jax.distributed already initialized; skipping")
+        return
 
     # TPU has its own coordinator discovery via the TPU runtime, so avoid the
     # Iris endpoint dance. We still call JAX distributed initialization to

@@ -15,7 +15,7 @@ from typing import Generic, TypeVar
 
 import haliax.partitioning
 import jax
-import numpy
+import numpy as np
 from jax import Array
 from jax import numpy as jnp
 from jax import tree_util as jtu
@@ -171,12 +171,6 @@ class DataLoader(Iterable[Ex]):
         local_indices = self.compute_local_device_indices_for_bs(batch_size)
 
         return local_indices
-
-    def global_data_indices_by_device_for_step(self, step: int) -> dict[jax.Device, range]:
-        local_indices = self.local_data_indices_by_device_for_step(step)
-        offset = self.scheduler.global_data_offset_by_step(step)
-
-        return {device: range(offset + r.start, offset + r.stop, r.step) for device, r in local_indices.items()}
 
     def rounded_batch_size_at_step(self, step: int) -> int:
         return self._round_batch_size(self.scheduler.batch_size_at_step(step))
@@ -616,7 +610,7 @@ def check_sharded_consistency(tree: PyTree, check_disjoint_indices_are_different
             replica_0_array = replica_0_arrays[_to_tuple(shard.index)]
             assert shard.data is not None
 
-            if not numpy.array_equal(shard.data, replica_0_array, equal_nan=True):
+            if not np.array_equal(shard.data, replica_0_array, equal_nan=True):
                 raise ValueError("Shard data does not match replica 0 data", shard, replica_0_array)
 
             if check_disjoint_indices_are_different:

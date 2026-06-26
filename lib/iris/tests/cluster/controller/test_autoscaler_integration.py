@@ -8,19 +8,16 @@ quota handling, backoff, and multi-tier scaling -- using real provider implement
 backed by in-memory fakes rather than MagicMock.
 """
 
-import threading
 import unittest.mock
 
+from iris.cluster.backends.gcp.fake import InMemoryGcpService
+from iris.cluster.backends.types import CloudSliceState
+from iris.cluster.config import AutoscalerConfig, WorkerConfig
 from iris.cluster.constraints import DeviceType, PlacementRequirements
 from iris.cluster.controller.autoscaler import Autoscaler
 from iris.cluster.controller.autoscaler.models import DemandEntry, ScalingAction
 from iris.cluster.controller.autoscaler.scaling_group import GroupAvailability, ScalingGroup
-from iris.cluster.providers.gcp.fake import InMemoryGcpService
-from iris.cluster.providers.gcp.workers import GcpWorkerProvider
-from iris.cluster.providers.types import CloudSliceState
-from iris.cluster.service_mode import ServiceMode
-from iris.rpc import config_pb2, job_pb2
-from iris.time_proto import duration_to_proto
+from iris.rpc import job_pb2
 from rigging.timing import Duration, Timestamp
 
 from tests.cluster.controller.conftest import (
@@ -57,8 +54,7 @@ class TestAutoscalerWaterfallEndToEnd:
         group_primary = ScalingGroup(config_primary, platform_primary)
         group_fallback = ScalingGroup(config_fallback, platform_fallback)
 
-        config = config_pb2.AutoscalerConfig()
-        config.evaluation_interval.CopyFrom(duration_to_proto(Duration.from_seconds(0.001)))
+        config = AutoscalerConfig(evaluation_interval=Duration.from_seconds(0.001))
         autoscaler = make_autoscaler(
             scale_groups={"primary": group_primary, "fallback": group_fallback},
             config=config,
@@ -67,14 +63,12 @@ class TestAutoscalerWaterfallEndToEnd:
         demand = make_demand_entries(2, device_type=DeviceType.TPU, device_variant="v5p-8")
 
         autoscaler.run_once(demand, {})
-        autoscaler._wait_for_inflight()
 
         assert group_primary.availability().status == GroupAvailability.QUOTA_EXCEEDED
         assert group_fallback.slice_count() == 0
 
         # 2 TPU entries are VM-exclusive -> 2 slices on fallback
         autoscaler.run_once(demand, {})
-        autoscaler._wait_for_inflight()
         assert group_fallback.slice_count() == 2
 
     def test_quota_recovery_restores_primary_routing(self):
@@ -89,8 +83,7 @@ class TestAutoscalerWaterfallEndToEnd:
         group_primary = ScalingGroup(config_primary, platform_primary, quota_timeout=Duration.from_ms(1000))
         group_fallback = ScalingGroup(config_fallback, platform_fallback)
 
-        config = config_pb2.AutoscalerConfig()
-        config.evaluation_interval.CopyFrom(duration_to_proto(Duration.from_seconds(0.001)))
+        config = AutoscalerConfig(evaluation_interval=Duration.from_seconds(0.001))
         autoscaler = make_autoscaler(
             scale_groups={"primary": group_primary, "fallback": group_fallback},
             config=config,
@@ -99,13 +92,11 @@ class TestAutoscalerWaterfallEndToEnd:
         demand = make_demand_entries(1, device_type=DeviceType.CPU, device_variant=None)
 
         autoscaler.run_once(demand, {})
-        autoscaler._wait_for_inflight()
         ts_after_fail = Timestamp.now()
         assert group_primary.availability(ts_after_fail).status == GroupAvailability.QUOTA_EXCEEDED
         assert group_fallback.slice_count() == 0
 
         autoscaler.run_once(demand, {})
-        autoscaler._wait_for_inflight()
         assert group_fallback.slice_count() == 1
 
         # Restore quota so primary can create slices again
@@ -135,8 +126,7 @@ class TestAutoscalerWaterfallEndToEnd:
         group_primary = ScalingGroup(config_primary, platform_primary)
         group_fallback = ScalingGroup(config_fallback, platform_fallback)
 
-        config = config_pb2.AutoscalerConfig()
-        config.evaluation_interval.CopyFrom(duration_to_proto(Duration.from_seconds(0.001)))
+        config = AutoscalerConfig(evaluation_interval=Duration.from_seconds(0.001))
         autoscaler = make_autoscaler(
             scale_groups={"primary": group_primary, "fallback": group_fallback},
             config=config,
@@ -144,7 +134,6 @@ class TestAutoscalerWaterfallEndToEnd:
 
         demand = make_demand_entries(1, device_type=DeviceType.CPU, device_variant=None)
         autoscaler.run_once(demand, {})
-        autoscaler._wait_for_inflight()
         assert group_primary.slice_count() == 1
 
         # Mark the primary slice as READY so it enters AT_MAX_SLICES (rejecting)
@@ -153,7 +142,6 @@ class TestAutoscalerWaterfallEndToEnd:
 
         demand = make_demand_entries(2, device_type=DeviceType.CPU, device_variant=None)
         autoscaler.run_once(demand, {})
-        autoscaler._wait_for_inflight()
         assert group_primary.slice_count() == 1
         assert group_fallback.slice_count() == 1
 
@@ -183,7 +171,6 @@ class TestAutoscalerWaterfallEndToEnd:
         ]
 
         autoscaler.run_once(demand, {})
-        autoscaler._wait_for_inflight()
 
         assert group_v5p.slice_count() == 2
         assert group_v5lite.slice_count() == 1
@@ -200,8 +187,7 @@ class TestAutoscalerWaterfallEndToEnd:
         group_primary = ScalingGroup(config_primary, platform_primary)
         group_fallback = ScalingGroup(config_fallback, platform_fallback)
 
-        config = config_pb2.AutoscalerConfig()
-        config.evaluation_interval.CopyFrom(duration_to_proto(Duration.from_seconds(0.001)))
+        config = AutoscalerConfig(evaluation_interval=Duration.from_seconds(0.001))
         autoscaler = make_autoscaler(
             scale_groups={"primary": group_primary, "fallback": group_fallback},
             config=config,
@@ -217,7 +203,7 @@ class TestAutoscalerWaterfallEndToEnd:
         )
         demand = [
             DemandEntry(
-                task_ids=[f"task-{i}"],
+                task_ids=(f"task-{i}",),
                 coschedule_group_id=None,
                 normalized=normalized,
                 constraints=[],
@@ -227,7 +213,6 @@ class TestAutoscalerWaterfallEndToEnd:
         ]
 
         autoscaler.run_once(demand, {})
-        autoscaler._wait_for_inflight()
         assert group_primary.slice_count() == 1
         assert group_fallback.slice_count() == 2
 
@@ -250,8 +235,7 @@ class TestAutoscalerWaterfallEndToEnd:
         group_primary = ScalingGroup(config_primary, platform_primary)
         group_fallback = ScalingGroup(config_fallback, platform_fallback)
 
-        config = config_pb2.AutoscalerConfig()
-        config.evaluation_interval.CopyFrom(duration_to_proto(Duration.from_seconds(0.001)))
+        config = AutoscalerConfig(evaluation_interval=Duration.from_seconds(0.001))
         autoscaler = make_autoscaler(
             scale_groups={"primary": group_primary, "fallback": group_fallback},
             config=config,
@@ -263,13 +247,11 @@ class TestAutoscalerWaterfallEndToEnd:
         # past the HOSTILE display threshold (>=80% of failures_at_probe_floor=10).
         for _ in range(8):
             autoscaler.run_once(demand, {})
-            autoscaler._wait_for_inflight()
         assert group_primary.availability().status == GroupAvailability.BACKOFF
         assert group_primary.slice_count() == 0
 
         # Next run: primary in BACKOFF -> demand cascades to fallback
         autoscaler.run_once(demand, {})
-        autoscaler._wait_for_inflight()
         assert group_fallback.slice_count() >= 1
 
 
@@ -286,7 +268,7 @@ def test_bootstrap_state_with_worker_config():
         max_slices=4,
         zones=["us-central1-a"],
     )
-    worker_config = config_pb2.WorkerConfig(
+    worker_config = WorkerConfig(
         docker_image="test:latest",
         port=10001,
         controller_address="controller:10000",
@@ -309,7 +291,6 @@ def test_bootstrap_state_with_worker_config():
 
     decisions = autoscaler.run_once(demand, {}, t0)
     assert len(decisions) == 1
-    autoscaler._wait_for_inflight()
 
     assert group.slice_count() == 1
 
@@ -347,7 +328,6 @@ def test_no_bootstrap_without_worker_config():
     t0 = Timestamp.from_ms(1_000_000)
 
     autoscaler.run_once(demand, {}, t0)
-    autoscaler._wait_for_inflight()
 
     # Advance TPUs to READY and refresh
     advance_all_tpus(service, "READY")
@@ -365,67 +345,6 @@ def test_no_bootstrap_without_worker_config():
 
 
 # ---------------------------------------------------------------------------
-# Pending counter prevents double scale-up (real GcpWorkerProvider with slow create)
-# ---------------------------------------------------------------------------
-
-
-def test_pending_counter_prevents_double_scaleup():
-    """Verify that the pending scale-up counter prevents double scale-up when
-    create_slice takes longer than expected."""
-    create_barrier = threading.Event()
-
-    class SlowGcpWorkerProvider(GcpWorkerProvider):
-        """GcpWorkerProvider where create_slice blocks until barrier is released."""
-
-        def create_slice(self, config, worker_config=None):
-            create_barrier.wait(timeout=10)
-            return super().create_slice(config, worker_config)
-
-    sg_config = make_scale_group_config(
-        name="test-group",
-        buffer_slices=0,
-        max_slices=4,
-        zones=["us-central1-a"],
-    )
-    service = InMemoryGcpService(mode=ServiceMode.DRY_RUN, project_id="test-project", label_prefix="iris")
-    gcp_config = config_pb2.GcpPlatformConfig(project_id="test-project", zones=["us-central1-a"])
-    platform = SlowGcpWorkerProvider(gcp_config=gcp_config, label_prefix="iris", worker_port=10001, gcp_service=service)
-    group = ScalingGroup(
-        sg_config,
-        platform,
-    )
-    autoscaler = Autoscaler(
-        scale_groups={"test-group": group},
-        evaluation_interval=Duration.from_ms(100),
-        platform=platform,
-    )
-
-    demand = make_demand_entries(1)
-    t0 = Timestamp.from_ms(1_000_000)
-
-    # First run_once: demand=1, current=0 -> scale up.
-    decisions1 = autoscaler.run_once(demand, {}, t0)
-    assert len(decisions1) == 1
-    assert decisions1[0].action == ScalingAction.SCALE_UP
-
-    # Advance time arbitrarily far
-    t1 = Timestamp.from_ms(t0.epoch_ms() + 600)
-
-    # Second run_once: pending counter prevents double scale-up
-    decisions2 = autoscaler.run_once(demand, {}, t1)
-    assert len(decisions2) == 0, "Pending counter should prevent second scale-up"
-
-    # Release the barrier so threads complete
-    create_barrier.set()
-    autoscaler._wait_for_inflight()
-
-    # Only 1 slice was created
-    assert group.slice_count() == 1
-
-    autoscaler.shutdown()
-
-
-# ---------------------------------------------------------------------------
 # Multi-slice scale-up: incremental demand growth (real GcpWorkerProvider)
 # ---------------------------------------------------------------------------
 
@@ -436,8 +355,7 @@ def test_incremental_demand_growth_triggers_scale_up():
     platform, service = make_gcp_provider(config)
     group = ScalingGroup(config, platform, scale_up_rate_limit=1000)
 
-    as_config = config_pb2.AutoscalerConfig()
-    as_config.evaluation_interval.CopyFrom(duration_to_proto(Duration.from_seconds(0.001)))
+    as_config = AutoscalerConfig(evaluation_interval=Duration.from_seconds(0.001))
     autoscaler = make_autoscaler({"test-group": group}, config=as_config)
 
     # Phase 1: 4 big entries, each fills 1 VM
@@ -450,7 +368,6 @@ def test_incremental_demand_growth_triggers_scale_up():
         task_prefix="phase1",
     )
     autoscaler.run_once(demand_4, {})
-    autoscaler._wait_for_inflight()
     assert group.slice_count() == 4
 
     # Mark all slices ready
@@ -473,7 +390,6 @@ def test_incremental_demand_growth_triggers_scale_up():
 
     # Execute and verify
     autoscaler.execute(decisions, Timestamp.now())
-    autoscaler._wait_for_inflight()
     assert group.slice_count() == 10
 
 
@@ -500,8 +416,7 @@ def test_marin_style_lifecycle():
         services[name] = svc
         groups[name] = ScalingGroup(cfg, plat)
 
-    as_config = config_pb2.AutoscalerConfig()
-    as_config.evaluation_interval.CopyFrom(duration_to_proto(Duration.from_seconds(0.001)))
+    as_config = AutoscalerConfig(evaluation_interval=Duration.from_seconds(0.001))
     autoscaler = make_autoscaler(groups, config=as_config)
 
     def make_demand(count):
@@ -520,7 +435,10 @@ def test_marin_style_lifecycle():
             _mark_all_slices_ready(g)
 
     def routed(group_name):
-        return len(autoscaler._last_scale_plan.routing_decision.routed_entries.get(group_name, []))
+        routed_entries = autoscaler._last_routing_decision_proto.routed_entries
+        if group_name not in routed_entries:
+            return 0
+        return len(routed_entries[group_name].entries)
 
     def assert_no_load_on_last():
         assert routed("tpu-16vm") == 0, "tpu-16vm should never receive load"
@@ -530,7 +448,6 @@ def test_marin_style_lifecycle():
 
     t = Timestamp.from_ms(10_000)
     autoscaler.run_once(make_demand(4), {}, timestamp=t)
-    autoscaler._wait_for_inflight()
     assert groups["tpu-1vm"].slice_count() == 4, "tpu-1vm filled to max"
     assert_no_load_on_last()
 
@@ -539,7 +456,6 @@ def test_marin_style_lifecycle():
     t = Timestamp.from_ms(11_000)
     advance(t)
     autoscaler.run_once(make_demand(8), {}, timestamp=t)
-    autoscaler._wait_for_inflight()
     assert groups["tpu-1vm"].slice_count() == 4, "tpu-1vm unchanged"
     assert routed("tpu-2vm") == 8, "all demand cascades to tpu-2vm"
     assert groups["tpu-2vm"].slice_count() == 4, "tpu-2vm filled to max"
@@ -550,7 +466,6 @@ def test_marin_style_lifecycle():
     t = Timestamp.from_ms(12_000)
     advance(t)
     autoscaler.run_once(make_demand(16), {}, timestamp=t)
-    autoscaler._wait_for_inflight()
     assert groups["tpu-4vm"].slice_count() == 4, "tpu-4vm at max_slices"
     assert routed("tpu-4vm") == 16, "demand routed to tpu-4vm"
     assert_no_load_on_last()
@@ -560,7 +475,6 @@ def test_marin_style_lifecycle():
     t = Timestamp.from_ms(13_000)
     advance(t)
     autoscaler.run_once(make_demand(28), {}, timestamp=t)
-    autoscaler._wait_for_inflight()
     assert routed("tpu-8vm") == 28
     assert groups["tpu-8vm"].slice_count() == 4, "tpu-8vm at max_slices"
     assert_no_load_on_last()
@@ -593,8 +507,7 @@ class TestScaleUpRateLimiting:
         platform, _ = make_gcp_provider(config)
         group = ScalingGroup(config, platform, scale_up_rate_limit=1)
 
-        as_config = config_pb2.AutoscalerConfig()
-        as_config.evaluation_interval.CopyFrom(duration_to_proto(Duration.from_seconds(0.001)))
+        as_config = AutoscalerConfig(evaluation_interval=Duration.from_seconds(0.001))
         autoscaler = make_autoscaler({"test-group": group}, config=as_config)
 
         demand = _make_big_demand_entries(
@@ -609,7 +522,6 @@ class TestScaleUpRateLimiting:
         assert len(decisions) == 5
 
         autoscaler.execute(decisions, ts)
-        autoscaler._wait_for_inflight()
 
         # Only 1 should have actually executed (rate_limit=1)
         assert group.slice_count() == 1
@@ -628,8 +540,7 @@ class TestScaleUpRateLimiting:
         platform, _ = make_gcp_provider(config)
         group = ScalingGroup(config, platform, scale_up_rate_limit=2)
 
-        as_config = config_pb2.AutoscalerConfig()
-        as_config.evaluation_interval.CopyFrom(duration_to_proto(Duration.from_seconds(0.001)))
+        as_config = AutoscalerConfig(evaluation_interval=Duration.from_seconds(0.001))
         autoscaler = make_autoscaler({"test-group": group}, config=as_config)
 
         demand = _make_big_demand_entries(
@@ -645,7 +556,6 @@ class TestScaleUpRateLimiting:
         decisions = autoscaler.evaluate(demand, timestamp=ts)
         assert len(decisions) == 6
         autoscaler.execute(decisions, ts)
-        autoscaler._wait_for_inflight()
         assert group.slice_count() == 2
 
         # Advance time by 1 minute so rate-limit tokens refill
@@ -655,7 +565,6 @@ class TestScaleUpRateLimiting:
         decisions2 = autoscaler.evaluate(demand, timestamp=ts2)
         assert len(decisions2) == 4
         autoscaler.execute(decisions2, ts2)
-        autoscaler._wait_for_inflight()
         assert group.slice_count() == 4
 
     def test_high_rate_limit_allows_all_decisions(self):
@@ -664,8 +573,7 @@ class TestScaleUpRateLimiting:
         platform, _ = make_gcp_provider(config)
         group = ScalingGroup(config, platform, scale_up_rate_limit=1000)
 
-        as_config = config_pb2.AutoscalerConfig()
-        as_config.evaluation_interval.CopyFrom(duration_to_proto(Duration.from_seconds(0.001)))
+        as_config = AutoscalerConfig(evaluation_interval=Duration.from_seconds(0.001))
         autoscaler = make_autoscaler({"test-group": group}, config=as_config)
 
         demand = _make_big_demand_entries(
@@ -679,5 +587,4 @@ class TestScaleUpRateLimiting:
         decisions = autoscaler.evaluate(demand, timestamp=ts)
         assert len(decisions) == 10
         autoscaler.execute(decisions, ts)
-        autoscaler._wait_for_inflight()
         assert group.slice_count() == 10

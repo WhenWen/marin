@@ -24,7 +24,7 @@ from levanter.models.llama import (  # Gemma attention and MLP is identical to L
     LlamaEmbedding,
     LlamaMlp,
 )
-from levanter.models.lm_model import LmConfig, LmHeadModel
+from levanter.models.lm_model import LmConfig, LmHeadModel, resize_embeddings_and_lm_head
 from levanter.utils.activation import ActivationFunctionEnum
 from levanter.utils.flop_utils import lm_flops_per_token
 from levanter.utils.logging import silence_transformer_nag
@@ -32,6 +32,7 @@ from levanter.utils.logging import silence_transformer_nag
 silence_transformer_nag()
 from transformers import Gemma2Config as HfGemma2Config  # noqa: E402
 from transformers import Gemma3Config as HfGemma3Config  # noqa: E402
+from transformers import Gemma3TextConfig as _HFGemma3Config  # noqa: E402
 from transformers import GemmaConfig as HfGemmaConfig  # noqa: E402
 from transformers import PretrainedConfig as HfConfig  # noqa: E402
 
@@ -212,8 +213,9 @@ class GemmaConfig(HFCompatConfig):
         )
         return config
 
+    # config-reuse subclass narrows to its own HF config/model type (LSP narrowing; mypy flags the same)
     @property
-    def model_type(self) -> type["GemmaLMHeadModel"]:
+    def model_type(self) -> type["GemmaLMHeadModel"]:  # pyrefly: ignore[bad-override]
         return GemmaLMHeadModel
 
     def flops_per_token(self, vocab_size: int, context_length: int) -> float | None:
@@ -427,15 +429,10 @@ class GemmaLMHeadModel(LmHeadModel[GemmaConfig], ModuleWithStateDictSerializatio
         return x
 
     def resize_vocab(self, new_size: int, key=None) -> "LmHeadModel[GemmaConfig]":
-        new_Vocab = self.Vocab.resize(new_size)
-        k1, k2 = maybe_rng_split(key, 2)
-        new_embeddings = self.embeddings.resize_embeddings(new_size, key=k1)
-        if self.lm_head is not None:
-            new_lm_matrix = hax.tree_util.resize_axis(self.lm_head.weight, self.Vocab, new_size, key=k2)
-            new_lm_head = dataclasses.replace(self.lm_head, Out=new_Vocab, weight=new_lm_matrix)
-            return dataclasses.replace(self, embeddings=new_embeddings, lm_head=new_lm_head)
-        else:
-            return dataclasses.replace(self, embeddings=new_embeddings)
+        new_embeddings, new_lm_head = resize_embeddings_and_lm_head(
+            self.Vocab, self.embeddings, self.lm_head, new_size, key
+        )
+        return dataclasses.replace(self, embeddings=new_embeddings, lm_head=new_lm_head)
 
     def _state_dict_key_map(self) -> dict[str, str | None]:
         """Map from Levanter model names to HF."""
@@ -471,12 +468,12 @@ class Gemma2Config(GemmaConfig):
 
     # ---------- Convenience ----------
     @property  # type: ignore[override]
-    def model_type(self):  # noqa: D401 – property returns type, not a str
+    def model_type(self):  # noqa: D401  # pyrefly: ignore[bad-override]  # property returns type, not a str
         """Return the Levanter model class for Gemma-2."""
         return Gemma2LMHeadModel
 
     # ---------- HF checkpoint helpers ----------
-    def hf_checkpoint_converter(
+    def hf_checkpoint_converter(  # pyrefly: ignore[bad-override]
         self, ref_checkpoint: str = "google/gemma-2-2b"
     ) -> HFCheckpointConverter["Gemma2Config"]:  # type: ignore
         return HFCheckpointConverter(
@@ -492,10 +489,6 @@ class Gemma2Config(GemmaConfig):
         We bypass the complex branching logic in :pyfunc:`GemmaConfig.to_hf_config` and
         construct the Hugging-Face config explicitly so that the intent is clear.
         """
-
-        from transformers import (
-            Gemma2Config as _HFGemma2Config,  # local import (optional dependency)
-        )
 
         if config_overrides is None:
             config_overrides = {}
@@ -533,7 +526,7 @@ class Gemma2Config(GemmaConfig):
         )
 
         # Merge user-overrides last so callers can tweak anything.
-        cfg = _HFGemma2Config(
+        cfg = HfGemma2Config(
             **common_args,
             _attn_implementation="eager",
             **config_overrides,
@@ -756,15 +749,10 @@ class Gemma2LMHeadModel(LmHeadModel[Gemma2Config], ModuleWithStateDictSerializat
         return x
 
     def resize_vocab(self, new_size: int, key=None):  # type: ignore[override]
-        new_Vocab = self.Vocab.resize(new_size)
-        k1, k2 = maybe_rng_split(key, 2)
-        new_embeddings = self.embeddings.resize_embeddings(new_size, key=k1)
-        if self.lm_head is not None:
-            new_lm_matrix = hax.tree_util.resize_axis(self.lm_head.weight, self.Vocab, new_size, key=k2)
-            new_lm_head = dataclasses.replace(self.lm_head, Out=new_Vocab, weight=new_lm_matrix)
-            return dataclasses.replace(self, embeddings=new_embeddings, lm_head=new_lm_head)
-        else:
-            return dataclasses.replace(self, embeddings=new_embeddings)
+        new_embeddings, new_lm_head = resize_embeddings_and_lm_head(
+            self.Vocab, self.embeddings, self.lm_head, new_size, key
+        )
+        return dataclasses.replace(self, embeddings=new_embeddings, lm_head=new_lm_head)
 
     def _state_dict_key_map(self) -> dict[str, str | None]:
         return {"transformer": "model", "embeddings": None}
@@ -805,11 +793,11 @@ class Gemma3Config(Gemma2Config):
 
     # ---------- Convenience ----------
     @property  # type: ignore[override]
-    def model_type(self):  # noqa: D401
+    def model_type(self):  # noqa: D401  # pyrefly: ignore[bad-override]
         return Gemma3LMHeadModel
 
     # ---------- HF helpers ----------
-    def hf_checkpoint_converter(
+    def hf_checkpoint_converter(  # pyrefly: ignore[bad-override]
         self, ref_checkpoint: str = "google/gemma-3-1b-pt"
     ) -> HFCheckpointConverter["Gemma3Config"]:  # type: ignore
         return HFCheckpointConverter(
@@ -821,8 +809,6 @@ class Gemma3Config(Gemma2Config):
 
     def to_hf_config(self, vocab_size: int, config_overrides: dict | None = None):  # type: ignore[override]
         """Convert to ``transformers.Gemma3Config``."""
-        from transformers import Gemma3TextConfig as _HFGemma3Config
-
         if config_overrides is None:
             config_overrides = {}
 
@@ -936,7 +922,7 @@ class Gemma3LMHeadModel(LmHeadModel[Gemma3Config], ModuleWithStateDictSerializat
     lm_head: hnn.Linear | None
 
     @property
-    def config(self):
+    def config(self):  # pyrefly: ignore[bad-override]  # config-reuse: Gemma-3 head reuses the Gemma-2 transformer
         return self.transformer.config
 
     @property
@@ -979,15 +965,10 @@ class Gemma3LMHeadModel(LmHeadModel[Gemma3Config], ModuleWithStateDictSerializat
         return x
 
     def resize_vocab(self, new_size: int, key=None):  # type: ignore[override]
-        new_Vocab = self.Vocab.resize(new_size)
-        k1, k2 = maybe_rng_split(key, 2)
-        new_embeddings = self.embeddings.resize_embeddings(new_size, key=k1)
-        if self.lm_head is not None:
-            new_lm_matrix = hax.tree_util.resize_axis(self.lm_head.weight, self.Vocab, new_size, key=k2)
-            new_lm_head = dataclasses.replace(self.lm_head, Out=new_Vocab, weight=new_lm_matrix)
-            return dataclasses.replace(self, embeddings=new_embeddings, lm_head=new_lm_head)
-        else:
-            return dataclasses.replace(self, embeddings=new_embeddings)
+        new_embeddings, new_lm_head = resize_embeddings_and_lm_head(
+            self.Vocab, self.embeddings, self.lm_head, new_size, key
+        )
+        return dataclasses.replace(self, embeddings=new_embeddings, lm_head=new_lm_head)
 
     def _state_dict_key_map(self) -> dict[str, str | None]:
         return {"transformer": "model", "embeddings": None}

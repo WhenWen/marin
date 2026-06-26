@@ -93,6 +93,15 @@ def test_job_name_roundtrip_and_hierarchy():
     assert not parsed.is_ancestor_of(JobName.root("test-user", "root"), include_self=False)
 
 
+@pytest.mark.parametrize("base", ["https://iris.oa.dev", "https://iris.oa.dev/"])
+def test_job_name_dashboard_url(base: str):
+    job = JobName.from_string("/rav/datakit-ref-smoke-20260604-135004")
+    assert job.dashboard_url(base) == "https://iris.oa.dev/#/job/%2Frav%2Fdatakit-ref-smoke-20260604-135004"
+    # Nested task names percent-encode every slash.
+    task = JobName.from_string("/rav/root/child/0")
+    assert task.dashboard_url("https://iris.oa.dev") == "https://iris.oa.dev/#/job/%2Frav%2Froot%2Fchild%2F0"
+
+
 @pytest.mark.parametrize(
     "value",
     ["", "root", "/root", "/test-user//child", "/test-user/root/ ", "/test-user/root/", "/test-user/root//0"],
@@ -580,6 +589,15 @@ def test_adjust_tpu_replicas_single_host_and_edge_cases():
     assert adjust_tpu_replicas(tpu_device("v6e-4"), replicas=1) == 1
     assert adjust_tpu_replicas(None, replicas=1) == 1
     assert adjust_tpu_replicas(tpu_device("v99-unknown", count=4), replicas=1) == 1
+
+
+@pytest.mark.parametrize("bad_count", [0, -1])
+def test_gpu_device_rejects_non_positive_count(bad_count):
+    # Regression: zero is coerced to 1 by get_gpu_count (`count or 1`) and a
+    # negative count flows through as a negative req_gpu_count that inflates
+    # advertised scheduler capacity. Reject both at the construction boundary.
+    with pytest.raises(ValueError, match="positive integer"):
+        gpu_device("H100", count=bad_count)
 
 
 def test_merge_auto_constraints_with_user_variant_override():

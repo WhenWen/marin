@@ -69,8 +69,6 @@ Usage::
         --dest-prefix s3://marin-na/marin
 """
 
-from __future__ import annotations
-
 import argparse
 import logging
 import re
@@ -86,7 +84,7 @@ from marin.execution.step_spec import StepSpec
 from rigging.filesystem import atomic_rename, marin_prefix
 from rigging.log_setup import configure_logging
 from zephyr import Dataset, ZephyrContext, counters
-from zephyr.plan import deterministic_hash
+from zephyr.shard_keys import deterministic_hash
 
 logger = logging.getLogger(__name__)
 

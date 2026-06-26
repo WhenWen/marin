@@ -14,14 +14,15 @@ The race (before fix):
 Fix: _check_worker_group skips when all shards are completed.
 """
 
-from __future__ import annotations
-
 import threading
 import time
 from unittest.mock import MagicMock
 
 import pytest
-from zephyr.execution import CounterSnapshot, ListShard, ShardTask, TaskResult, ZephyrCoordinator
+from zephyr.execution import ZephyrCoordinator
+from zephyr.shuffle import ListShard
+from zephyr.stage_io import ShardTask, TaskResult
+from zephyr.worker_context import CounterSnapshot
 
 
 @pytest.fixture

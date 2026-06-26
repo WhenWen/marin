@@ -5,7 +5,7 @@ import dataclasses
 import inspect
 from dataclasses import dataclass
 from functools import partial
-from typing import Callable, Dict, List, Optional, Type, Union
+from typing import Any, Callable, Dict, List, Optional, Type, Union, cast
 
 import equinox as eqx
 import jax
@@ -27,7 +27,7 @@ from levanter.compat.hf_checkpoints import HFCheckpointConverter
 from levanter.layers.attention import Attention, AttentionBackend, AttentionConfig, AttentionMask
 from levanter.layers.rotary import DefaultRotaryEmbeddingsConfig, RotaryEmbeddingsConfig
 from levanter.models.llama import LlamaEmbedding, LlamaMlp
-from levanter.models.lm_model import LmConfig, LmHeadModel
+from levanter.models.lm_model import LmConfig, LmHeadModel, resize_embeddings_and_lm_head
 from levanter.models.mistral import MistralConfig
 from levanter.utils.activation import ActivationFunctionEnum
 from levanter.utils.flop_utils import lm_flops_per_token
@@ -120,7 +120,8 @@ class MixtralConfig(MistralConfig):
             self.num_experts_per_tok <= self.n_routed_experts
         ), f"num_experts_per_tok={self.num_experts_per_tok} greater than by n_routed_experts={self.n_routed_experts}."
 
-    def hf_checkpoint_converter(
+    # config-reuse subclass narrows to its own HF config/model type (LSP narrowing; mypy flags the same)
+    def hf_checkpoint_converter(  # pyrefly: ignore[bad-override]
         self, ref_checkpoint: Optional[str] = None
     ) -> HFCheckpointConverter["MixtralConfig"]:  # type: ignore
         return HFCheckpointConverter(
@@ -152,7 +153,9 @@ class MixtralConfig(MistralConfig):
             lbl_coef=hf_config.router_aux_loss_coef,
         )
 
-    def to_hf_config(self, vocab_size: int, config_overrides: Optional[Dict] = None) -> HfMixtralConfig:
+    def to_hf_config(  # pyrefly: ignore[bad-override]
+        self, vocab_size: int, config_overrides: Optional[Dict] = None
+    ) -> HfMixtralConfig:
         """Convert to HuggingFace's MistralConfig
 
         Args:
@@ -188,7 +191,7 @@ class MixtralConfig(MistralConfig):
         )
 
     @property
-    def model_type(cls) -> Type["MixtralLMHeadModel"]:
+    def model_type(cls) -> Type["MixtralLMHeadModel"]:  # pyrefly: ignore[bad-override]
         return MixtralLMHeadModel
 
     def mk_LayerNorm(self, axis: AxisSpec) -> LayerNormBase:
@@ -305,10 +308,9 @@ class MixtralMoEMlp(ModuleWithStateDictSerialization):
                 # val = state_dict[key][..., None, :, :]
                 w[j].append(val)
 
-        for j in range(3):
-            w[j] = jnp.concat(w[j], axis=1)
+        stacked: List[Array] = [jnp.concat(w[j], axis=1) for j in range(3)]
 
-        return eqx.tree_at(lambda m: [m.w1.weight.array, m.w2.weight.array, m.w3.weight.array], self, w)
+        return eqx.tree_at(lambda m: [m.w1.weight.array, m.w2.weight.array, m.w3.weight.array], self, stacked)
 
 
 class MixtralSparseMoeBlock(eqx.Module):
@@ -351,6 +353,10 @@ class MixtralSparseMoeBlock(eqx.Module):
 
             return selected_weights_, selected_experts_
 
+        # jax.shard_map erases the wrapped callable's signature, so pyrefly mis-binds its
+        # decorator TypeVar to the Array argument; cast back to a plain callable.
+        sharded_route = cast(Callable[..., Any], sharded_route)
+
         with jax.named_scope("route"):
             selected_weights_, selected_experts_ = sharded_route(router_probs.array)
 
@@ -382,6 +388,9 @@ class MixtralSparseMoeBlock(eqx.Module):
             group_sizes_ = jnp.bincount(topk_idx_flat_, length=self.config.n_routed_experts)
 
             return x_repeat_sort_, group_sizes_, sort_idx_
+
+        # See sharded_route above: cast around jax.shard_map's signature erasure.
+        permute_sharded = cast(Callable[..., Any], permute_sharded)
 
         with jax.named_scope("permute"):
             x_repeat_sort_, group_sizes_, sort_idx_ = permute_sharded(x_flat.array, topk_idx_flat.array)
@@ -418,6 +427,9 @@ class MixtralSparseMoeBlock(eqx.Module):
             )
 
             return out_repeat_unflat_
+
+        # See sharded_route above: cast around jax.shard_map's signature erasure.
+        unpermute_sharded = cast(Callable[..., Any], unpermute_sharded)
 
         with jax.named_scope("unpermute"):
             out_repeat_unflat_ = unpermute_sharded(out_repeat_sort.array, sort_idx.array)
@@ -545,7 +557,7 @@ class MixtralTransformer(eqx.Module):
         self, x: NamedArray, attn_mask: Optional[NamedArray], *, key, pos_ids: NamedArray | None = None
     ) -> tuple[NamedArray, dict]:
         keys = maybe_rng_split(key, self.config.num_layers) if key is not None else None
-        x, extras = self.layers.scan(x, mask=attn_mask, key=keys)
+        x, extras = cast(tuple[NamedArray, dict], self.layers.scan(x, mask=attn_mask, key=keys))
         x = self.norm(x)
 
         # moe logging
@@ -576,7 +588,7 @@ class MixtralLMHeadModel(ModuleWithStateDictSerialization, LmHeadModel[MixtralCo
     lm_head: Optional[hnn.Linear]
 
     @property
-    def config(self):
+    def config(self):  # pyrefly: ignore[bad-override]  # config-reuse: narrows config to MixtralConfig
         return self.transformer.config
 
     @property
@@ -660,15 +672,10 @@ class MixtralLMHeadModel(ModuleWithStateDictSerialization, LmHeadModel[MixtralCo
             return self.lm_head.weight
 
     def resize_vocab(self, new_size: int, key=None) -> "LmHeadModel[MixtralConfig]":
-        new_Vocab = self.Vocab.resize(new_size)
-        k1, k2 = maybe_rng_split(key, 2)
-        new_embeddings = self.embeddings.resize_embeddings(new_size, key=k1)
-        if self.lm_head is not None:
-            new_lm_matrix = hax.tree_util.resize_axis(self.lm_head.weight, self.Vocab, new_size, key=k2)
-            new_lm_head = dataclasses.replace(self.lm_head, Out=new_Vocab, weight=new_lm_matrix)
-            return dataclasses.replace(self, embeddings=new_embeddings, lm_head=new_lm_head)
-        else:
-            return dataclasses.replace(self, embeddings=new_embeddings)
+        new_embeddings, new_lm_head = resize_embeddings_and_lm_head(
+            self.Vocab, self.embeddings, self.lm_head, new_size, key
+        )
+        return dataclasses.replace(self, embeddings=new_embeddings, lm_head=new_lm_head)
 
     def _state_dict_key_map(self) -> Dict[str, Optional[str]]:
         return {"transformer": "model", "embeddings": None}

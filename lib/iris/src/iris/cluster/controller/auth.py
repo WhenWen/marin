@@ -1,36 +1,37 @@
 # Copyright The Marin Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Auth setup for the controller — single source of truth for verifier creation.
+"""Auth setup for the controller — verifier creation and JWT key management.
 
 All tokens are JWTs signed with a persistent HMAC-SHA256 key stored in the
 controller_secrets table. Verification is a pure crypto check plus an
 in-memory revocation set — no per-RPC database hit.
 """
 
-from __future__ import annotations
-
 import dataclasses
 import logging
 import secrets
 import time
+from collections.abc import Callable, Sequence
 
 import jwt
-from rigging.timing import Timestamp
-from sqlalchemy import delete, insert, select, update
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-
-from iris.cluster.controller import writes
-from iris.cluster.controller.db import ControllerDB
-from iris.cluster.controller.schema import auth_api_keys_table, auth_controller_secrets_table
-from iris.rpc import config_pb2
-from iris.rpc.auth import (
+from rigging.server_auth import (
     GcpAccessTokenVerifier,
+    IapAssertionVerifier,
+    IapIdTokenVerifier,
     StaticTokenVerifier,
     TokenVerifier,
     VerifiedIdentity,
-    hash_token,
 )
+from rigging.timing import Timestamp
+from sqlalchemy import Row, delete, insert, select, update
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+
+from iris.cluster.config import AuthConfig, StaticAuthConfig
+from iris.cluster.controller import reads, writes
+from iris.cluster.controller.db import ControllerDB
+from iris.cluster.controller.schema import auth_api_keys_table, auth_controller_secrets_table
+from iris.rpc.auth import DASHBOARD_ROLE
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,6 @@ DEFAULT_JWT_TTL_SECONDS = 86400 * 30  # 30 days
 def create_api_key(
     db: ControllerDB,
     key_id: str,
-    key_hash: str,
     key_prefix: str,
     user_id: str,
     name: str,
@@ -58,7 +58,6 @@ def create_api_key(
         tx.execute(
             insert(auth_api_keys_table).values(
                 key_id=key_id,
-                key_hash=key_hash,
                 key_prefix=key_prefix,
                 user_id=user_id,
                 name=name,
@@ -73,12 +72,6 @@ def create_api_key(
         name,
         expires_at.epoch_ms() if expires_at else "-",
     )
-
-
-def lookup_api_key_by_hash(db: ControllerDB, key_hash: str):
-    """Find an API key by its SHA-256 hash. Returns SA Row or None."""
-    with db.auth_read_snapshot() as tx:
-        return tx.execute(select(auth_api_keys_table).where(auth_api_keys_table.c.key_hash == key_hash).limit(1)).first()
 
 
 def touch_api_key(db: ControllerDB, key_id: str, now: Timestamp) -> None:
@@ -110,8 +103,8 @@ def lookup_api_key_by_id(db: ControllerDB, key_id: str):
         return tx.execute(select(auth_api_keys_table).where(auth_api_keys_table.c.key_id == key_id)).first()
 
 
-def list_api_keys(db: ControllerDB, user_id: str | None = None) -> list:
-    """List API keys, optionally filtered by user. Returns list[Row]."""
+def list_api_keys(db: ControllerDB, user_id: str | None = None) -> Sequence[Row]:
+    """List API keys, optionally filtered by user."""
     with db.auth_read_snapshot() as tx:
         stmt = select(auth_api_keys_table)
         if user_id:
@@ -120,27 +113,20 @@ def list_api_keys(db: ControllerDB, user_id: str | None = None) -> list:
 
 
 def revoke_login_keys_for_user(db: ControllerDB, user_id: str, now: Timestamp) -> list[str]:
-    """Revoke all active login keys for a user. Returns list of revoked key_ids."""
-    with db.auth_read_snapshot() as tx:
-        active_rows = tx.execute(
-            select(auth_api_keys_table.c.key_id).where(
+    """Revoke all active login keys for a user. Returns the revoked key_ids."""
+    with db.transaction() as tx:
+        rows = tx.execute(
+            update(auth_api_keys_table)
+            .where(
                 auth_api_keys_table.c.user_id == user_id,
                 auth_api_keys_table.c.name.like("login-%"),
                 auth_api_keys_table.c.revoked_at_ms.is_(None),
             )
+            .values(revoked_at_ms=now)
+            .returning(auth_api_keys_table.c.key_id)
         ).all()
-    revoked_ids = [str(row.key_id) for row in active_rows]
+    revoked_ids = [str(row.key_id) for row in rows]
     if revoked_ids:
-        with db.transaction() as tx:
-            tx.execute(
-                update(auth_api_keys_table)
-                .where(
-                    auth_api_keys_table.c.user_id == user_id,
-                    auth_api_keys_table.c.name.like("login-%"),
-                    auth_api_keys_table.c.revoked_at_ms.is_(None),
-                )
-                .values(revoked_at_ms=now)
-            )
         logger.info(
             "event=login_keys_revoked entity=%s trigger=- count=%d",
             user_id,
@@ -298,19 +284,53 @@ class ControllerAuth:
     gcp_project_id: str | None = None
     jwt_manager: JwtTokenManager | None = None
     optional: bool = False
+    # Verifies IAP's signed-header assertion to authenticate tokenless callers
+    # behind IAP (only when an IAP signed_header_audience is set).
+    iap_assertion_verifier: IapAssertionVerifier | None = None
+
+
+# How long a resolved IAP email->role mapping is cached before re-reading the
+# user store. Roles change rarely (admin grants, new provisioning); a short TTL
+# keeps the per-RPC assertion path off the database without making grants slow
+# to take effect.
+_IAP_ROLE_CACHE_TTL_SECONDS = 60.0
+
+
+def _make_iap_role_resolver(db: ControllerDB) -> Callable[[str], str]:
+    """Return a function that maps a verified IAP email to its Iris role.
+
+    Looks up the role from the user store; falls back to ``dashboard`` for an
+    unprovisioned email. Results are cached for ``_IAP_ROLE_CACHE_TTL_SECONDS``
+    to keep the per-RPC assertion path off the database.
+    """
+    cache: dict[str, tuple[float, str]] = {}
+
+    def resolve(email: str) -> str:
+        cached = cache.get(email)
+        if cached is not None and time.monotonic() < cached[0]:
+            return cached[1]
+        with db.read_snapshot() as tx:
+            role = reads.get_user_role_or_none(tx, email)
+        resolved = role if role is not None else DASHBOARD_ROLE
+        # Atomic dict assignment; a benign race just recomputes the same value.
+        cache[email] = (time.monotonic() + _IAP_ROLE_CACHE_TTL_SECONDS, resolved)
+        return resolved
+
+    return resolve
 
 
 def create_controller_auth(
-    auth_config: config_pb2.AuthConfig,
+    auth_config: AuthConfig | None,
     db: ControllerDB | None = None,
 ) -> ControllerAuth:
-    """Create auth verifier + worker token from config proto.
+    """Build a ``ControllerAuth`` from the auth config.
 
-    All tokens are JWTs signed with a persistent key stored in
-    controller_secrets. The api_keys table is retained for audit and
-    revocation tracking, but verification never hits the database.
+    Signs JWTs with a persistent key in ``controller_secrets``; ``api_keys``
+    rows exist for audit and revocation, but verification never hits the DB.
+
+    A ``None`` config (or one with no provider selected) runs in null-auth mode.
     """
-    if not auth_config.HasField("provider"):
+    if auth_config is None or auth_config.provider_kind() is None:
         if db:
             now = Timestamp.now()
             with db.transaction() as _tx:
@@ -327,7 +347,7 @@ def create_controller_auth(
         logger.info("Authentication disabled — null-auth mode, no DB")
         return ControllerAuth()
 
-    provider = auth_config.WhichOneof("provider")
+    provider = auth_config.provider_kind()
     now = Timestamp.now()
 
     jwt_mgr: JwtTokenManager | None = None
@@ -369,9 +389,27 @@ def create_controller_auth(
         static_tokens = dict(auth_config.static.tokens)
         login_verifier = StaticTokenVerifier(static_tokens)
 
+    # For IAP, `iris login` presents the OIDC ID token it obtained for the IAP
+    # ingress; the controller verifies it (audience + signature) and mints a JWT.
+    iap_assertion_verifier: IapAssertionVerifier | None = None
+    if provider == "iap":
+        audiences = list(auth_config.iap.audiences)
+        if not audiences:
+            raise ValueError("IAP auth config requires at least one audience")
+        login_verifier = IapIdTokenVerifier(audiences)
+
+        # When the signed-header audience is configured, a tokenless request that
+        # carries a valid IAP assertion is authenticated as the asserted email,
+        # resolved to its provisioned role (or read-only dashboard if not
+        # provisioned). Without a DB the resolver defaults to dashboard.
+        signed_header_audience = auth_config.iap.signed_header_audience
+        if signed_header_audience:
+            role_resolver = _make_iap_role_resolver(db) if db else (lambda _email: DASHBOARD_ROLE)
+            iap_assertion_verifier = IapAssertionVerifier(signed_header_audience, role_resolver=role_resolver)
+
     optional = auth_config.optional
     logger.info(
-        "Auth enabled: provider=%s, db=%s, jwt=%s, optional=%s",
+        "Auth enabled: provider=%s, db=%s, jwt=%s, optional=%s (loopback always trusted as admin)",
         provider,
         "yes" if db else "no",
         "yes" if jwt_mgr else "no",
@@ -385,18 +423,19 @@ def create_controller_auth(
         gcp_project_id=gcp_project_id,
         jwt_manager=jwt_mgr,
         optional=optional,
+        iap_assertion_verifier=iap_assertion_verifier,
     )
 
 
 def _preload_static_tokens(
-    static_config: config_pb2.StaticAuthConfig,
+    static_config: StaticAuthConfig,
     db: ControllerDB,
     now: Timestamp,
 ) -> None:
     """Insert static config tokens into the api_keys table for audit.
 
-    The raw token hashes are stored so that the Login RPC can verify
-    static tokens during the login exchange flow.
+    Verification of static tokens happens in-memory via ``StaticTokenVerifier``;
+    these rows exist only so configured tokens surface in ``iris key list``.
     """
     tokens = dict(static_config.tokens)
     if not tokens:
@@ -412,7 +451,6 @@ def _preload_static_tokens(
         create_api_key(
             db,
             key_id=key_id,
-            key_hash=hash_token(raw_token),
             key_prefix=raw_token[:8],
             user_id=username,
             name=f"static-config-{username}",
@@ -433,7 +471,6 @@ def _create_worker_jwt(db: ControllerDB, jwt_mgr: JwtTokenManager, now: Timestam
     create_api_key(
         db,
         key_id=key_id,
-        key_hash=f"jwt:{key_id}",
         key_prefix="jwt",
         user_id=WORKER_USER,
         name="worker-token",

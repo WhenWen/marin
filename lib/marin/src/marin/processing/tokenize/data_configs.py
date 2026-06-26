@@ -6,7 +6,7 @@ import logging
 import os
 from functools import lru_cache
 
-import numpy
+import numpy as np
 from levanter.data.text import DEFAULT_LM_DATA_SHUFFLE, BlockShuffleConfig, DatasetComponent, LmDataConfig
 from levanter.tokenizers import load_tokenizer
 
@@ -27,8 +27,17 @@ _KNOWN_VOCAB_SIZES: dict[str, int] = {
     "gpt2": 50_257,
 }
 
-# The marin tokenizer is a re-upload of the llama3 tokenizer with a custom chat template.
-_EQUIVALENT_TOKENIZERS = frozenset({"meta-llama/Meta-Llama-3.1-8B", "marin-community/marin-tokenizer"})
+# The marin tokenizer is a re-upload of the llama3 tokenizer with a custom chat template; the
+# Llama-3.1 base and Instruct checkpoints likewise share the same vocabulary and token IDs and
+# differ only in their chat template. Listing all of them lets _are_tokenizers_equivalent
+# short-circuit without loading the gated meta-llama tokenizers from the Hub.
+_EQUIVALENT_TOKENIZERS = frozenset(
+    {
+        "meta-llama/Meta-Llama-3.1-8B",
+        "meta-llama/Meta-Llama-3.1-8B-Instruct",
+        "marin-community/marin-tokenizer",
+    }
+)
 
 
 def step_to_lm_mixture_component(step: TokenizerStep | TokenizeConfig, include_raw_paths: bool) -> DatasetComponent:
@@ -173,7 +182,7 @@ def interpolate_mixture_weights(mixture_weights: list[dict[str, float]], weights
     if not all(isinstance(w, int | float) for w in weights):
         raise TypeError("All items in weights must be numeric")
 
-    if not numpy.isclose(sum(weights), 1.0):
+    if not np.isclose(sum(weights), 1.0):
         raise ValueError("Weights must sum to 1.0")
 
     combined_weights = {}

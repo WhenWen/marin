@@ -3,8 +3,6 @@
 
 """E2E integration tests for iris job CLI helpers that boot a real local cluster."""
 
-from __future__ import annotations
-
 import sys
 from pathlib import Path
 
@@ -12,7 +10,8 @@ import pytest
 import yaml
 from iris.cli.job import load_env_vars, run_iris_job
 from iris.client import IrisClient
-from iris.cluster.config import connect_cluster, load_config, make_local_config
+from iris.cluster.config import load_config, make_local_config
+from iris.cluster.lifecycle import connect_cluster
 
 pytestmark = pytest.mark.requires_cluster
 
