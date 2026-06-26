@@ -12,6 +12,7 @@ All 2D arrays are routed to Muon, except those whose path contains
 import math
 from dataclasses import dataclass
 from functools import partial
+from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
@@ -238,6 +239,131 @@ def _grug_scale_with_muon(
             updates = jax.tree.map(transform_array, updates, params)
 
         return updates, ScaleByMuonState(momentum_buffer=buf)
+
+    return optax.GradientTransformation(init_fn, update_fn)
+
+
+class _GrugCurvState(NamedTuple):
+    momentum_buffer: optax.Updates
+    curvature: optax.Updates  # P_L per matrix [..., M, M]
+    power_vec: optax.Updates  # q_L [..., M]
+    curvature_r: optax.Updates  # P_R [..., N, N]
+    power_vec_r: optax.Updates  # q_R [..., N]
+    inner_x: optax.Updates  # carried inner solution [..., M, N]
+
+
+def _grug_scale_with_curvature_muon(
+    momentum=0.95,
+    nesterov=True,
+    steps=5,
+    muon_eps=1e-8,
+    coefficient_type="quintic",
+    curvature_beta=0.95,
+    curvature_lambda=0.3,
+    inner_steps=10,
+    riemannian_maxbt=10,
+    two_sided=True,
+    constraint="stiefel",
+    curv_power="sqrt",
+    power_iters=8,
+):
+    """Curvature-corrected Muon for raw grug arrays (matrix trailing dims). Drop-in for
+    _grug_scale_with_muon: replaces msign(N) with the Riemannian curvature inner-solve, applies the same
+    sqrt(fan_out/fan_in) scale; the hyperball is applied by the caller. curvature_lambda=0 ⟹ plain MuonH.
+    Reuses the tested _curv_direction_2d (replicated NS msign — fine for d512)."""
+    from levanter.optim.curvature_muon import _POW4_FLOOR, _curv_direction_2d
+
+    rho = float(curvature_beta)
+    lam = float(curvature_lambda)
+    steps = int(steps)
+    none_leaf = lambda x: x is None
+
+    def _ismat(x):
+        return hasattr(x, "ndim") and x.ndim in (2, 3)
+
+    def _mk(x, kind):
+        if not _ismat(x):
+            return None
+        m, n, lead = max(x.shape[-2], x.shape[-1]), min(x.shape[-2], x.shape[-1]), x.shape[:-2]
+        if kind == "p":
+            return jnp.broadcast_to(muon_eps * jnp.eye(m, dtype=x.dtype), lead + (m, m))
+        if kind == "q":
+            return jnp.broadcast_to(jnp.ones(m, dtype=x.dtype) / jnp.sqrt(m), lead + (m,))
+        if kind == "pr":
+            return jnp.broadcast_to(muon_eps * jnp.eye(n, dtype=x.dtype), lead + (n, n))
+        if kind == "qr":
+            return jnp.broadcast_to(jnp.ones(n, dtype=x.dtype) / jnp.sqrt(n), lead + (n,))
+        return jnp.zeros(lead + (m, n), dtype=x.dtype)
+
+    def init_fn(params):
+        tm = jax.tree.map
+        return _GrugCurvState(
+            otu.tree_zeros_like(params),
+            tm(lambda x: _mk(x, "p"), params, is_leaf=none_leaf),
+            tm(lambda x: _mk(x, "q"), params, is_leaf=none_leaf),
+            tm(lambda x: _mk(x, "pr"), params, is_leaf=none_leaf),
+            tm(lambda x: _mk(x, "qr"), params, is_leaf=none_leaf),
+            tm(lambda x: _mk(x, "x"), params, is_leaf=none_leaf),
+        )
+
+    def update_fn(updates, state, params=None):
+        buf = jax.tree.map(
+            lambda m, g: None if g is None else momentum * m + g, state.momentum_buffer, updates, is_leaf=none_leaf
+        )
+        signal = (
+            jax.tree.map(lambda m, g: None if g is None else momentum * m + g, buf, updates, is_leaf=none_leaf)
+            if nesterov
+            else buf
+        )
+
+        def per(g, n, p, q, pr, qr, xx):
+            if not _ismat(g):
+                return n  # passthrough (non-matrix params unchanged here)
+            fn = lambda gg, nn, pp, qq, ppr, qqr, xi: _curv_direction_2d(
+                gg,
+                nn,
+                pp,
+                qq,
+                ppr,
+                qqr,
+                xi,
+                rho=rho,
+                lam_static=lam,
+                lam_coef=lam,
+                alpha=1.0,
+                steps=steps,
+                eps=muon_eps,
+                ctype=coefficient_type,
+                inner_steps=inner_steps,
+                power_iters=power_iters,
+                curv_power=curv_power,
+                mudam_init=False,
+                mudam_steps=5,
+                two_sided=two_sided,
+                floor=_POW4_FLOOR,
+                inner_solver="riemannian_muon",
+                maxbt=riemannian_maxbt,
+                warm_start=False,
+                constraint=constraint,
+            )
+            np_, nq, npr, nqr, nx, _pt, d = (jax.vmap(fn) if g.ndim == 3 else fn)(g, n, p, q, pr, qr, xx)
+            fan_in, fan_out = d.shape[-2:]
+            return (d * jnp.sqrt(jnp.maximum(1.0, fan_out / fan_in)), np_, nq, npr, nqr, nx)
+
+        comb = jax.tree.map(
+            per,
+            updates,
+            signal,
+            state.curvature,
+            state.power_vec,
+            state.curvature_r,
+            state.power_vec_r,
+            state.inner_x,
+            is_leaf=none_leaf,
+        )
+        istup = lambda c: isinstance(c, tuple) and len(c) == 6
+        pick = lambda i: jax.tree.map(lambda c: c[i] if istup(c) else c, comb, is_leaf=istup)
+        return pick(0), _GrugCurvState(buf, pick(1), pick(2), pick(3), pick(4), pick(5))
 
     return optax.GradientTransformation(init_fn, update_fn)
 
