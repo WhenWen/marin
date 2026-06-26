@@ -133,8 +133,11 @@ def run_grug_moe_trial(config: GrugMoeLaunchConfig) -> None:
         profiler=config.profiler,
         mp=jmp.get_policy(config.mp),
         tracker=_resolve_tracker(config.tracker, config.run_id),
-        use_explicit_mesh_axes=True,
-        mesh=MeshConfig(axes={"expert": config.expert_parallel}),
+        # Explicit expert-mesh only when actually doing expert-parallelism (EP>1). At EP=1 the merged-main
+        # strict explicit-mesh sharding rejects the may-arch model's segment-id broadcasts (doc-start where);
+        # implicit auto-sharding handles them on a single slice.
+        use_explicit_mesh_axes=config.expert_parallel > 1,
+        mesh=(MeshConfig(axes={"expert": config.expert_parallel}) if config.expert_parallel > 1 else MeshConfig()),
         require_accelerator=True,
         allow_nondivisible_batch_size=False,
         checkpointer=config.checkpointer
