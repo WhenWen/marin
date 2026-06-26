@@ -219,7 +219,7 @@ def _build_launch() -> tuple[str, GrugMoeLaunchConfig]:
         mp=versioned("params=float32,compute=bfloat16,output=bfloat16"),
         tracker=WandbConfig(
             entity="marin-community",
-            project="marin_moe",
+            project=os.environ.get("WANDB_PROJECT", "marin_moe"),
             tags=[
                 "moe",
                 "amuse",
