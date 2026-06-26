@@ -183,7 +183,14 @@ class CausalSelfAttention(eqx.Module):
                         [jnp.ones_like(q_seg[:, :1], dtype=bool), q_seg[:, 1:] != q_seg[:, :-1]],
                         axis=1,
                     )
-            k_shifted = jnp.where(is_doc_start[..., None, None], jnp.zeros_like(k_shifted), k_shifted)
+            # Force matching shardings before the masked-zero. The explicit-mesh
+            # propagator otherwise gives the broadcast mask a ``replica_dcn`` leading
+            # axis and ``k_shifted`` a ``model``-sharded head_dim, which
+            # ``broadcast_shardings`` refuses to reconcile. Replicate both on the
+            # head dims (k_shifted here is only the small shifted half of K).
+            k_shifted = reshard(k_shifted, P(("data", "expert"), None, None, None))
+            doc_start_mask = reshard(is_doc_start[..., None, None], P(("data", "expert"), None, None, None))
+            k_shifted = jnp.where(doc_start_mask, jnp.zeros_like(k_shifted), k_shifted)
             k = jnp.concatenate([k[..., :half], k_shifted], axis=-1)
 
         q = rms_norm(q)
