@@ -285,6 +285,7 @@ def _grug_scale_with_curvature_muon(
     curv_power="sqrt",
     power_iters=8,
     inner_solver="riemannian_muon",
+    kl_shampoo=False,
 ):
     """Curvature-corrected Muon for raw grug arrays (matrix trailing dims). Drop-in for
     _grug_scale_with_muon: replaces msign(N) with the Riemannian curvature inner-solve, applies the same
@@ -298,16 +299,20 @@ def _grug_scale_with_curvature_muon(
     def _ismat(x):
         return hasattr(x, "ndim") and x.ndim in (2, 3)
 
+    # KL-Shampoo whitens by the OTHER factor's inverse, so the Grams must start at identity (not muon_eps·I):
+    # an eps·I init makes S^{-1} ~ 1/eps and the first whitened update explodes. I = "no preconditioning yet".
+    p_init = 1.0 if kl_shampoo else muon_eps
+
     def _mk(x, kind):
         if not _ismat(x):
             return None
         m, n, lead = max(x.shape[-2], x.shape[-1]), min(x.shape[-2], x.shape[-1]), x.shape[:-2]
         if kind == "p":
-            return jnp.broadcast_to(muon_eps * jnp.eye(m, dtype=x.dtype), lead + (m, m))
+            return jnp.broadcast_to(p_init * jnp.eye(m, dtype=x.dtype), lead + (m, m))
         if kind == "q":
             return jnp.broadcast_to(jnp.ones(m, dtype=x.dtype) / jnp.sqrt(m), lead + (m,))
         if kind == "pr":
-            return jnp.broadcast_to(muon_eps * jnp.eye(n, dtype=x.dtype), lead + (n, n))
+            return jnp.broadcast_to(p_init * jnp.eye(n, dtype=x.dtype), lead + (n, n))
         if kind == "qr":
             return jnp.broadcast_to(jnp.ones(n, dtype=x.dtype) / jnp.sqrt(n), lead + (n,))
         if kind == "tau":
@@ -392,6 +397,7 @@ def _grug_scale_with_curvature_muon(
                     bias_t=t,
                     warm_tau=xt,
                     solver=inner_solver,
+                    kl_shampoo=kl_shampoo,
                 )
             else:
                 # 2-D dense matrix (attn / shared / gated-norm): per-matrix solve, replicate inner so the NS
@@ -425,6 +431,7 @@ def _grug_scale_with_curvature_muon(
                     shard_ns=False,
                     bias_t=t,
                     warm_tau=xt,
+                    kl_shampoo=kl_shampoo,
                 )
             fan_in, fan_out = d.shape[-2:]
             return _CurvOut(d * jnp.sqrt(jnp.maximum(1.0, fan_out / fan_in)), np_, nq, npr, nqr, nx, ntau)

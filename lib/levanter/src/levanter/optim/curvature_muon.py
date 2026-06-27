@@ -217,6 +217,20 @@ def _matrix_sqrt_ns(a, iters):
     return y, z
 
 
+def _matrix_inv_ns(a, iters, floor, eps):
+    """κ-damped inverse of SPD ``a``, matmul-only (one trace-normalized coupled-sqrt-NS pass).
+
+    Returns ≈ (a/tr + floor·I)^{-1}/tr. Used for KL-Shampoo's whitened Gram update G S_b^{-1} Gᵀ. The floor
+    is the κ damping of the KL objective (E[ggᵀ]+κI) and keeps the inverse bounded on near-singular S.
+    """
+    n = a.shape[0]
+    eye = jnp.eye(n, dtype=a.dtype)
+    tr = jnp.trace(a) + eps
+    a_n = a / tr + floor * eye  # spectrum in [floor, ~1+floor]
+    _, z = _matrix_sqrt_ns(a_n, iters)  # z → a_n^{-1/2}
+    return (z @ z) / tr
+
+
 def _pow4_inv_quarter(p, iters, floor, eps):
     """(P^{1/4}, P^{-1/4}) for SPD P, via two trace-normalized coupled-sqrt-NS passes (matmul-only).
 
@@ -421,6 +435,7 @@ def _curv_direction_2d(
     shard_ns: bool = True,
     bias_t=None,
     warm_tau=None,
+    kl_shampoo: bool = False,
 ):
     """One matrix. g, n: [out, in]; p/q = left Gram P_L [M,M] + power vec; p_r/q_r = right Gram P_R [N,N] + vec.
 
@@ -451,7 +466,16 @@ def _curv_direction_2d(
     g_t = g.T if transpose else g  # [M, N], M ≥ N
     n_t = n.T if transpose else n
 
-    new_p = rho * p + (1.0 - rho) * (g_t @ g_t.T)  # P_L [M, M] (stored UNcorrected)
+    da, db = g_t.shape[0], g_t.shape[1]
+    # KL-Shampoo (arXiv 2509.03378) Gram update: whiten each outer product by the OTHER factor's
+    # (κ-damped) inverse computed from the INCOMING state, with 1/d scaling — the coupled-MLE estimate
+    # S_a←(1-β)S_a+(β/d_b)G S_b^{-1}Gᵀ. Standard Shampoo (kl_shampoo=False) uses the plain outer product GGᵀ.
+    if kl_shampoo and two_sided:
+        sb_inv = _matrix_inv_ns(p_r, power_iters, floor, eps)  # S_b^{-1} [N,N] from incoming P_R
+        delta_a = (g_t @ sb_inv @ g_t.T) / db
+    else:
+        delta_a = g_t @ g_t.T
+    new_p = rho * p + (1.0 - rho) * delta_a  # P_L [M, M] (stored UNcorrected)
     # Bias-correct the Gram for the curvature operator only: P̂ = P/(1-rho^t). The raw EMA new_p goes into
     # state; the debiased p_c derives the curvature (e_max, P^{1/4}) so the operator has its true scale from
     # step 1 (not biased toward the eps·I init). pdiv→1 as t→∞. bias_t=None ⟹ no correction (qwen3 parity).
@@ -462,7 +486,12 @@ def _curv_direction_2d(
 
     # Right Gram P_R + its 1/4 powers (two-sided), or the one-sided curvature matrix C.
     if two_sided:
-        new_p_r = rho * p_r + (1.0 - rho) * (g_t.T @ g_t)  # P_R [N, N] (stored UNcorrected)
+        if kl_shampoo:
+            sa_inv = _matrix_inv_ns(p, power_iters, floor, eps)  # S_a^{-1} [M,M] from incoming P_L (Jacobi)
+            delta_b = (g_t.T @ sa_inv @ g_t) / da
+        else:
+            delta_b = g_t.T @ g_t
+        new_p_r = rho * p_r + (1.0 - rho) * delta_b  # P_R [N, N] (stored UNcorrected)
         pr_c = new_p_r / pdiv
         new_q_r, emax_r = _power_iter(pr_c, q_r, power_iters, eps)
         pl4, plinv4 = _pow4_inv_quarter(p_c, power_iters, floor, eps)  # P_L^{1/4}, P_L^{-1/4}
@@ -551,6 +580,7 @@ def curv_direction_batched(
     bias_t=None,
     warm_tau=None,
     solver="riemannian_muon",
+    kl_shampoo=False,
 ):
     """Batched two-sided curvature direction over a leading stack axis (e.g. MoE experts).
 
@@ -599,6 +629,13 @@ def curv_direction_batched(
         a_q, _ = sqrtns(a_half, power_iters)
         return tr**0.25 * a_q
 
+    def inv_ns(pp):  # κ-damped SPD inverse (see _matrix_inv_ns), batched
+        eye = jnp.broadcast_to(jnp.eye(pp.shape[-1], dtype=pp.dtype), pp.shape)
+        tr = jnp.sum(pp * eye, axis=(-2, -1))[..., None, None] + eps
+        a = pp / tr + floor * eye
+        _, z = sqrtns(a, power_iters)
+        return em("...ik,...kj->...ij", z, z) / tr
+
     def power_iter(mat, qv):
         for _ in range(int(power_iters)):
             mq = es("...nk,...k->...n", mat, qv)
@@ -616,12 +653,22 @@ def curv_direction_batched(
     g_t = bt(g) if transpose else g
     n_t = bt(n) if transpose else n
 
-    new_p = rho * p + (1.0 - rho) * em("...ik,...jk->...ij", g_t, g_t)  # P_L (stored UNcorrected)
+    da, db = g_t.shape[-2], g_t.shape[-1]
+    # KL-Shampoo whitened Gram update (see _curv_direction_2d); else plain Shampoo outer product.
+    if kl_shampoo:
+        sb_inv = inv_ns(p_r)  # S_b^{-1} from incoming P_R
+        sa_inv = inv_ns(p)  # S_a^{-1} from incoming P_L (Jacobi)
+        delta_a = em("...ik,...kj->...ij", em("...ik,...kj->...ij", g_t, sb_inv), bt(g_t)) / db
+        delta_b = em("...ik,...kj->...ij", em("...ki,...kj->...ij", g_t, sa_inv), g_t) / da
+    else:
+        delta_a = em("...ik,...jk->...ij", g_t, g_t)
+        delta_b = em("...ki,...kj->...ij", g_t, g_t)
+    new_p = rho * p + (1.0 - rho) * delta_a  # P_L (stored UNcorrected)
     # Bias-correct the Gram for the curvature operator: P̂ = P/(1-rho^t) (see _curv_direction_2d). pdiv→1.
     pdiv = 1.0 if bias_t is None else (1.0 - rho ** jnp.asarray(bias_t, new_p.dtype))
     p_c = new_p / pdiv
     new_q = power_iter(p_c, q)
-    new_p_r = rho * p_r + (1.0 - rho) * em("...ki,...kj->...ij", g_t, g_t)  # P_R (stored UNcorrected)
+    new_p_r = rho * p_r + (1.0 - rho) * delta_b  # P_R (stored UNcorrected)
     pr_c = new_p_r / pdiv
     new_q_r = power_iter(pr_c, q_r)
     pl4 = pow4(p_c)
