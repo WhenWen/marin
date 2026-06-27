@@ -393,6 +393,7 @@ def _curv_direction_2d(
     warm_start,
     constraint,
     shard_ns: bool = True,
+    bias_t=None,
 ):
     """One matrix. g, n: [out, in]; p/q = left Gram P_L [M,M] + power vec; p_r/q_r = right Gram P_R [N,N] + vec.
 
@@ -423,26 +424,32 @@ def _curv_direction_2d(
     g_t = g.T if transpose else g  # [M, N], M ≥ N
     n_t = n.T if transpose else n
 
-    new_p = rho * p + (1.0 - rho) * (g_t @ g_t.T)  # P_L [M, M]
-    new_q, emax = _power_iter(new_p, q, power_iters, eps)
+    new_p = rho * p + (1.0 - rho) * (g_t @ g_t.T)  # P_L [M, M] (stored UNcorrected)
+    # Bias-correct the Gram for the curvature operator only: P̂ = P/(1-rho^t). The raw EMA new_p goes into
+    # state; the debiased p_c derives the curvature (e_max, P^{1/4}) so the operator has its true scale from
+    # step 1 (not biased toward the eps·I init). pdiv→1 as t→∞. bias_t=None ⟹ no correction (qwen3 parity).
+    pdiv = 1.0 if bias_t is None else (1.0 - rho ** jnp.asarray(bias_t, new_p.dtype))
+    p_c = new_p / pdiv
+    new_q, emax = _power_iter(p_c, q, power_iters, eps)
     eye = jnp.eye(new_p.shape[0], dtype=new_p.dtype)
 
     # Right Gram P_R + its 1/4 powers (two-sided), or the one-sided curvature matrix C.
     if two_sided:
-        new_p_r = rho * p_r + (1.0 - rho) * (g_t.T @ g_t)  # P_R [N, N]
-        new_q_r, emax_r = _power_iter(new_p_r, q_r, power_iters, eps)
-        pl4, plinv4 = _pow4_inv_quarter(new_p, power_iters, floor, eps)  # P_L^{1/4}, P_L^{-1/4}
-        pr4, prinv4 = _pow4_inv_quarter(new_p_r, power_iters, floor, eps)  # P_R^{1/4}, P_R^{-1/4}
+        new_p_r = rho * p_r + (1.0 - rho) * (g_t.T @ g_t)  # P_R [N, N] (stored UNcorrected)
+        pr_c = new_p_r / pdiv
+        new_q_r, emax_r = _power_iter(pr_c, q_r, power_iters, eps)
+        pl4, plinv4 = _pow4_inv_quarter(p_c, power_iters, floor, eps)  # P_L^{1/4}, P_L^{-1/4}
+        pr4, prinv4 = _pow4_inv_quarter(pr_c, power_iters, floor, eps)  # P_R^{1/4}, P_R^{-1/4}
     else:
         new_p_r, new_q_r = p_r, q_r
         se = jnp.sqrt(emax) + eps
         if curv_power == "sqrt":
             # tr(P) ≥ λ_max ⟹ P/tr spectrum ≤ 1 ⟹ NS sqrt can't diverge. C = √tr·(P/tr)^{1/2} = P^{1/2}.
-            tr = jnp.trace(new_p) + eps
-            y_half, _ = _matrix_sqrt_ns(new_p / tr, power_iters)
+            tr = jnp.trace(p_c) + eps
+            y_half, _ = _matrix_sqrt_ns(p_c / tr, power_iters)
             curv = jnp.sqrt(tr) * y_half
         else:
-            curv = new_p / se  # P/√e_max
+            curv = p_c / se  # P/√e_max
 
     phi_traj = jnp.zeros((int(inner_steps) + 1,), dtype=n_t.dtype)  # default; only riemannian fills it
 
@@ -502,6 +509,7 @@ def curv_direction_batched(
     maxbt,
     constraint,
     out_p=None,
+    bias_t=None,
 ):
     """Batched two-sided curvature direction over a leading stack axis (e.g. MoE experts).
 
@@ -567,12 +575,16 @@ def curv_direction_batched(
     g_t = bt(g) if transpose else g
     n_t = bt(n) if transpose else n
 
-    new_p = rho * p + (1.0 - rho) * em("...ik,...jk->...ij", g_t, g_t)  # P_L
-    new_q = power_iter(new_p, q)
-    new_p_r = rho * p_r + (1.0 - rho) * em("...ki,...kj->...ij", g_t, g_t)  # P_R
-    new_q_r = power_iter(new_p_r, q_r)
-    pl4 = pow4(new_p)
-    pr4 = pow4(new_p_r)
+    new_p = rho * p + (1.0 - rho) * em("...ik,...jk->...ij", g_t, g_t)  # P_L (stored UNcorrected)
+    # Bias-correct the Gram for the curvature operator: P̂ = P/(1-rho^t) (see _curv_direction_2d). pdiv→1.
+    pdiv = 1.0 if bias_t is None else (1.0 - rho ** jnp.asarray(bias_t, new_p.dtype))
+    p_c = new_p / pdiv
+    new_q = power_iter(p_c, q)
+    new_p_r = rho * p_r + (1.0 - rho) * em("...ki,...kj->...ij", g_t, g_t)  # P_R (stored UNcorrected)
+    pr_c = new_p_r / pdiv
+    new_q_r = power_iter(pr_c, q_r)
+    pl4 = pow4(p_c)
+    pr4 = pow4(pr_c)
 
     def apply_curv(x):
         return em("...ik,...kj->...ij", em("...ik,...kj->...ij", pl4, x), pr4)

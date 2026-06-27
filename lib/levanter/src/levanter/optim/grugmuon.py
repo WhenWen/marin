@@ -251,6 +251,7 @@ class _GrugCurvState(NamedTuple):
     curvature_r: optax.Updates  # P_R [..., N, N]
     power_vec_r: optax.Updates  # q_R [..., N]
     inner_x: optax.Updates  # carried inner solution [..., M, N]
+    count: jax.Array  # scalar step counter for Adam-style bias correction of N (momentum) and P (Gram)
 
 
 class _CurvOut(NamedTuple):
@@ -317,6 +318,7 @@ def _grug_scale_with_curvature_muon(
             tm(lambda x: _mk(x, "pr"), params, is_leaf=none_leaf),
             tm(lambda x: _mk(x, "qr"), params, is_leaf=none_leaf),
             tm(lambda x: _mk(x, "x"), params, is_leaf=none_leaf),
+            jnp.zeros([], jnp.int32),
         )
 
     def update_fn(updates, state, params=None):
@@ -328,6 +330,15 @@ def _grug_scale_with_curvature_muon(
             if nesterov
             else buf
         )
+
+        # Adam-style bias correction. N (momentum): the sum-convention nesterov buffer is converted to a
+        # debiased MEAN via factor (1-momentum)/(1-momentum^t). msign is scale-invariant, so this leaves the
+        # cold-start direction msign(N) identical, but fixes the N (~g) vs P^{1/4} (~√g) scale ratio so the
+        # curvature penalty/⟨N,X⟩ ratio is ~lambda (dimensionless, gradient-scale-independent). P (Gram) is
+        # debiased inside the solve by 1/(1-rho^t) (see bias_t). The step counter t starts at 1.
+        t = state.count + 1
+        n_corr = (1.0 - momentum) / (1.0 - momentum ** t.astype(jnp.float32))
+        signal = jax.tree.map(lambda s: None if s is None else s * n_corr, signal, is_leaf=none_leaf)
 
         has_mesh = not jax.sharding.get_abstract_mesh().empty
 
@@ -367,6 +378,7 @@ def _grug_scale_with_curvature_muon(
                     maxbt=riemannian_maxbt,
                     constraint=constraint,
                     out_p=out_p,
+                    bias_t=t,
                 )
             else:
                 # 2-D dense matrix (attn / shared / gated-norm): per-matrix solve, replicate inner so the NS
@@ -398,6 +410,7 @@ def _grug_scale_with_curvature_muon(
                     warm_start=False,
                     constraint=constraint,
                     shard_ns=False,
+                    bias_t=t,
                 )
             fan_in, fan_out = d.shape[-2:]
             return _CurvOut(d * jnp.sqrt(jnp.maximum(1.0, fan_out / fan_in)), np_, nq, npr, nqr, nx)
@@ -415,7 +428,7 @@ def _grug_scale_with_curvature_muon(
         )
         is_out = lambda c: isinstance(c, _CurvOut)
         pick = lambda i: jax.tree.map(lambda c: c[i] if is_out(c) else c, comb, is_leaf=is_out)
-        return pick(0), _GrugCurvState(buf, pick(1), pick(2), pick(3), pick(4), pick(5))
+        return pick(0), _GrugCurvState(buf, pick(1), pick(2), pick(3), pick(4), pick(5), t)
 
     return optax.GradientTransformation(init_fn, update_fn)
 
