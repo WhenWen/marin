@@ -193,8 +193,12 @@ def scale_with_grug_muonh(
         if params is None:
             raise ValueError("scale_with_grug_muonh requires params for norm-preserving updates")
 
-        muon_updates, next_state = muon_transform.update(updates, state, params)
-        muonh_updates = _scale_invariant_hyperball_updates(params, muon_updates, learning_rate * lr_scale)
+        # Force fp32 matmuls in the optimizer: TPU runs fp32 inputs through bf16 matmuls by default, which
+        # wrecks the iterative curvature solve (Newton-Schulz, P^{1/4}, Riemannian line search) and makes it
+        # non-deterministic. The optimizer must always run in true fp32.
+        with jax.default_matmul_precision("highest"):
+            muon_updates, next_state = muon_transform.update(updates, state, params)
+            muonh_updates = _scale_invariant_hyperball_updates(params, muon_updates, learning_rate * lr_scale)
         return muonh_updates, next_state
 
     return optax.GradientTransformationExtraArgs(init_fn, update_fn)
