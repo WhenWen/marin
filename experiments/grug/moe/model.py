@@ -59,6 +59,13 @@ def _batch_spec() -> P:
     return P(("data", "expert"))
 
 
+# Canonical attention layout: batch sharded on (data, expert), ``model`` (tensor
+# parallel) on the head axis, head_dim replicated. Pinning q/k/v and the
+# attention activations to this single spec keeps every head_dim slice/concat/where
+# (PKO, half-RoPE, ESA) operand-consistent under the strict explicit-mesh propagator.
+_HEAD_SPEC: P = P(("data", "expert"), None, "model", None)
+
+
 def _batch_reshard(x: jax.Array) -> jax.Array:
     return reshard(x, _batch_spec())
 
@@ -162,6 +169,16 @@ class CausalSelfAttention(eqx.Module):
         k = rearrange(jnp.einsum("bsh,hd->bsd", x, self.w_k), "... (m d) -> ... m d", d=head_dim)
         v = rearrange(jnp.einsum("bsh,hd->bsd", x, self.w_v), "... (m d) -> ... m d", d=head_dim)
 
+        # Pin the canonical TP layout (``model`` on the head axis, head_dim replicated)
+        # once, up front. The rearrange from the model-sharded ``(head*head_dim)``
+        # weight axis otherwise leaves ``model`` annotated on head_dim, so every
+        # downstream head_dim op (PKO slice/concat/where, half-RoPE slice/concat) hands
+        # the strict explicit-mesh propagator operands with mismatched last-axis
+        # shardings. Replicating head_dim here makes all of those share one spec.
+        q = reshard(q, _HEAD_SPEC)
+        k = reshard(k, _HEAD_SPEC)
+        v = reshard(v, _HEAD_SPEC)
+
         # PKO (Partial Key Offset) + ``pko_first_bos_zero``: shift k.stationary
         # forward by 1 position and zero at doc-starts BEFORE rms_norm.
         if use_pko:
@@ -183,12 +200,9 @@ class CausalSelfAttention(eqx.Module):
                         [jnp.ones_like(q_seg[:, :1], dtype=bool), q_seg[:, 1:] != q_seg[:, :-1]],
                         axis=1,
                     )
-            # Force matching shardings before the masked-zero. The explicit-mesh
-            # propagator otherwise gives the broadcast mask a ``replica_dcn`` leading
-            # axis and ``k_shifted`` a ``model``-sharded head_dim, which
-            # ``broadcast_shardings`` refuses to reconcile. Replicate both on the
-            # head dims (k_shifted here is only the small shifted half of K).
-            k_shifted = reshard(k_shifted, P(("data", "expert"), None, None, None))
+            # ``k_shifted`` inherits ``_HEAD_SPEC`` from ``k``; reshard only the
+            # broadcast mask so ``where`` gets a compatible spec (the mask would
+            # otherwise carry a spurious ``replica_dcn`` leading axis).
             doc_start_mask = reshard(is_doc_start[..., None, None], P(("data", "expert"), None, None, None))
             k_shifted = jnp.where(doc_start_mask, jnp.zeros_like(k_shifted), k_shifted)
             k = jnp.concatenate([k[..., :half], k_shifted], axis=-1)
@@ -201,16 +215,20 @@ class CausalSelfAttention(eqx.Module):
         q_rot, k_rot = apply_rotary_embedding(
             q[..., :half], k[..., :half], seq_len=seq_len, head_dim=half, rope=self.cfg.rope
         )
+        # Keep the rope outputs on _HEAD_SPEC so the half-RoPE concat matches the
+        # rope-free slice on the (replicated) head_dim axis.
+        q_rot = reshard(q_rot, _HEAD_SPEC)
+        k_rot = reshard(k_rot, _HEAD_SPEC)
         q = jnp.concatenate([q_rot, q[..., half:]], axis=-1)
         k = jnp.concatenate([k_rot, k[..., half:]], axis=-1)
         q = q * self.cfg.qk_mult
         attn_out = attention(q, k, v, mask, implementation=self.cfg.attention_implementation)
-        # Half-RoPE's slice+concat on the head_dim axis can leave the explicit-mesh
-        # propagator with ``model`` annotated on ``head_dim`` rather than
-        # ``num_q_heads``; force the canonical TP layout so it matches ``aligned_v``.
-        attn_out = reshard(attn_out, P(("data", "expert"), None, "model", None))
+        # Re-pin the canonical TP layout after attention (the kernel + half-RoPE
+        # slice/concat can leave ``model`` annotated on head_dim rather than the
+        # head axis) so the ESA elementwise ops below match ``aligned_v``.
+        attn_out = reshard(attn_out, _HEAD_SPEC)
         aligned_v = align_kv_heads(v, num_q_heads=attn_out.shape[2])
-        aligned_v = reshard(aligned_v, P(("data", "expert"), None, "model", None))
+        aligned_v = reshard(aligned_v, _HEAD_SPEC)
         # Exclusive Self Attention: subtract the component of yᵢ parallel to vᵢ.
         # zᵢ = yᵢ - (yᵢᵀvᵢ / ‖vᵢ‖²) vᵢ, per head.
         dot = jnp.sum(attn_out * aligned_v, axis=-1, keepdims=True)
