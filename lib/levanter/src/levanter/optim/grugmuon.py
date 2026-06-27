@@ -326,7 +326,11 @@ def _grug_scale_with_curvature_muon(
             jnp.zeros([], jnp.int32),
         )
 
-    def update_fn(updates, state, params=None):
+    def update_fn(updates, state, params=None, *, lam_scale=1.0, **_extra):
+        # ``lam_scale`` (default 1.0, traced) multiplies the curvature coefficient per step so λ can track a
+        # schedule (e.g. lam_scale = lr_t/peak_lr). lam_static (the static peak, gates the inner-solve branch)
+        # is kept as the constant ``lam``; lam_coef (the numeric penalty weight) becomes lam·lam_scale.
+        lam_coef = lam * lam_scale
         buf = jax.tree.map(
             lambda m, g: None if g is None else momentum * m + g, state.momentum_buffer, updates, is_leaf=none_leaf
         )
@@ -373,7 +377,7 @@ def _grug_scale_with_curvature_muon(
                     pr,
                     qr,
                     rho=rho,
-                    lam_coef=lam,
+                    lam_coef=lam_coef,
                     lam_static=lam,
                     steps=steps,
                     eps=muon_eps,
@@ -400,7 +404,7 @@ def _grug_scale_with_curvature_muon(
                     xx,
                     rho=rho,
                     lam_static=lam,
-                    lam_coef=lam,
+                    lam_coef=lam_coef,
                     alpha=1.0,
                     steps=steps,
                     eps=muon_eps,

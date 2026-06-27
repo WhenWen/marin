@@ -148,11 +148,16 @@ def scale_with_grug_muonh(
     constraint: str = "stiefel",
     curv_power: str = "sqrt",
     power_iters: int = 8,
+    lambda_tracks_lr: bool = False,
+    peak_lr: float = 0.0,
 ) -> optax.GradientTransformation:
     """MuonH transform for raw Grug arrays with matrix-shaped trailing dims.
 
     curvature_lambda > 0 swaps plain msign(N) for the curvature-corrected Riemannian inner-solve
     (two-sided P^{1/4} by default); 0 ⟹ plain MuonH. Hyperball applied below either way.
+
+    lambda_tracks_lr: scale the curvature coefficient by lr_t/peak_lr each step (curvature strongest at peak
+    LR, fading during warmup / linear decay). peak_lr is the schedule's peak (= config.learning_rate).
     """
     if curvature_lambda and curvature_lambda > 0.0:
         muon_transform = _grug_scale_with_curvature_muon(
@@ -196,8 +201,13 @@ def scale_with_grug_muonh(
         # Force fp32 matmuls in the optimizer: TPU runs fp32 inputs through bf16 matmuls by default, which
         # wrecks the iterative curvature solve (Newton-Schulz, P^{1/4}, Riemannian line search) and makes it
         # non-deterministic. The optimizer must always run in true fp32.
+        # λ schedule: lam_scale = lr_t/peak_lr (traced) when lambda_tracks_lr, else 1.0. Note this uses the
+        # SCHEDULED lr (not lr·lr_scale) so λ follows warmup/decay, matching the qwen3 lambda_tracks_lr.
+        # Only the curvature transform accepts lam_scale; the plain-Muon (λ=0) update_fn does not.
+        lam_scale = (learning_rate / peak_lr) if (lambda_tracks_lr and peak_lr > 0.0) else 1.0
+        curv_kwargs = {"lam_scale": lam_scale} if (curvature_lambda and curvature_lambda > 0.0) else {}
         with jax.default_matmul_precision("highest"):
-            muon_updates, next_state = muon_transform.update(updates, state, params)
+            muon_updates, next_state = muon_transform.update(updates, state, params, **curv_kwargs)
             muonh_updates = _scale_invariant_hyperball_updates(params, muon_updates, learning_rate * lr_scale)
         return muonh_updates, next_state
 
@@ -336,6 +346,8 @@ class GrugMoeMuonHConfig(OptimizerConfig):
     curvature_two_sided: bool = True
     curvature_constraint: str = "stiefel"
     curv_power: str = "sqrt"
+    # If True, the curvature strength tracks the LR schedule: λ_t = curvature_lambda · lr_t/peak_lr.
+    curvature_lambda_tracks_lr: bool = False
 
     def build(self, num_train_steps):
         learning_rate_schedule = self.lr_scheduler(num_train_steps)
@@ -361,6 +373,8 @@ class GrugMoeMuonHConfig(OptimizerConfig):
                         two_sided=self.curvature_two_sided,
                         constraint=self.curvature_constraint,
                         curv_power=self.curv_power,
+                        lambda_tracks_lr=self.curvature_lambda_tracks_lr,
+                        peak_lr=self.learning_rate,
                     )
                 )
                 components.append(_match_named_update_sharding())
