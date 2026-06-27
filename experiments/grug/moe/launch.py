@@ -16,12 +16,12 @@ import jmp
 from fray.cluster import ResourceConfig
 from levanter.callbacks.profiler import ProfilerConfig
 from levanter.checkpoint import CheckpointerConfig
-from levanter.utils.mesh import MeshConfig
 from levanter.data.text import BlockShuffleConfig, LmDataConfig, TextLmDatasetFormat
 from levanter.optim import OptimizerConfig
 from levanter.tracker import TrackerConfig
 from levanter.tracker.wandb import WandbConfig
 from levanter.trainer import TrainerConfig
+from levanter.utils.mesh import MeshConfig
 from marin.execution.executor import executor_main
 from marin.execution.types import ExecutorStep, this_output_path, versioned
 from marin.processing.tokenize import add_validation_sets_to_mixture
@@ -79,6 +79,26 @@ def env_int(key: str, default: int) -> int:
     """Read an int from ``os.environ[key]``, falling back to ``default`` when unset/empty."""
     raw = os.environ.get(key, "")
     return int(raw) if raw else default
+
+
+def env_float(key: str, default: float) -> float:
+    raw = os.environ.get(key, "")
+    return float(raw) if raw else default
+
+
+# Run knobs (env-driven so the #6153 d512 cell can be launched on v5p/v6e with curvature).
+# CURV_LAMBDA=0 reproduces the plain-MuonH May Recipe baseline; >0 = curvature-corrected Muon.
+_TPU: str = os.environ.get("GRUG_TPU", "v4-32")
+_REGION: str = os.environ.get("GRUG_REGION", "")
+_ZONE: str = os.environ.get("GRUG_ZONE", "")
+_PREEMPTIBLE: bool = os.environ.get("GRUG_PREEMPTIBLE", "0") not in ("0", "false", "False")
+_WANDB_PROJECT: str = os.environ.get("WANDB_PROJECT", "marin_moe")
+_RUN_TAG: str = os.environ.get("GRUG_RUN_TAG", "")
+_CURV_LAMBDA: float = env_float("CURV_LAMBDA", 0.0)
+_CURV_K: int = env_int("CURV_K", 10)
+_CURV_MAXBT: int = env_int("CURV_MAXBT", 10)
+_CURV_TWO_SIDED: bool = os.environ.get("CURV_TWO_SIDED", "1") not in ("0", "false", "False")
+_CURV_CONSTRAINT: str = os.environ.get("CURV_CONSTRAINT", "stiefel")
 
 
 def slimpajama_6b_data() -> LmDataConfig:
@@ -192,7 +212,23 @@ for _dim, _bs, _steps in _COMPUTE_OPT_CELLS:
     _model = _heuristic.build_model_config(_dim, seq_len=_SEQ_LEN)
     _tokens = float(_steps * _bs * _SEQ_LEN)
     _optimizer = _heuristic.build_muonh_config(_bs, _tokens, _dim, seq_len=_SEQ_LEN)
-    _run_id = f"moe_may_compute_opt_d{_dim}_demo"
+    # Curvature-corrected Muon (CURV_LAMBDA=0 ⟹ plain-MuonH #6153 baseline), standard linear-decay schedule.
+    _optimizer = dataclasses.replace(
+        _optimizer,
+        curvature_lambda=_CURV_LAMBDA,
+        curvature_inner_steps=_CURV_K,
+        curvature_maxbt=_CURV_MAXBT,
+        curvature_two_sided=_CURV_TWO_SIDED,
+        curvature_constraint=_CURV_CONSTRAINT,
+    )
+    _tag_suffix = f"-{_RUN_TAG}" if _RUN_TAG else ""
+    _run_id = f"moe_may_compute_opt_d{_dim}{_tag_suffix}"
+    _res = ResourceConfig.with_tpu(
+        _TPU,
+        preemptible=_PREEMPTIBLE,
+        **({"zone": _ZONE} if _ZONE else {}),
+        **({"regions": [_REGION]} if _REGION else {}),
+    )
     compute_opt_steps.append(
         ExecutorStep(
             name=f"grug/{_run_id}",
@@ -202,16 +238,16 @@ for _dim, _bs, _steps in _COMPUTE_OPT_CELLS:
                 data=NEMOTRON_MIX_WITH_DEFAULT_VALIDATION,
                 output_path=this_output_path(),
                 run_id=_run_id,
-                resources=versioned(ResourceConfig.with_tpu("v4-32")),
+                resources=versioned(_res),
                 steps=versioned(_steps),
                 batch_size=versioned(_bs),
                 seed=versioned(0),
                 mp=versioned("params=float32,compute=bfloat16,output=bfloat16"),
                 tracker=WandbConfig(
-                    project="marin_moe",
+                    project=_WANDB_PROJECT,
                     tags=["moe", "moe_may_compute_opt", f"d{_dim}"],
                     group="moe-may-compute-opt",
-                    name=None,
+                    name=_run_id,
                 ),
                 optimizer=versioned(_optimizer),
                 grug_trainer=versioned(

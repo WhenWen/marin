@@ -323,6 +323,15 @@ class GrugMoeMuonHConfig(OptimizerConfig):
     muon_epsilon: float = 1e-8
     max_grad_norm: float | None = None
     coefficient_type: CoefficientType = "quintic"
+    # Curvature-corrected Muon (0 = plain MuonH = #6153 baseline). >0 swaps msign(N) for the
+    # Riemannian curvature inner-solve, keeping the standard linear-decay schedule.
+    curvature_lambda: float = 0.0
+    curvature_beta: float = 0.95
+    curvature_inner_steps: int = 10
+    curvature_maxbt: int = 10
+    curvature_two_sided: bool = True
+    curvature_constraint: str = "stiefel"
+    curv_power: str = "sqrt"
 
     def build(self, num_train_steps):
         learning_rate_schedule = self.lr_scheduler(num_train_steps)
@@ -341,6 +350,13 @@ class GrugMoeMuonHConfig(OptimizerConfig):
                         muon_eps=self.muon_epsilon,
                         learning_rate=learning_rate,
                         coefficient_type=self.coefficient_type,
+                        curvature_lambda=self.curvature_lambda,
+                        curvature_beta=self.curvature_beta,
+                        inner_steps=self.curvature_inner_steps,
+                        riemannian_maxbt=self.curvature_maxbt,
+                        two_sided=self.curvature_two_sided,
+                        constraint=self.curvature_constraint,
+                        curv_power=self.curv_power,
                     )
                 )
                 components.append(_match_named_update_sharding())
