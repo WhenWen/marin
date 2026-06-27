@@ -99,9 +99,9 @@ _CURV_K: int = env_int("CURV_K", 10)
 _CURV_MAXBT: int = env_int("CURV_MAXBT", 10)
 _CURV_TWO_SIDED: bool = os.environ.get("CURV_TWO_SIDED", "1") not in ("0", "false", "False")
 _CURV_CONSTRAINT: str = os.environ.get("CURV_CONSTRAINT", "stiefel")
-# msign Newton–Schulz schedule. The validated curvature optimizer uses polar_express@8 — the precise
-# msign the ball mclip needs (quintic@5 fails to clip: σ_out≈12 at σ=1e3). Default to the #6153 MuonH
-# baseline (quintic@5); set COEFF_TYPE=polar_express BACKEND_STEPS=8 for the curvature runs.
+# msign Newton-Schulz schedule. The validated curvature optimizer uses polar_express@8 -- the precise
+# msign the ball mclip needs (quintic@5 fails to clip: sigma_out~12 at sigma=1e3). Default to the #6153
+# MuonH baseline (quintic@5); set COEFF_TYPE=polar_express BACKEND_STEPS=8 for the curvature runs.
 _COEFF_TYPE: str = os.environ.get("COEFF_TYPE", "")
 _BACKEND_STEPS: int = env_int("BACKEND_STEPS", 0)
 
