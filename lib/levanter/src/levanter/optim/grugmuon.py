@@ -251,6 +251,7 @@ class _GrugCurvState(NamedTuple):
     curvature_r: optax.Updates  # P_R [..., N, N]
     power_vec_r: optax.Updates  # q_R [..., N]
     inner_x: optax.Updates  # carried inner solution [..., M, N]
+    inner_tau: optax.Updates  # carried line-search step-size τ [...] (warm-started across outer steps)
     count: jax.Array  # scalar step counter for Adam-style bias correction of N (momentum) and P (Gram)
 
 
@@ -266,6 +267,7 @@ class _CurvOut(NamedTuple):
     curvature_r: jax.Array
     power_vec_r: jax.Array
     inner_x: jax.Array
+    inner_tau: jax.Array  # carried line-search step-size τ (warm-started across outer steps)
 
 
 def _grug_scale_with_curvature_muon(
@@ -307,6 +309,8 @@ def _grug_scale_with_curvature_muon(
             return jnp.broadcast_to(muon_eps * jnp.eye(n, dtype=x.dtype), lead + (n, n))
         if kind == "qr":
             return jnp.broadcast_to(jnp.ones(n, dtype=x.dtype) / jnp.sqrt(n), lead + (n,))
+        if kind == "tau":
+            return jnp.zeros(lead, dtype=x.dtype)  # per-stack [...] step-size carry
         return jnp.zeros(lead + (m, n), dtype=x.dtype)
 
     def init_fn(params):
@@ -318,6 +322,7 @@ def _grug_scale_with_curvature_muon(
             tm(lambda x: _mk(x, "pr"), params, is_leaf=none_leaf),
             tm(lambda x: _mk(x, "qr"), params, is_leaf=none_leaf),
             tm(lambda x: _mk(x, "x"), params, is_leaf=none_leaf),
+            tm(lambda x: _mk(x, "tau"), params, is_leaf=none_leaf),
             jnp.zeros([], jnp.int32),
         )
 
@@ -342,7 +347,7 @@ def _grug_scale_with_curvature_muon(
 
         has_mesh = not jax.sharding.get_abstract_mesh().empty
 
-        def per(g, n, p, q, pr, qr, xx):
+        def per(g, n, p, q, pr, qr, xx, xt):
             if not _ismat(g):
                 return n  # passthrough (non-matrix params unchanged here)
             if g.ndim == 3:
@@ -358,8 +363,9 @@ def _grug_scale_with_curvature_muon(
                     vp = lambda a: reshard(a, PartitionSpec(lead, None))
                     g, n, p, pr, xx = mp(g), mp(n), mp(p), mp(pr), mp(xx)
                     q, qr = vp(q), vp(qr)
+                    xt = reshard(xt, PartitionSpec(lead))  # carried τ is per-stack [E]
                     out_p = PartitionSpec(lead, None, None)
-                np_, nq, npr, nqr, nx, d = curv_direction_batched(
+                np_, nq, npr, nqr, nx, d, ntau = curv_direction_batched(
                     g,
                     n,
                     p,
@@ -379,11 +385,12 @@ def _grug_scale_with_curvature_muon(
                     constraint=constraint,
                     out_p=out_p,
                     bias_t=t,
+                    warm_tau=xt,
                 )
             else:
                 # 2-D dense matrix (attn / shared / gated-norm): per-matrix solve, replicate inner so the NS
                 # constraint + Gram matmuls don't contract over a model-sharded dim (shard_ns=False).
-                np_, nq, npr, nqr, nx, _pt, d = _curv_direction_2d(
+                np_, nq, npr, nqr, nx, _pt, d, ntau = _curv_direction_2d(
                     g,
                     n,
                     p,
@@ -411,9 +418,10 @@ def _grug_scale_with_curvature_muon(
                     constraint=constraint,
                     shard_ns=False,
                     bias_t=t,
+                    warm_tau=xt,
                 )
             fan_in, fan_out = d.shape[-2:]
-            return _CurvOut(d * jnp.sqrt(jnp.maximum(1.0, fan_out / fan_in)), np_, nq, npr, nqr, nx)
+            return _CurvOut(d * jnp.sqrt(jnp.maximum(1.0, fan_out / fan_in)), np_, nq, npr, nqr, nx, ntau)
 
         comb = jax.tree.map(
             per,
@@ -424,11 +432,12 @@ def _grug_scale_with_curvature_muon(
             state.curvature_r,
             state.power_vec_r,
             state.inner_x,
+            state.inner_tau,
             is_leaf=none_leaf,
         )
         is_out = lambda c: isinstance(c, _CurvOut)
         pick = lambda i: jax.tree.map(lambda c: c[i] if is_out(c) else c, comb, is_leaf=is_out)
-        return pick(0), _GrugCurvState(buf, pick(1), pick(2), pick(3), pick(4), pick(5), t)
+        return pick(0), _GrugCurvState(buf, pick(1), pick(2), pick(3), pick(4), pick(5), pick(6), t)
 
     return optax.GradientTransformation(init_fn, update_fn)
 

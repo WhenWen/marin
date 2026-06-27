@@ -292,7 +292,9 @@ def _mclip(m, msign):
     return (m + ms1 + (ms1 - m) @ ms2) / 2.0
 
 
-def _riem_solve(n_t, apply_curv, x0, lam_coef, inner_steps, maxbt, msign, constraint, tau0=0.5, beta=0.5, c=1e-4):
+def _riem_solve(
+    n_t, apply_curv, x0, lam_coef, inner_steps, maxbt, msign, constraint, tau_init=0.25, tau0=0.5, beta=0.5, c=1e-4
+):
     """Ascent on φ(X)=⟨N,X⟩−(λ/2)⟨X,𝒞X⟩ with an Armijo backtracking line search.
 
     apply_curv(X) applies the curvature operator 𝒞X — one-sided ``C·X`` or two-sided ``P_L^{1/4} X P_R^{1/4}``.
@@ -352,10 +354,12 @@ def _riem_solve(n_t, apply_curv, x0, lam_coef, inner_steps, maxbt, msign, constr
         x = project(x + acc * d)
         return (x, sel(acc > 0, acc, last_tau)), phi(x)
 
-    init = (x0, jnp.asarray(0.25, x0.dtype))
-    (x_final, _), phis = jax.lax.scan(step, init, None, length=int(inner_steps))  # scan body compiles once
+    # Warm-start the inner step-size τ from tau_init (the previous OUTER step's accepted τ); falls back to
+    # 0.25 on step 1. Return the final accepted τ so it can be carried to the next outer step.
+    init = (x0, jnp.asarray(tau_init, x0.dtype))
+    (x_final, tau_final), phis = jax.lax.scan(step, init, None, length=int(inner_steps))  # scan body compiles once
     phi_traj = jnp.concatenate([phi(x0)[None], phis])  # [K+1]
-    return x_final, phi_traj
+    return x_final, phi_traj, tau_final
 
 
 def _power_iter(mat, q, iters, eps):
@@ -394,6 +398,7 @@ def _curv_direction_2d(
     constraint,
     shard_ns: bool = True,
     bias_t=None,
+    warm_tau=None,
 ):
     """One matrix. g, n: [out, in]; p/q = left Gram P_L [M,M] + power vec; p_r/q_r = right Gram P_R [N,N] + vec.
 
@@ -452,6 +457,10 @@ def _curv_direction_2d(
             curv = p_c / se  # P/√e_max
 
     phi_traj = jnp.zeros((int(inner_steps) + 1,), dtype=n_t.dtype)  # default; only riemannian fills it
+    # Warm-start τ carried across outer steps; default 0.25 on step 1. tau_out is returned so the caller can
+    # store the accepted τ for the next outer step (non-riemannian paths just pass it through).
+    tau_init = 0.25 if warm_tau is None else warm_tau
+    tau_out = jnp.asarray(tau_init, n_t.dtype)
 
     if inner_solver == "riemannian_muon":
         # Curvature operator 𝒞X: two-sided P_L^{1/4} X P_R^{1/4}, else one-sided C·X.
@@ -463,10 +472,12 @@ def _curv_direction_2d(
                 x0 = jnp.where(jnp.linalg.norm(inner_x) > eps, inner_x, cold)
             else:
                 x0 = cold
-            x, phi_traj = _riem_solve(n_t, apply_curv, x0, lam_coef, inner_steps, maxbt, msign, constraint)
+            x, phi_traj, tau_out = _riem_solve(
+                n_t, apply_curv, x0, lam_coef, inner_steps, maxbt, msign, constraint, tau_init=tau_init
+            )
         else:
             x = cold
-        return new_p, new_q, new_p_r, new_q_r, x, phi_traj, (x.T if transpose else x)
+        return new_p, new_q, new_p_r, new_q_r, x, phi_traj, (x.T if transpose else x), tau_out
 
     # --- fixed-point inner solver ---
     if two_sided:
@@ -479,14 +490,14 @@ def _curv_direction_2d(
             for _ in range(int(inner_steps)):
                 arg = n_t + lam_coef * (shift2 * x - pl4 @ x @ pr4)
                 x = msign(arg)
-        return new_p, new_q, new_p_r, new_q_r, inner_x, phi_traj, (x.T if transpose else x)
+        return new_p, new_q, new_p_r, new_q_r, inner_x, phi_traj, (x.T if transpose else x), tau_out
 
     x = _mudam_direction(n_t, new_p, mudam_steps, eps) if mudam_init else msign(n_t)
     if lam_static > 0.0:
         operator = lam_coef * (alpha * se * eye - curv)  # PSD for α≥1
         for _ in range(int(inner_steps)):
             x = msign(n_t + operator @ x)
-    return new_p, new_q, new_p_r, new_q_r, inner_x, phi_traj, (x.T if transpose else x)
+    return new_p, new_q, new_p_r, new_q_r, inner_x, phi_traj, (x.T if transpose else x), tau_out
 
 
 def curv_direction_batched(
@@ -510,6 +521,7 @@ def curv_direction_batched(
     constraint,
     out_p=None,
     bias_t=None,
+    warm_tau=None,
 ):
     """Batched two-sided curvature direction over a leading stack axis (e.g. MoE experts).
 
@@ -605,6 +617,9 @@ def curv_direction_batched(
         return 0.5 * (a + bt(a))
 
     cold = msign(n_t)
+    # Warm-start τ across outer steps (per-stack [...] vector). Default carry value returned for the lam=0
+    # path; the scan overwrites it with the accepted τ when lam>0.
+    tau_final = (es("...mn,...mn->...", n_t, n_t) * 0.0) if warm_tau is None else warm_tau
     if lam_static > 0.0:
         tau0, beta, cc = 0.5, 0.5, 1e-4
         # Per-stack [...] zero that carries the stack-axis sharding (derived from a reduction over n_t), so the
@@ -634,12 +649,13 @@ def curv_direction_batched(
             x = project(x + acc[..., None, None] * d)
             return (x, sel(acc > 0, acc, last_tau)), None
 
-        (x, _), _ = jax.lax.scan(step, (cold, zlead + 0.25), None, length=int(inner_steps))
+        tau_init = (zlead + 0.25) if warm_tau is None else warm_tau
+        (x, tau_final), _ = jax.lax.scan(step, (cold, tau_init), None, length=int(inner_steps))
     else:
         x = cold
 
     direction = bt(x) if transpose else x
-    return new_p, new_q, new_p_r, new_q_r, x, direction
+    return new_p, new_q, new_p_r, new_q_r, x, direction, tau_final
 
 
 def scale_with_curvature_muon(
@@ -795,9 +811,9 @@ def scale_with_curvature_muon(
                 constraint=constraint,
             )
             if g.ndim == 3:
-                new_p, new_q, new_p_r, new_q_r, new_x, phi_traj, x = jax.vmap(fn)(g, n, p, q, p_r, q_r, xx)
+                new_p, new_q, new_p_r, new_q_r, new_x, phi_traj, x, _tau = jax.vmap(fn)(g, n, p, q, p_r, q_r, xx)
             else:
-                new_p, new_q, new_p_r, new_q_r, new_x, phi_traj, x = fn(g, n, p, q, p_r, q_r, xx)
+                new_p, new_q, new_p_r, new_q_r, new_x, phi_traj, x, _tau = fn(g, n, p, q, p_r, q_r, xx)
             new_w = dataclasses.replace(n_layer.weight, array=x)
             # 7-tuple: (direction-layer, P_L, q_L, P_R, q_R, inner_x, phi_traj)
             return (dataclasses.replace(n_layer, weight=new_w), new_p, new_q, new_p_r, new_q_r, new_x, phi_traj)  # type: ignore
