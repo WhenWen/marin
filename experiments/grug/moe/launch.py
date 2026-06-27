@@ -104,6 +104,9 @@ _CURV_CONSTRAINT: str = os.environ.get("CURV_CONSTRAINT", "stiefel")
 # MuonH baseline (quintic@5); set COEFF_TYPE=polar_express BACKEND_STEPS=8 for the curvature runs.
 _COEFF_TYPE: str = os.environ.get("COEFF_TYPE", "")
 _BACKEND_STEPS: int = env_int("BACKEND_STEPS", 0)
+# Expert-parallelism: shard the MoE expert-stack axis across GRUG_EP mesh devices. >1 enables the explicit
+# expert mesh (use_explicit_mesh_axes) and lets the batched curvature solve distribute experts (speedup).
+_EP: int = env_int("GRUG_EP", 1)
 
 
 def slimpajama_6b_data() -> LmDataConfig:
@@ -260,6 +263,7 @@ for _dim, _bs, _steps in _COMPUTE_OPT_CELLS:
                     name=_run_id,
                 ),
                 optimizer=versioned(_optimizer),
+                expert_parallel=versioned(_EP),
                 grug_trainer=versioned(
                     GrugTrainerConfig(
                         z_loss_weight=0.0,
