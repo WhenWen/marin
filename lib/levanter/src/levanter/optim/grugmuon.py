@@ -22,6 +22,7 @@ from jax.sharding import reshard
 from optax import tree_utils as otu
 
 from levanter.optim.config import OptimizerConfig
+from levanter.optim.curvature_muon import _POW4_FLOOR, _curv_direction_2d
 from levanter.optim.muon import MuonConfig, ScaleByMuonState
 from levanter.optim.util import NEWTON_SCHULZ_COEFFICIENTS, CoefficientType
 from levanter.utils.jax_utils import leaf_key_paths
@@ -271,8 +272,6 @@ def _grug_scale_with_curvature_muon(
     _grug_scale_with_muon: replaces msign(N) with the Riemannian curvature inner-solve, applies the same
     sqrt(fan_out/fan_in) scale; the hyperball is applied by the caller. curvature_lambda=0 ⟹ plain MuonH.
     Reuses the tested _curv_direction_2d (replicated NS msign — fine for d512)."""
-    from levanter.optim.curvature_muon import _POW4_FLOOR, _curv_direction_2d
-
     rho = float(curvature_beta)
     lam = float(curvature_lambda)
     steps = int(steps)
@@ -345,6 +344,9 @@ def _grug_scale_with_curvature_muon(
                 maxbt=riemannian_maxbt,
                 warm_start=False,
                 constraint=constraint,
+                # vmapped over the expert axis on replicated per-expert matrices; the NS sharding
+                # constraint is an explicit-mesh assert those don't satisfy. Run NS replicated.
+                shard_ns=False,
             )
             np_, nq, npr, nqr, nx, _pt, d = (jax.vmap(fn) if g.ndim == 3 else fn)(g, n, p, q, pr, qr, xx)
             fan_in, fan_out = d.shape[-2:]

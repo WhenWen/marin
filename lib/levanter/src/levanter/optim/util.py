@@ -241,7 +241,9 @@ NEWTON_SCHULZ_COEFFICIENTS = {
 }
 
 
-def zeropower_via_newtonschulz5(X, steps: int = 5, eps: float = 1e-7, coefficient_type: CoefficientType = "quintic"):
+def zeropower_via_newtonschulz5(
+    X, steps: int = 5, eps: float = 1e-7, coefficient_type: CoefficientType = "quintic", shard: bool = True
+):
     """
     Newton-Schulz iteration to compute the zeroth power / orthogonalization of X.
 
@@ -254,6 +256,9 @@ def zeropower_via_newtonschulz5(X, steps: int = 5, eps: float = 1e-7, coefficien
             - "quintic": Optimized quintic iteration coefficients (default)
             - "polar_express": Specialized polar iteration coefficients
             - "aol": Alternative optimized coefficients
+        shard: apply the ``P(None, ("data", "model"))`` sharding constraint. Under an explicit mesh this
+            constraint is an *assert*, so callers that orthogonalize already-replicated matrices (e.g. inside
+            a per-expert ``vmap``, where each matrix is ``P(None, None)``) must pass ``shard=False``.
 
     Returns:
         Orthogonalized version of X
@@ -278,7 +283,7 @@ def zeropower_via_newtonschulz5(X, steps: int = 5, eps: float = 1e-7, coefficien
     # really do something even fancier.
     # It would be even smarter to stack similar layers together, but that would require more even more work
     # Let's call this good enough until we think it's not good enough
-    if not jax.sharding.get_abstract_mesh().empty:
+    if shard and not jax.sharding.get_abstract_mesh().empty:
         X = jax.lax.with_sharding_constraint(X, PartitionSpec(None, ("data", "model")))
 
     # Perform Newton-Schulz iterations

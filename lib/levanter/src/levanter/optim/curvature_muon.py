@@ -25,6 +25,7 @@ constant-Frobenius-norm) reparam instead of ``√(Out/In)`` scaling.
 """
 
 import dataclasses
+import functools
 from dataclasses import dataclass
 from typing import NamedTuple
 
@@ -268,24 +269,23 @@ def _sym(a):
     return 0.5 * (a + a.T)
 
 
-def _mclip(m, steps, eps, ctype):
+def _mclip(m, msign):
     """Project m onto the spectral-norm ball {‖·‖₂ ≤ 1} (clip σ → min(σ, 1)) — matmul-only, no SVD.
 
     Uses the "mclip2" identity   mclip(m) = (m + msign(m) + (msign(m) − m)·msign(mᵀm − I)) / 2,
     which for m = UΣVᵀ gives U·min(Σ,1)·Vᵀ exactly (msign(mᵀm−I) = V·sign(Σ²−1)·Vᵀ). Benchmarks vs SVD:
     exact in fp32 across σ∈[0,57] (MAE ~1e-4); most bf16-robust of the msign-based variants (σ_out ≤ 1.01
     in-context). One full msign [M,N] + one smaller msign [N,N]. (SVD truncation would be exact too but is
-    the only non-matmul op — costly on TPU at ~maxbt·K calls/step.)
+    the only non-matmul op — costly on TPU at ~maxbt·K calls/step.) ``msign`` is the (pre-configured) NS
+    orthogonalizer.
     """
-    ms1 = zeropower_via_newtonschulz5(m, steps=steps, eps=eps, coefficient_type=ctype)
+    ms1 = msign(m)
     gram = m.T @ m - jnp.eye(m.shape[-1], dtype=m.dtype)
-    ms2 = zeropower_via_newtonschulz5(gram, steps=steps, eps=eps, coefficient_type=ctype)
+    ms2 = msign(gram)
     return (m + ms1 + (ms1 - m) @ ms2) / 2.0
 
 
-def _riem_solve(
-    n_t, apply_curv, x0, lam_coef, inner_steps, maxbt, steps, eps, ctype, constraint, tau0=0.5, beta=0.5, c=1e-4
-):
+def _riem_solve(n_t, apply_curv, x0, lam_coef, inner_steps, maxbt, msign, constraint, tau0=0.5, beta=0.5, c=1e-4):
     """Ascent on φ(X)=⟨N,X⟩−(λ/2)⟨X,𝒞X⟩ with an Armijo backtracking line search.
 
     apply_curv(X) applies the curvature operator 𝒞X — one-sided ``C·X`` or two-sided ``P_L^{1/4} X P_R^{1/4}``.
@@ -308,8 +308,8 @@ def _riem_solve(
 
     def project(y):
         if ball:
-            return _mclip(y, steps, eps, ctype)
-        return zeropower_via_newtonschulz5(y, steps=steps, eps=eps, coefficient_type=ctype)
+            return _mclip(y, msign)
+        return msign(y)
 
     def line_search(x, d, dd, f0, tau_start):
         # largest accepted τ over {τ_start·βʲ}; fori_loop body compiles once (no maxbt unroll).
@@ -327,7 +327,7 @@ def _riem_solve(
         x, last_tau = carry
         z = n_t - lam_coef * apply_curv(x)  # Euclidean ascent gradient ∇φ
         grad = z if ball else z - x @ _sym(x.T @ z)  # ball: full gradient; stiefel: tangent projection
-        d = zeropower_via_newtonschulz5(grad, steps=steps, eps=eps, coefficient_type=ctype)
+        d = msign(grad)
         dd = jnp.sum(grad * d)  # ⟨grad, D⟩ ≥ 0 (directional derivative)
         # Warm-start τ near the previous step's accepted value (allow ×2 growth, cap τ₀); fall back to τ₀ if
         # none accepted last step. The accepted step changes little between inner iterations, so a warm τ₀
@@ -377,6 +377,7 @@ def _curv_direction_2d(
     maxbt,
     warm_start,
     constraint,
+    shard_ns: bool = True,
 ):
     """One matrix. g, n: [out, in]; p/q = left Gram P_L [M,M] + power vec; p_r/q_r = right Gram P_R [N,N] + vec.
 
@@ -390,6 +391,13 @@ def _curv_direction_2d(
     or "ball" (XᵀX⪯I, mclip/SVD projection). Robust across λ, K-stable.
     Returns (new_p, new_q, new_p_r, new_q_r, new_inner_x, phi_traj, direction); phi_traj[k]=φ at inner step k.
     """
+    # ``shard=shard_ns``: the grug MoE path vmaps this over the expert axis on already-replicated
+    # per-expert matrices (P(None, None)); under the explicit mesh the NS sharding constraint is an assert
+    # that those don't satisfy, so that path passes shard_ns=False. Dense (qwen3) callers keep shard_ns=True.
+    msign = functools.partial(
+        zeropower_via_newtonschulz5, steps=steps, eps=eps, coefficient_type=ctype, shard=shard_ns
+    )
+
     out, inn = g.shape
     transpose = out < inn
     g_t = g.T if transpose else g  # [M, N], M ≥ N
@@ -422,13 +430,13 @@ def _curv_direction_2d(
         # Curvature operator 𝒞X: two-sided P_L^{1/4} X P_R^{1/4}, else one-sided C·X.
         apply_curv = (lambda X: pl4 @ X @ pr4) if two_sided else (lambda X: curv @ X)
         # Cold start msign(N) (λ=0 optimum; best init for small λ). Optional warm start from the carried X.
-        cold = zeropower_via_newtonschulz5(n_t, steps=steps, eps=eps, coefficient_type=ctype)
+        cold = msign(n_t)
         if lam_static > 0.0:
             if warm_start:
                 x0 = jnp.where(jnp.linalg.norm(inner_x) > eps, inner_x, cold)
             else:
                 x0 = cold
-            x, phi_traj = _riem_solve(n_t, apply_curv, x0, lam_coef, inner_steps, maxbt, steps, eps, ctype, constraint)
+            x, phi_traj = _riem_solve(n_t, apply_curv, x0, lam_coef, inner_steps, maxbt, msign, constraint)
         else:
             x = cold
         return new_p, new_q, new_p_r, new_q_r, x, phi_traj, (x.T if transpose else x)
@@ -436,25 +444,21 @@ def _curv_direction_2d(
     # --- fixed-point inner solver ---
     if two_sided:
         if mudam_init:
-            x = zeropower_via_newtonschulz5(plinv4 @ n_t @ prinv4, steps=steps, eps=eps, coefficient_type=ctype)
+            x = msign(plinv4 @ n_t @ prinv4)
         else:
-            x = zeropower_via_newtonschulz5(n_t, steps=steps, eps=eps, coefficient_type=ctype)
+            x = msign(n_t)
         if lam_static > 0.0:
             shift2 = alpha * (emax * emax_r) ** 0.25  # = max singular value of X ↦ P_L^{1/4} X P_R^{1/4}
             for _ in range(int(inner_steps)):
                 arg = n_t + lam_coef * (shift2 * x - pl4 @ x @ pr4)
-                x = zeropower_via_newtonschulz5(arg, steps=steps, eps=eps, coefficient_type=ctype)
+                x = msign(arg)
         return new_p, new_q, new_p_r, new_q_r, inner_x, phi_traj, (x.T if transpose else x)
 
-    x = (
-        _mudam_direction(n_t, new_p, mudam_steps, eps)
-        if mudam_init
-        else zeropower_via_newtonschulz5(n_t, steps=steps, eps=eps, coefficient_type=ctype)
-    )
+    x = _mudam_direction(n_t, new_p, mudam_steps, eps) if mudam_init else msign(n_t)
     if lam_static > 0.0:
         operator = lam_coef * (alpha * se * eye - curv)  # PSD for α≥1
         for _ in range(int(inner_steps)):
-            x = zeropower_via_newtonschulz5(n_t + operator @ x, steps=steps, eps=eps, coefficient_type=ctype)
+            x = msign(n_t + operator @ x)
     return new_p, new_q, new_p_r, new_q_r, inner_x, phi_traj, (x.T if transpose else x)
 
 
