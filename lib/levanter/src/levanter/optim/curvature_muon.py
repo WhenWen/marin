@@ -224,11 +224,17 @@ def _pow4_inv_quarter(p, iters, floor, eps):
     A^{-1/4} (Z). Rescale by trace^{±1/4}. The 4th-root inverse is gentler than P^{-1/2} (smaller exponent).
     """
     tr = jnp.trace(p) + eps
-    a = p / tr
     eye = jnp.eye(p.shape[0], dtype=p.dtype)
+    # Floor the spectrum away from 0 BEFORE the forward roots, not just the inverse. The coupled
+    # Denman–Beavers sqrt-NS tracks the inverse iterate z alongside y via t = 1.5I − 0.5·z@y; for a
+    # near-singular Gram (a low-token MoE expert ⟹ rank-deficient GGᵀ) z diverges and, through the shared
+    # t, poisons the forward root y → NaN P^{1/4} → NaN expert weights (train loss stays finite because the
+    # NaN expert is rarely routed in-batch, but eval routes to it → NaN). Flooring keeps every eigenvalue
+    # ≥ floor so z stays bounded. Spectrum becomes [floor, 1+floor]; still inside the NS sqrt basin.
+    a = p / tr + floor * eye
     a_half, _ = _matrix_sqrt_ns(a, iters)  # A^{1/2}
-    a_quarter, _ = _matrix_sqrt_ns(a_half, iters)  # A^{1/4} (forward; no floor needed)
-    _, a_inv_quarter = _matrix_sqrt_ns(a_half + floor * eye, iters)  # ≈ A^{-1/4}, floored ⟹ bounded
+    a_quarter, _ = _matrix_sqrt_ns(a_half, iters)  # A^{1/4}
+    _, a_inv_quarter = _matrix_sqrt_ns(a_half, iters)  # ≈ A^{-1/4} (a already floored ⟹ bounded)
     return tr**0.25 * a_quarter, tr**-0.25 * a_inv_quarter
 
 
