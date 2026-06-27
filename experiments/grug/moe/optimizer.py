@@ -148,6 +148,7 @@ def scale_with_grug_muonh(
     constraint: str = "stiefel",
     curv_power: str = "sqrt",
     power_iters: int = 8,
+    inner_solver: str = "riemannian_muon",
     lambda_tracks_lr: bool = False,
     peak_lr: float = 0.0,
 ) -> optax.GradientTransformation:
@@ -174,6 +175,7 @@ def scale_with_grug_muonh(
             constraint=constraint,
             curv_power=curv_power,
             power_iters=power_iters,
+            inner_solver=inner_solver,
         )
     else:
         muon_transform = _grug_scale_with_muon(
@@ -346,6 +348,9 @@ class GrugMoeMuonHConfig(OptimizerConfig):
     curvature_two_sided: bool = True
     curvature_constraint: str = "stiefel"
     curv_power: str = "sqrt"
+    # Inner solver for the curvature subproblem: "riemannian_muon" (Armijo line search) or "frank_wolfe"
+    # (closed-form quadratic step, no backtracking/mclip — TPU-cheaper; ball only).
+    curvature_inner_solver: str = "riemannian_muon"
     # If True, the curvature strength tracks the LR schedule: λ_t = curvature_lambda · lr_t/peak_lr.
     curvature_lambda_tracks_lr: bool = False
 
@@ -373,6 +378,7 @@ class GrugMoeMuonHConfig(OptimizerConfig):
                         two_sided=self.curvature_two_sided,
                         constraint=self.curvature_constraint,
                         curv_power=self.curv_power,
+                        inner_solver=self.curvature_inner_solver,
                         lambda_tracks_lr=self.curvature_lambda_tracks_lr,
                         peak_lr=self.learning_rate,
                     )

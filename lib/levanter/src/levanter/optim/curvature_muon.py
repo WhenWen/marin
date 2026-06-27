@@ -362,6 +362,28 @@ def _riem_solve(
     return x_final, phi_traj, tau_final
 
 
+def _fw_solve(n_t, apply_curv, x0, lam_coef, inner_steps, msign, eps=1e-12):
+    """Frank-Wolfe on the relaxed ball max_{‖X‖₂≤1} ⟨N,X⟩ − (λ/2)⟨X,𝒞X⟩ — closed-form step, NO backtracking.
+
+    Per step: G=N−λ𝒞X, S=msign(G) (LMO over the spectral ball), D=S−X, α=clip(⟨G,D⟩/(λ⟨D,𝒞D⟩),0,1),
+    X←X+αD. The convex combination keeps XᵀX⪯I automatically, so NO mclip projection. ~1 msign/step vs the
+    Armijo solver's 1+2·maxbt — far cheaper on TPU; matches the line search at small K (O(1/k) tail at large K).
+    """
+
+    def step(x, _):
+        g = n_t - lam_coef * apply_curv(x)
+        s = msign(g)
+        d = s - x
+        cd = apply_curv(d)
+        numer = jnp.sum(g * d)
+        denom = lam_coef * jnp.sum(d * cd)
+        alpha = jnp.clip(numer / jnp.where(denom > eps, denom, 1.0), 0.0, 1.0)
+        return x + alpha * d, None
+
+    x_final, _ = jax.lax.scan(step, x0, None, length=int(inner_steps))
+    return x_final
+
+
 def _power_iter(mat, q, iters, eps):
     for _ in range(int(iters)):
         mq = mat @ q
@@ -479,6 +501,12 @@ def _curv_direction_2d(
             x = cold
         return new_p, new_q, new_p_r, new_q_r, x, phi_traj, (x.T if transpose else x), tau_out
 
+    if inner_solver == "frank_wolfe":
+        apply_curv = (lambda X: pl4 @ X @ pr4) if two_sided else (lambda X: curv @ X)
+        cold = msign(n_t)
+        x = _fw_solve(n_t, apply_curv, cold, lam_coef, inner_steps, msign) if lam_static > 0.0 else cold
+        return new_p, new_q, new_p_r, new_q_r, x, phi_traj, (x.T if transpose else x), tau_out
+
     # --- fixed-point inner solver ---
     if two_sided:
         if mudam_init:
@@ -522,6 +550,7 @@ def curv_direction_batched(
     out_p=None,
     bias_t=None,
     warm_tau=None,
+    solver="riemannian_muon",
 ):
     """Batched two-sided curvature direction over a leading stack axis (e.g. MoE experts).
 
@@ -620,6 +649,23 @@ def curv_direction_batched(
     # Warm-start τ across outer steps (per-stack [...] vector). Default carry value returned for the lam=0
     # path; the scan overwrites it with the accepted τ when lam>0.
     tau_final = (es("...mn,...mn->...", n_t, n_t) * 0.0) if warm_tau is None else warm_tau
+
+    if solver == "frank_wolfe":
+        # Frank-Wolfe (closed-form step, no backtracking, no mclip — see _fw_solve). ~1 msign/step.
+        def fw_step(x, _):
+            g = n_t - lam_coef * apply_curv(x)
+            s = msign(g)
+            d = s - x
+            cd = apply_curv(d)
+            numer = es("...mn,...mn->...", g, d)
+            denom = lam_coef * es("...mn,...mn->...", d, cd)
+            alpha = jnp.clip(numer / jnp.where(denom > 1e-12, denom, 1.0), 0.0, 1.0)
+            return x + alpha[..., None, None] * d, None
+
+        x = jax.lax.scan(fw_step, cold, None, length=int(inner_steps))[0] if lam_static > 0.0 else cold
+        direction = bt(x) if transpose else x
+        return new_p, new_q, new_p_r, new_q_r, x, direction, tau_final
+
     if lam_static > 0.0:
         tau0, beta, cc = 0.5, 0.5, 1e-4
         # Per-stack [...] zero that carries the stack-axis sharding (derived from a reduction over n_t), so the

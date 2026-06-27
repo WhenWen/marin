@@ -101,6 +101,8 @@ _CURV_TWO_SIDED: bool = os.environ.get("CURV_TWO_SIDED", "1") not in ("0", "fals
 _CURV_CONSTRAINT: str = os.environ.get("CURV_CONSTRAINT", "stiefel")
 # If set, curvature strength tracks the LR schedule: lambda_t = CURV_LAMBDA * lr_t/peak_lr.
 _CURV_LAMBDA_TRACKS_LR: bool = os.environ.get("CURV_LAMBDA_TRACKS_LR", "0") not in ("0", "false", "False")
+# Inner solver: "riemannian_muon" (Armijo line search) or "frank_wolfe" (closed-form step, ball only, cheaper).
+_CURV_SOLVER: str = os.environ.get("CURV_SOLVER", "riemannian_muon")
 # msign Newton-Schulz schedule. The validated curvature optimizer uses polar_express@8 -- the precise
 # msign the ball mclip needs (quintic@5 fails to clip: sigma_out~12 at sigma=1e3). Default to the #6153
 # MuonH baseline (quintic@5); set COEFF_TYPE=polar_express BACKEND_STEPS=8 for the curvature runs.
@@ -230,6 +232,7 @@ for _dim, _bs, _steps in _COMPUTE_OPT_CELLS:
         curvature_maxbt=_CURV_MAXBT,
         curvature_two_sided=_CURV_TWO_SIDED,
         curvature_constraint=_CURV_CONSTRAINT,
+        curvature_inner_solver=_CURV_SOLVER,
         curvature_lambda_tracks_lr=_CURV_LAMBDA_TRACKS_LR,
     )
     # Override the msign schedule when requested (curvature needs polar_express@8 for ball precision).
