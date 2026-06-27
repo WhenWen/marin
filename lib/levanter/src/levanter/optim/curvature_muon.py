@@ -391,12 +391,17 @@ def _curv_direction_2d(
     or "ball" (XᵀX⪯I, mclip/SVD projection). Robust across λ, K-stable.
     Returns (new_p, new_q, new_p_r, new_q_r, new_inner_x, phi_traj, direction); phi_traj[k]=φ at inner step k.
     """
-    # ``shard=shard_ns``: the grug MoE path vmaps this over the expert axis on already-replicated
-    # per-expert matrices (P(None, None)); under the explicit mesh the NS sharding constraint is an assert
-    # that those don't satisfy, so that path passes shard_ns=False. Dense (qwen3) callers keep shard_ns=True.
+    # ``shard_ns=False`` is the grug MoE path: this is vmapped over the expert axis under an explicit mesh,
+    # and the per-expert inputs carry a ``model`` sharding. The many curvature matmuls (Gram g_tᵀg_t, power
+    # iteration, P^{1/4}) then contract over ``model``-sharded dims → "ambiguous output sharding", and the
+    # NS sharding constraint is a failing assert. So replicate every input to P(None, …) first (mirrors
+    # MuonH's _zeropower_via_newtonschulz_replicated) and run NS unsharded. Dense (qwen3) keeps shard_ns=True.
     msign = functools.partial(
         zeropower_via_newtonschulz5, steps=steps, eps=eps, coefficient_type=ctype, shard=shard_ns
     )
+    if not shard_ns:
+        rep = lambda a: jax.sharding.reshard(a, jax.sharding.PartitionSpec(*([None] * a.ndim)))
+        g, n, p, q, p_r, q_r, inner_x = rep(g), rep(n), rep(p), rep(q), rep(p_r), rep(q_r), rep(inner_x)
 
     out, inn = g.shape
     transpose = out < inn
