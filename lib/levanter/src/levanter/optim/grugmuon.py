@@ -335,11 +335,12 @@ def _grug_scale_with_curvature_muon(
             if g.ndim == 3 and not jax.sharding.get_abstract_mesh().empty:
                 # Fully replicate every vmapped input (stack axis included). vmap requires the mapped axis to
                 # be sharded identically across inputs (grad carries expert+model, state is replicated), and
-                # the Riemannian line-search has data-dependent where/select on scalars — vmapping over a
-                # *sharded* stack axis leaks that axis into the scalars and select rejects the mismatch. A
-                # replicated stack axis keeps every per-expert array (and reduction scalar) replicated, so all
-                # matmuls/selects are unambiguous. (Unlike MuonH's pure-matmul NS, the curvature inner solve
-                # can't run batch-axis-sharded; experts are recomputed per shard.)
+                # vmapping over a *sharded* stack axis leaks that axis into the per-expert scalars (line-search
+                # select, reductions) — which then fails either select's strict-sharding or vmap's unmapped_aval
+                # ("Resource axis: expert not found in mesh"). A replicated stack axis keeps every per-expert
+                # array + scalar replicated, so all matmuls/selects are unambiguous. Cost: experts recomputed
+                # per shard. (A batch-axis-sharded version needs a batched-einsum rewrite of the Riemannian
+                # solver — vmap-over-sharded is a dead end here even with arithmetic select.)
                 rb = lambda a: reshard(a, PartitionSpec(*([None] * a.ndim)))
                 g, n, p, q, pr, qr, xx = rb(g), rb(n), rb(p), rb(q), rb(pr), rb(qr), rb(xx)
             fn = lambda gg, nn, pp, qq, ppr, qqr, xi: _curv_direction_2d(

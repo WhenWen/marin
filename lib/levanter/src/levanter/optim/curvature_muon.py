@@ -311,13 +311,21 @@ def _riem_solve(n_t, apply_curv, x0, lam_coef, inner_steps, maxbt, msign, constr
             return _mclip(y, msign)
         return msign(y)
 
+    def sel(cond, a, b):
+        # Arithmetic select (exact for boolean cond). Used instead of jnp.where because, when this solve is
+        # vmapped over a SHARDED expert axis, the line-search scalars pick up that axis; jnp.where/select
+        # strictly requires matching operand shardings (replicated constant vs expert-sharded scalar fails),
+        # whereas multiply/add use the lenient broadcast_shardings. Keeps the curvature solve batch-shardable.
+        cf = cond.astype(a.dtype)
+        return cf * a + (1.0 - cf) * b
+
     def line_search(x, d, dd, f0, tau_start):
         # largest accepted τ over {τ_start·βʲ}; fori_loop body compiles once (no maxbt unroll).
         def body(_, carry):
             tau, acc = carry
             good = phi(project(x + tau * d)) >= f0 + c * tau * dd
-            acc = jnp.where(good & (acc == 0.0), tau, acc)
-            tau = jnp.where(good, tau, tau * beta)
+            acc = sel(good & (acc == 0.0), tau, acc)
+            tau = sel(good, tau, tau * beta)
             return (tau, acc)
 
         _, acc = jax.lax.fori_loop(0, int(maxbt), body, (tau_start, jnp.zeros((), x.dtype)))
@@ -332,10 +340,10 @@ def _riem_solve(n_t, apply_curv, x0, lam_coef, inner_steps, maxbt, msign, constr
         # Warm-start τ near the previous step's accepted value (allow ×2 growth, cap τ₀); fall back to τ₀ if
         # none accepted last step. The accepted step changes little between inner iterations, so a warm τ₀
         # brackets it in ~2-3 backtracks (toy: maxbt=3 warm ≡ maxbt=10 cold at every λ) — ~2.5× cheaper.
-        tau_start = jnp.where(last_tau > 0, jnp.minimum(2.0 * last_tau, tau0), jnp.asarray(tau0, x.dtype))
+        tau_start = sel(last_tau > 0, jnp.minimum(2.0 * last_tau, tau0), jnp.asarray(tau0, x.dtype))
         acc = line_search(x, d, dd, phi(x), tau_start)
         x = project(x + acc * d)
-        return (x, jnp.where(acc > 0, acc, last_tau)), phi(x)
+        return (x, sel(acc > 0, acc, last_tau)), phi(x)
 
     init = (x0, jnp.asarray(0.25, x0.dtype))
     (x_final, _), phis = jax.lax.scan(step, init, None, length=int(inner_steps))  # scan body compiles once
