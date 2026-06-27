@@ -253,6 +253,20 @@ class _GrugCurvState(NamedTuple):
     inner_x: optax.Updates  # carried inner solution [..., M, N]
 
 
+class _CurvOut(NamedTuple):
+    """Per-matrix curvature output, packed as one leaf so it can be split back into the direction +
+    the 5 state trees. A dedicated type (not a bare 6-tuple) is essential: ``is_leaf`` detection by
+    ``len(c) == 6`` collides with model containers of length 6 (e.g. a 6-layer ``blocks`` tuple),
+    which would make the split grab ``blocks[0]`` and mangle the tree."""
+
+    direction: jax.Array
+    curvature: jax.Array
+    power_vec: jax.Array
+    curvature_r: jax.Array
+    power_vec_r: jax.Array
+    inner_x: jax.Array
+
+
 def _grug_scale_with_curvature_muon(
     momentum=0.95,
     nesterov=True,
@@ -360,7 +374,7 @@ def _grug_scale_with_curvature_muon(
             )
             np_, nq, npr, nqr, nx, _pt, d = (jax.vmap(fn) if g.ndim == 3 else fn)(g, n, p, q, pr, qr, xx)
             fan_in, fan_out = d.shape[-2:]
-            return (d * jnp.sqrt(jnp.maximum(1.0, fan_out / fan_in)), np_, nq, npr, nqr, nx)
+            return _CurvOut(d * jnp.sqrt(jnp.maximum(1.0, fan_out / fan_in)), np_, nq, npr, nqr, nx)
 
         comb = jax.tree.map(
             per,
@@ -373,8 +387,8 @@ def _grug_scale_with_curvature_muon(
             state.inner_x,
             is_leaf=none_leaf,
         )
-        istup = lambda c: isinstance(c, tuple) and len(c) == 6
-        pick = lambda i: jax.tree.map(lambda c: c[i] if istup(c) else c, comb, is_leaf=istup)
+        is_out = lambda c: isinstance(c, _CurvOut)
+        pick = lambda i: jax.tree.map(lambda c: c[i] if is_out(c) else c, comb, is_leaf=is_out)
         return pick(0), _GrugCurvState(buf, pick(1), pick(2), pick(3), pick(4), pick(5))
 
     return optax.GradientTransformation(init_fn, update_fn)
