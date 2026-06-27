@@ -99,6 +99,11 @@ _CURV_K: int = env_int("CURV_K", 10)
 _CURV_MAXBT: int = env_int("CURV_MAXBT", 10)
 _CURV_TWO_SIDED: bool = os.environ.get("CURV_TWO_SIDED", "1") not in ("0", "false", "False")
 _CURV_CONSTRAINT: str = os.environ.get("CURV_CONSTRAINT", "stiefel")
+# msign Newton–Schulz schedule. The validated curvature optimizer uses polar_express@8 — the precise
+# msign the ball mclip needs (quintic@5 fails to clip: σ_out≈12 at σ=1e3). Default to the #6153 MuonH
+# baseline (quintic@5); set COEFF_TYPE=polar_express BACKEND_STEPS=8 for the curvature runs.
+_COEFF_TYPE: str = os.environ.get("COEFF_TYPE", "")
+_BACKEND_STEPS: int = env_int("BACKEND_STEPS", 0)
 
 
 def slimpajama_6b_data() -> LmDataConfig:
@@ -221,6 +226,11 @@ for _dim, _bs, _steps in _COMPUTE_OPT_CELLS:
         curvature_two_sided=_CURV_TWO_SIDED,
         curvature_constraint=_CURV_CONSTRAINT,
     )
+    # Override the msign schedule when requested (curvature needs polar_express@8 for ball precision).
+    if _COEFF_TYPE:
+        _optimizer = dataclasses.replace(_optimizer, coefficient_type=_COEFF_TYPE)
+    if _BACKEND_STEPS:
+        _optimizer = dataclasses.replace(_optimizer, backend_steps=_BACKEND_STEPS)
     _tag_suffix = f"-{_RUN_TAG}" if _RUN_TAG else ""
     _run_id = f"moe_may_compute_opt_d{_dim}{_tag_suffix}"
     _res = ResourceConfig.with_tpu(
