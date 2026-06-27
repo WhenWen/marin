@@ -22,7 +22,7 @@ from jax.sharding import reshard
 from optax import tree_utils as otu
 
 from levanter.optim.config import OptimizerConfig
-from levanter.optim.curvature_muon import _POW4_FLOOR, _curv_direction_2d
+from levanter.optim.curvature_muon import _POW4_FLOOR, _curv_direction_2d, curv_direction_batched
 from levanter.optim.muon import MuonConfig, ScaleByMuonState
 from levanter.optim.util import NEWTON_SCHULZ_COEFFICIENTS, CoefficientType
 from levanter.utils.jax_utils import leaf_key_paths
@@ -329,51 +329,76 @@ def _grug_scale_with_curvature_muon(
             else buf
         )
 
+        has_mesh = not jax.sharding.get_abstract_mesh().empty
+
         def per(g, n, p, q, pr, qr, xx):
             if not _ismat(g):
                 return n  # passthrough (non-matrix params unchanged here)
-            if g.ndim == 3 and not jax.sharding.get_abstract_mesh().empty:
-                # Fully replicate every vmapped input (stack axis included). vmap requires the mapped axis to
-                # be sharded identically across inputs (grad carries expert+model, state is replicated), and
-                # vmapping over a *sharded* stack axis leaks that axis into the per-expert scalars (line-search
-                # select, reductions) — which then fails either select's strict-sharding or vmap's unmapped_aval
-                # ("Resource axis: expert not found in mesh"). A replicated stack axis keeps every per-expert
-                # array + scalar replicated, so all matmuls/selects are unambiguous. Cost: experts recomputed
-                # per shard. (A batch-axis-sharded version needs a batched-einsum rewrite of the Riemannian
-                # solver — vmap-over-sharded is a dead end here even with arithmetic select.)
-                rb = lambda a: reshard(a, PartitionSpec(*([None] * a.ndim)))
-                g, n, p, q, pr, qr, xx = rb(g), rb(n), rb(p), rb(q), rb(pr), rb(qr), rb(xx)
-            fn = lambda gg, nn, pp, qq, ppr, qqr, xi: _curv_direction_2d(
-                gg,
-                nn,
-                pp,
-                qq,
-                ppr,
-                qqr,
-                xi,
-                rho=rho,
-                lam_static=lam,
-                lam_coef=lam,
-                alpha=1.0,
-                steps=steps,
-                eps=muon_eps,
-                ctype=coefficient_type,
-                inner_steps=inner_steps,
-                power_iters=power_iters,
-                curv_power=curv_power,
-                mudam_init=False,
-                mudam_steps=5,
-                two_sided=two_sided,
-                floor=_POW4_FLOOR,
-                inner_solver="riemannian_muon",
-                maxbt=riemannian_maxbt,
-                warm_start=False,
-                constraint=constraint,
-                # vmapped over the expert axis on replicated per-expert matrices; the NS sharding
-                # constraint is an explicit-mesh assert those don't satisfy. Run NS replicated.
-                shard_ns=False,
-            )
-            np_, nq, npr, nqr, nx, _pt, d = (jax.vmap(fn) if g.ndim == 3 else fn)(g, n, p, q, pr, qr, xx)
+            if g.ndim == 3:
+                # Expert-stacked weights: batched-einsum curvature solve (curv_direction_batched, no vmap).
+                # Reshard inputs to the STACK-SHARDED layout (stack axis sharded as the grad's, matrix dims
+                # replicated) so experts stay distributed across the mesh; every contraction is over a
+                # replicated matrix dim, so the propagator keeps the stack axis sharded with no ambiguity and
+                # no vmap (⟹ no unmapped_aval). out_p pins the matrix einsums to that layout.
+                out_p = None
+                if has_mesh:
+                    lead = jax.typeof(g).sharding.spec[0]
+                    mp = lambda a: reshard(a, PartitionSpec(lead, None, None))
+                    vp = lambda a: reshard(a, PartitionSpec(lead, None))
+                    g, n, p, pr, xx = mp(g), mp(n), mp(p), mp(pr), mp(xx)
+                    q, qr = vp(q), vp(qr)
+                    out_p = PartitionSpec(lead, None, None)
+                np_, nq, npr, nqr, nx, d = curv_direction_batched(
+                    g,
+                    n,
+                    p,
+                    q,
+                    pr,
+                    qr,
+                    rho=rho,
+                    lam_coef=lam,
+                    lam_static=lam,
+                    steps=steps,
+                    eps=muon_eps,
+                    ctype=coefficient_type,
+                    inner_steps=inner_steps,
+                    power_iters=power_iters,
+                    floor=_POW4_FLOOR,
+                    maxbt=riemannian_maxbt,
+                    constraint=constraint,
+                    out_p=out_p,
+                )
+            else:
+                # 2-D dense matrix (attn / shared / gated-norm): per-matrix solve, replicate inner so the NS
+                # constraint + Gram matmuls don't contract over a model-sharded dim (shard_ns=False).
+                np_, nq, npr, nqr, nx, _pt, d = _curv_direction_2d(
+                    g,
+                    n,
+                    p,
+                    q,
+                    pr,
+                    qr,
+                    xx,
+                    rho=rho,
+                    lam_static=lam,
+                    lam_coef=lam,
+                    alpha=1.0,
+                    steps=steps,
+                    eps=muon_eps,
+                    ctype=coefficient_type,
+                    inner_steps=inner_steps,
+                    power_iters=power_iters,
+                    curv_power=curv_power,
+                    mudam_init=False,
+                    mudam_steps=5,
+                    two_sided=two_sided,
+                    floor=_POW4_FLOOR,
+                    inner_solver="riemannian_muon",
+                    maxbt=riemannian_maxbt,
+                    warm_start=False,
+                    constraint=constraint,
+                    shard_ns=False,
+                )
             fan_in, fan_out = d.shape[-2:]
             return _CurvOut(d * jnp.sqrt(jnp.maximum(1.0, fan_out / fan_in)), np_, nq, npr, nqr, nx)
 

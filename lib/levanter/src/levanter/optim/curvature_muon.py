@@ -39,6 +39,7 @@ import haliax
 from levanter.optim.adamh import scale_by_adamh
 from levanter.optim.config import OptimizerConfig
 from levanter.optim.util import (
+    NEWTON_SCHULZ_COEFFICIENTS,
     CoefficientType,
     flatten_linear_layers,
     label_linear_like_module,
@@ -479,6 +480,154 @@ def _curv_direction_2d(
         for _ in range(int(inner_steps)):
             x = msign(n_t + operator @ x)
     return new_p, new_q, new_p_r, new_q_r, inner_x, phi_traj, (x.T if transpose else x)
+
+
+def curv_direction_batched(
+    g,
+    n,
+    p,
+    q,
+    p_r,
+    q_r,
+    *,
+    rho,
+    lam_coef,
+    lam_static,
+    steps,
+    eps,
+    ctype,
+    inner_steps,
+    power_iters,
+    floor,
+    maxbt,
+    constraint,
+    out_p=None,
+):
+    """Batched two-sided curvature direction over a leading stack axis (e.g. MoE experts).
+
+    Same Riemannian two-sided P^{1/4} solve as ``_curv_direction_2d`` (riemannian_muon, mudam_init=False,
+    warm_start=False, alpha=1), but vectorized over leading dims with ellipsis einsums instead of ``vmap``
+    (the grug/KLSOAP STACK_BATCH layout). This is what lets the stack axis stay SHARDED: every contraction
+    is over a (replicated) matrix dim, so the leading-axis sharding propagates unambiguously and the
+    line-search scalars become per-stack ``[...]`` vectors — no ``vmap`` ⟹ no ``unmapped_aval`` and the
+    arithmetic select is sharding-clean. ``out_p`` (matrix out_sharding) follows KLSOAP; pass the
+    batch-sharded ``P(stack, None, None)`` to distribute, or None to let the propagator infer.
+    Returns (new_p, new_q, new_p_r, new_q_r, inner_x, direction); direction has g's shape.
+    """
+    em = lambda eq, *a: jnp.einsum(eq, *a, out_sharding=out_p)
+    es = lambda eq, *a: jnp.einsum(eq, *a)  # scalar/vector reductions: let the propagator infer
+    bt = lambda a: jnp.swapaxes(a, -1, -2)
+    coeffs = NEWTON_SCHULZ_COEFFICIENTS[ctype]
+
+    def msign(x):
+        x = x / (jnp.linalg.norm(x, axis=(-2, -1), keepdims=True) + eps)
+        tr = x.shape[-2] > x.shape[-1]
+        if tr:
+            x = bt(x)
+        for i in range(int(steps)):
+            a, b, c = coeffs[i % len(coeffs)]
+            amat = em("...ik,...jk->...ij", x, x)
+            bmat = b * amat + c * em("...ik,...kj->...ij", amat, amat)
+            x = a * x + em("...ik,...kj->...ij", bmat, x)
+        return bt(x) if tr else x
+
+    def sqrtns(a, iters):  # coupled Denman–Beavers; returns (Y→a^{1/2}, Z→a^{-1/2})
+        eye = jnp.broadcast_to(jnp.eye(a.shape[-1], dtype=a.dtype), a.shape)
+        y, z = a, eye
+        for _ in range(int(iters)):
+            t = 1.5 * eye - 0.5 * em("...ik,...kj->...ij", z, y)
+            y = em("...ik,...kj->...ij", y, t)
+            z = em("...ik,...kj->...ij", t, z)
+        return y, z
+
+    def pow4(pp):  # P^{1/4}, trace-normalized + spectrum-floored (see _pow4_inv_quarter)
+        eye = jnp.broadcast_to(jnp.eye(pp.shape[-1], dtype=pp.dtype), pp.shape)
+        # trace via multiply+sum, NOT einsum-diagonal: the latter masks with a replicated eye via lax.select,
+        # which rejects the stack-sharded pp under the explicit mesh. Multiply broadcasts leniently.
+        tr = jnp.sum(pp * eye, axis=(-2, -1))[..., None, None] + eps
+        a = pp / tr + floor * eye
+        a_half, _ = sqrtns(a, power_iters)
+        a_q, _ = sqrtns(a_half, power_iters)
+        return tr**0.25 * a_q
+
+    def power_iter(mat, qv):
+        for _ in range(int(power_iters)):
+            mq = es("...nk,...k->...n", mat, qv)
+            qv = mq / (jnp.linalg.norm(mq, axis=-1, keepdims=True) + eps)
+        return qv
+
+    def mclip(m):
+        ms1 = msign(m)
+        eye = jnp.broadcast_to(jnp.eye(m.shape[-1], dtype=m.dtype), m.shape[:-2] + (m.shape[-1], m.shape[-1]))
+        ms2 = msign(em("...ki,...kj->...ij", m, m) - eye)
+        return (m + ms1 + em("...ik,...kj->...ij", ms1 - m, ms2)) / 2.0
+
+    out, inn = g.shape[-2], g.shape[-1]
+    transpose = out < inn
+    g_t = bt(g) if transpose else g
+    n_t = bt(n) if transpose else n
+
+    new_p = rho * p + (1.0 - rho) * em("...ik,...jk->...ij", g_t, g_t)  # P_L
+    new_q = power_iter(new_p, q)
+    new_p_r = rho * p_r + (1.0 - rho) * em("...ki,...kj->...ij", g_t, g_t)  # P_R
+    new_q_r = power_iter(new_p_r, q_r)
+    pl4 = pow4(new_p)
+    pr4 = pow4(new_p_r)
+
+    def apply_curv(x):
+        return em("...ik,...kj->...ij", em("...ik,...kj->...ij", pl4, x), pr4)
+
+    ball = constraint == "ball"
+
+    def phi(z):
+        return es("...mn,...mn->...", n_t, z) - 0.5 * lam_coef * es("...mn,...mn->...", z, apply_curv(z))
+
+    def project(y):
+        return mclip(y) if ball else msign(y)
+
+    def sel(cond, a, b):
+        cf = cond.astype(a.dtype)
+        return cf * a + (1.0 - cf) * b
+
+    def bsym(a):  # batched symmetrize (a.T transposes all axes; we want only the trailing two)
+        return 0.5 * (a + bt(a))
+
+    cold = msign(n_t)
+    if lam_static > 0.0:
+        tau0, beta, cc = 0.5, 0.5, 1e-4
+        # Per-stack [...] zero that carries the stack-axis sharding (derived from a reduction over n_t), so the
+        # scan/fori_loop scalar carries match the body's (stack-sharded) outputs — a replicated jnp.zeros(lead)
+        # would mismatch the carry type under the explicit mesh.
+        zlead = es("...mn,...mn->...", n_t, n_t) * 0.0
+
+        def line_search(x, d, dd, f0, tau_start):
+            def body(_, carry):
+                tau, acc = carry
+                good = phi(project(x + tau[..., None, None] * d)) >= f0 + cc * tau * dd
+                acc = sel(good & (acc == 0.0), tau, acc)
+                tau = sel(good, tau, tau * beta)
+                return (tau, acc)
+
+            _, acc = jax.lax.fori_loop(0, int(maxbt), body, (tau_start, zlead))
+            return acc
+
+        def step(carry, _):
+            x, last_tau = carry
+            z = n_t - lam_coef * apply_curv(x)
+            grad = z if ball else z - em("...ik,...kj->...ij", x, bsym(em("...ki,...kj->...ij", x, z)))
+            d = msign(grad)
+            dd = es("...mn,...mn->...", grad, d)
+            tau_start = sel(last_tau > 0, jnp.minimum(2.0 * last_tau, tau0), zlead + tau0)
+            acc = line_search(x, d, dd, phi(x), tau_start)
+            x = project(x + acc[..., None, None] * d)
+            return (x, sel(acc > 0, acc, last_tau)), None
+
+        (x, _), _ = jax.lax.scan(step, (cold, zlead + 0.25), None, length=int(inner_steps))
+    else:
+        x = cold
+
+    direction = bt(x) if transpose else x
+    return new_p, new_q, new_p_r, new_q_r, x, direction
 
 
 def scale_with_curvature_muon(
