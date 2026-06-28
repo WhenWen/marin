@@ -217,18 +217,17 @@ def _matrix_sqrt_ns(a, iters):
     return y, z
 
 
-def _matrix_inv_ns(a, iters, floor, eps):
-    """κ-damped inverse of SPD ``a``, matmul-only (one trace-normalized coupled-sqrt-NS pass).
+def _eigh_inv(a, floor, eps):
+    """κ-damped SPD inverse via eigendecomposition: Q Diag(1/(λ+κ)) Qᵀ, κ = floor·tr.
 
-    Returns ≈ (a/tr + floor·I)^{-1}/tr. Used for KL-Shampoo's whitened Gram update G S_b^{-1} Gᵀ. The floor
-    is the κ damping of the KL objective (E[ggᵀ]+κI) and keeps the inverse bounded on near-singular S.
+    This is KL-Shampoo's whitening S^{-1} = Q Diag(λ^{⊙-1}) Qᵀ (arXiv 2509.03378, qr_impl) — NO iterative
+    matrix inverse, just eigh + an elementwise reciprocal of the eigenvalue vector. eigh is a single compact
+    op, vs the ~24-matmul unrolled coupled-NS the naive inverse would add to the graph (which bloated compile).
     """
-    n = a.shape[0]
-    eye = jnp.eye(n, dtype=a.dtype)
-    tr = jnp.trace(a) + eps
-    a_n = a / tr + floor * eye  # spectrum in [floor, ~1+floor]
-    _, z = _matrix_sqrt_ns(a_n, iters)  # z → a_n^{-1/2}
-    return (z @ z) / tr
+    w, q = jnp.linalg.eigh(0.5 * (a + a.T))
+    w = jnp.maximum(w, 0.0)
+    inv_w = 1.0 / (w + floor * (jnp.sum(w) + eps))  # damped reciprocal eigenvalues
+    return (q * inv_w) @ q.T
 
 
 def _pow4_inv_quarter(p, iters, floor, eps):
@@ -474,7 +473,7 @@ def _curv_direction_2d(
     # (κ-damped) inverse computed from the INCOMING state, with 1/d scaling — the coupled-MLE estimate
     # S_a←(1-β)S_a+(β/d_b)G S_b^{-1}Gᵀ. Standard Shampoo (kl_shampoo=False) uses the plain outer product GGᵀ.
     if kl_shampoo and two_sided:
-        sb_inv = _matrix_inv_ns(p_r, power_iters, floor, eps)  # S_b^{-1} [N,N] from incoming P_R
+        sb_inv = _eigh_inv(p_r, floor, eps)  # S_b^{-1} [N,N] = Q_b Diag(1/λ_b) Q_bᵀ (no matrix inverse)
         delta_a = (g_t @ sb_inv @ g_t.T) / db
     else:
         delta_a = g_t @ g_t.T
@@ -490,7 +489,7 @@ def _curv_direction_2d(
     # Right Gram P_R + its 1/4 powers (two-sided), or the one-sided curvature matrix C.
     if two_sided:
         if kl_shampoo:
-            sa_inv = _matrix_inv_ns(p, power_iters, floor, eps)  # S_a^{-1} [M,M] from incoming P_L (Jacobi)
+            sa_inv = _eigh_inv(p, floor, eps)  # S_a^{-1} [M,M] = Q_a Diag(1/λ_a) Q_aᵀ (no matrix inverse)
             delta_b = (g_t.T @ sa_inv @ g_t) / da
         else:
             delta_b = g_t.T @ g_t
@@ -664,12 +663,11 @@ def curv_direction_batched(
         a_q, _ = sqrtns(a_half, power_iters)
         return tr**0.25 * a_q
 
-    def inv_ns(pp):  # κ-damped SPD inverse (see _matrix_inv_ns), batched
-        eye = jnp.broadcast_to(jnp.eye(pp.shape[-1], dtype=pp.dtype), pp.shape)
-        tr = jnp.sum(pp * eye, axis=(-2, -1))[..., None, None] + eps
-        a = pp / tr + floor * eye
-        _, z = sqrtns(a, power_iters)
-        return em("...ik,...kj->...ij", z, z) / tr
+    def inv_ns(pp):  # κ-damped SPD inverse via eigh-reciprocal (see _eigh_inv), batched — no iterative inverse
+        wv, qv2 = jnp.linalg.eigh(0.5 * (pp + bt(pp)))  # wv [.., n], qv2 [.., n, n]
+        wv = jnp.maximum(wv, 0.0)
+        inv_w = 1.0 / (wv + floor * (jnp.sum(wv, axis=-1, keepdims=True) + eps))
+        return em("...ik,...kj->...ij", qv2 * inv_w[..., None, :], bt(qv2))
 
     def power_iter(mat, qv):
         for _ in range(int(power_iters)):
