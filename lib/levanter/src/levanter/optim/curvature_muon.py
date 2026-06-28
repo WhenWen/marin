@@ -217,17 +217,22 @@ def _matrix_sqrt_ns(a, iters):
     return y, z
 
 
-def _eigh_inv(a, floor, eps):
-    """κ-damped SPD inverse via eigendecomposition: Q Diag(1/(λ+κ)) Qᵀ, κ = floor·tr.
-
-    This is KL-Shampoo's whitening S^{-1} = Q Diag(λ^{⊙-1}) Qᵀ (arXiv 2509.03378, qr_impl) — NO iterative
-    matrix inverse, just eigh + an elementwise reciprocal of the eigenvalue vector. eigh is a single compact
-    op, vs the ~24-matmul unrolled coupled-NS the naive inverse would add to the graph (which bloated compile).
+def _qr_refine(sq, spec=None):
+    """Q = qr(S·Q_prev)[0] — ONE orthogonal-iteration step refining the MAINTAINED eigenbasis across outer
+    steps (the paper's Step 3b, amortized: one QR/step, Q tracks the slowly-changing Gram). ``sq`` is the
+    already-formed S·Q_prev. TPU-safe: ``jnp.linalg.qr``/``eigh`` trip an internal ``select`` under the
+    explicit mesh, so the batched (stack-sharded) case runs per-matrix QR inside a manual-mode ``shard_map``
+    over the stack axis — each device QRs its LOCAL matrices as plain arrays, fully distributed, NO reshard.
     """
-    w, q = jnp.linalg.eigh(0.5 * (a + a.T))
-    w = jnp.maximum(w, 0.0)
-    inv_w = 1.0 / (w + floor * (jnp.sum(w) + eps))  # damped reciprocal eigenvalues
-    return (q * inv_w) @ q.T
+    if sq.ndim < 3 or spec is None or jax.sharding.get_abstract_mesh().empty:
+        return jnp.linalg.qr(sq)[0]
+    return jax.shard_map(
+        lambda a: jnp.linalg.qr(a)[0],
+        mesh=jax.sharding.get_abstract_mesh(),
+        in_specs=spec,
+        out_specs=spec,
+        check_vma=False,
+    )(sq)
 
 
 def _pow4_inv_quarter(p, iters, floor, eps):
@@ -438,8 +443,11 @@ def _curv_direction_2d(
     ekfac: bool = False,
     aug_eig=None,
     ekfac_power: str = "half",
+    q_a_in=None,
+    q_b_in=None,
 ):
     """One matrix. g, n: [out, in]; p/q = left Gram P_L [M,M] + power vec; p_r/q_r = right Gram P_R [N,N] + vec.
+    q_a_in/q_b_in: MAINTAINED eigenbases (refined one QR step/outer-step); used for the KL inverse + EK-FAC.
 
     one-sided (two_sided=False): X = msign(N + λ(α√e_max·I − C)X), C = P_L^{1/2} (sqrt) or P_L/√e_max (linear);
     warm start msign(P_L^{-1/2} N) (Mudam q_k).
@@ -469,11 +477,17 @@ def _curv_direction_2d(
     n_t = n.T if transpose else n
 
     da, db = g_t.shape[0], g_t.shape[1]
+
+    def _inv_q(a, qm):  # κ-damped S^{-1} = Q Diag(1/(λ+κ)) Qᵀ using the MAINTAINED eigenbasis qm; λ=diag(qmᵀ a qm)
+        lam = jnp.maximum(jnp.sum(qm * (a @ qm), axis=0), 0.0)  # Rayleigh eigenvalues [n]
+        inv = 1.0 / (lam + floor * (jnp.sum(lam) + eps))
+        return (qm * inv) @ qm.T
+
     # KL-Shampoo (arXiv 2509.03378) Gram update: whiten each outer product by the OTHER factor's
-    # (κ-damped) inverse computed from the INCOMING state, with 1/d scaling — the coupled-MLE estimate
+    # (κ-damped) inverse using the INCOMING maintained eigenbasis, with 1/d scaling — the coupled-MLE estimate
     # S_a←(1-β)S_a+(β/d_b)G S_b^{-1}Gᵀ. Standard Shampoo (kl_shampoo=False) uses the plain outer product GGᵀ.
     if kl_shampoo and two_sided:
-        sb_inv = _eigh_inv(p_r, floor, eps)  # S_b^{-1} [N,N] = Q_b Diag(1/λ_b) Q_bᵀ (no matrix inverse)
+        sb_inv = _inv_q(p_r, q_b_in)  # S_b^{-1} = Q_b Diag(1/λ_b) Q_bᵀ (maintained eigenbasis, no eigh)
         delta_a = (g_t @ sb_inv @ g_t.T) / db
     else:
         delta_a = g_t @ g_t.T
@@ -489,7 +503,7 @@ def _curv_direction_2d(
     # Right Gram P_R + its 1/4 powers (two-sided), or the one-sided curvature matrix C.
     if two_sided:
         if kl_shampoo:
-            sa_inv = _eigh_inv(p, floor, eps)  # S_a^{-1} [M,M] = Q_a Diag(1/λ_a) Q_aᵀ (no matrix inverse)
+            sa_inv = _inv_q(p, q_a_in)  # S_a^{-1} = Q_a Diag(1/λ_a) Q_aᵀ (maintained eigenbasis)
             delta_b = (g_t.T @ sa_inv @ g_t) / da
         else:
             delta_b = g_t.T @ g_t
@@ -514,11 +528,15 @@ def _curv_direction_2d(
     # bias-corrected Grams). The curvature operator becomes rotate→scale by (D̂)^{1/4}→rotate-back: P[X] =
     # Q_a((D̂^{1/4})⊙(Q_aᵀ X Q_b))Q_bᵀ. D̂≈λ_aλ_b (second-moment eigenvalue), so the 1/4 exponent matches the
     # two-sided P^{1/4} convention and keeps λ comparable. D is bias-corrected by pdiv like the Grams.
+    # Refine the maintained eigenbasis one QR orthogonal-iteration step from the NEW Grams (Q tracks the
+    # slowly-changing Gram across outer steps). Passthrough when no maintained Q is supplied (qwen3 path).
+    new_qa = _qr_refine(new_p @ q_a_in) if q_a_in is not None else q_a_in
+    new_qb = _qr_refine(new_p_r @ q_b_in) if (q_b_in is not None and two_sided) else q_b_in
+
     new_D = aug_eig
     ekfac_on = ekfac and two_sided
     if ekfac_on:
-        _, qa = jnp.linalg.eigh(0.5 * (p_c + p_c.T))
-        _, qb = jnp.linalg.eigh(0.5 * (pr_c + pr_c.T))
+        qa, qb = new_qa, new_qb
         ghat = qa.T @ g_t @ qb
         base_D = aug_eig if aug_eig is not None else jnp.zeros_like(ghat)
         new_D = rho * base_D + (1.0 - rho) * (ghat * ghat)
@@ -559,13 +577,37 @@ def _curv_direction_2d(
         else:
             x = cold
         xr = post(x)
-        return new_p, new_q, new_p_r, new_q_r, xr, phi_traj, (xr.T if transpose else xr), tau_out, new_D
+        return (
+            new_p,
+            new_q,
+            new_p_r,
+            new_q_r,
+            xr,
+            phi_traj,
+            (xr.T if transpose else xr),
+            tau_out,
+            new_D,
+            new_qa,
+            new_qb,
+        )
 
     if inner_solver == "frank_wolfe":
         cold = msign(n_solve)
         x = _fw_solve(n_solve, apply_curv, cold, lam_coef, inner_steps, msign) if lam_static > 0.0 else cold
         xr = post(x)
-        return new_p, new_q, new_p_r, new_q_r, xr, phi_traj, (xr.T if transpose else xr), tau_out, new_D
+        return (
+            new_p,
+            new_q,
+            new_p_r,
+            new_q_r,
+            xr,
+            phi_traj,
+            (xr.T if transpose else xr),
+            tau_out,
+            new_D,
+            new_qa,
+            new_qb,
+        )
 
     # --- fixed-point inner solver ---
     if two_sided:
@@ -578,14 +620,26 @@ def _curv_direction_2d(
             for _ in range(int(inner_steps)):
                 arg = n_t + lam_coef * (shift2 * x - pl4 @ x @ pr4)
                 x = msign(arg)
-        return new_p, new_q, new_p_r, new_q_r, inner_x, phi_traj, (x.T if transpose else x), tau_out, new_D
+        return (
+            new_p,
+            new_q,
+            new_p_r,
+            new_q_r,
+            inner_x,
+            phi_traj,
+            (x.T if transpose else x),
+            tau_out,
+            new_D,
+            new_qa,
+            new_qb,
+        )
 
     x = _mudam_direction(n_t, new_p, mudam_steps, eps) if mudam_init else msign(n_t)
     if lam_static > 0.0:
         operator = lam_coef * (alpha * se * eye - curv)  # PSD for α≥1
         for _ in range(int(inner_steps)):
             x = msign(n_t + operator @ x)
-    return new_p, new_q, new_p_r, new_q_r, inner_x, phi_traj, (x.T if transpose else x), tau_out, new_D
+    return new_p, new_q, new_p_r, new_q_r, inner_x, phi_traj, (x.T if transpose else x), tau_out, new_D, new_qa, new_qb
 
 
 def curv_direction_batched(
@@ -615,6 +669,8 @@ def curv_direction_batched(
     ekfac=False,
     aug_eig=None,
     ekfac_power="half",
+    q_a_in=None,
+    q_b_in=None,
 ):
     """Batched two-sided curvature direction over a leading stack axis (e.g. MoE experts).
 
@@ -663,11 +719,10 @@ def curv_direction_batched(
         a_q, _ = sqrtns(a_half, power_iters)
         return tr**0.25 * a_q
 
-    def inv_ns(pp):  # κ-damped SPD inverse via eigh-reciprocal (see _eigh_inv), batched — no iterative inverse
-        wv, qv2 = jnp.linalg.eigh(0.5 * (pp + bt(pp)))  # wv [.., n], qv2 [.., n, n]
-        wv = jnp.maximum(wv, 0.0)
-        inv_w = 1.0 / (wv + floor * (jnp.sum(wv, axis=-1, keepdims=True) + eps))
-        return em("...ik,...kj->...ij", qv2 * inv_w[..., None, :], bt(qv2))
+    def inv_q(a, qm):  # κ-damped S^{-1}=Q Diag(1/(λ+κ)) Qᵀ via the MAINTAINED eigenbasis qm; λ=diag(qmᵀ a qm)
+        lam = jnp.maximum(jnp.sum(qm * em("...ik,...kj->...ij", a, qm), axis=-2), 0.0)  # Rayleigh [.., n]
+        inv = 1.0 / (lam + floor * (jnp.sum(lam, axis=-1, keepdims=True) + eps))
+        return em("...ik,...kj->...ij", qm * inv[..., None, :], bt(qm))
 
     def power_iter(mat, qv):
         for _ in range(int(power_iters)):
@@ -689,8 +744,8 @@ def curv_direction_batched(
     da, db = g_t.shape[-2], g_t.shape[-1]
     # KL-Shampoo whitened Gram update (see _curv_direction_2d); else plain Shampoo outer product.
     if kl_shampoo:
-        sb_inv = inv_ns(p_r)  # S_b^{-1} from incoming P_R
-        sa_inv = inv_ns(p)  # S_a^{-1} from incoming P_L (Jacobi)
+        sb_inv = inv_q(p_r, q_b_in)  # S_b^{-1} via maintained incoming Q_b
+        sa_inv = inv_q(p, q_a_in)  # S_a^{-1} via maintained incoming Q_a (Jacobi)
         delta_a = em("...ik,...kj->...ij", em("...ik,...kj->...ij", g_t, sb_inv), bt(g_t)) / db
         delta_b = em("...ik,...kj->...ij", em("...ki,...kj->...ij", g_t, sa_inv), g_t) / da
     else:
@@ -710,10 +765,13 @@ def curv_direction_batched(
     # EK-FAC augmented eigenvalues (see _curv_direction_2d): batched eigh of the Grams gives the eigenbasis;
     # D = EMA((Q_aᵀG Q_b)²). We solve in the eigenbasis (rotate N in ONCE, solution out ONCE) where the
     # curvature is the ELEMENTWISE d_scale ⊙ X̂ — avoiding two matmuls per apply_curv call.
+    # Refine maintained eigenbases one QR step from the NEW Grams (distributed shard_map QR via _qr_refine).
+    new_qa = _qr_refine(em("...ik,...kj->...ij", new_p, q_a_in), out_p) if q_a_in is not None else q_a_in
+    new_qb = _qr_refine(em("...ik,...kj->...ij", new_p_r, q_b_in), out_p) if q_b_in is not None else q_b_in
+
     new_D = aug_eig
     if ekfac:
-        _, qa = jnp.linalg.eigh(0.5 * (p_c + bt(p_c)))
-        _, qb = jnp.linalg.eigh(0.5 * (pr_c + bt(pr_c)))
+        qa, qb = new_qa, new_qb
         ghat = em("...ik,...kj->...ij", em("...ki,...kj->...ij", qa, g_t), qb)  # Q_aᵀ G Q_b
         base_D = aug_eig if aug_eig is not None else jnp.zeros_like(ghat)
         new_D = rho * base_D + (1.0 - rho) * (ghat * ghat)
@@ -766,7 +824,7 @@ def curv_direction_batched(
         x = jax.lax.scan(fw_step, cold, None, length=int(inner_steps))[0] if lam_static > 0.0 else cold
         xr = post(x)
         direction = bt(xr) if transpose else xr
-        return new_p, new_q, new_p_r, new_q_r, xr, direction, tau_final, new_D
+        return new_p, new_q, new_p_r, new_q_r, xr, direction, tau_final, new_D, new_qa, new_qb
 
     if lam_static > 0.0:
         tau0, beta, cc = 0.5, 0.5, 1e-4
@@ -804,7 +862,7 @@ def curv_direction_batched(
 
     xr = post(x)
     direction = bt(xr) if transpose else xr
-    return new_p, new_q, new_p_r, new_q_r, xr, direction, tau_final, new_D
+    return new_p, new_q, new_p_r, new_q_r, xr, direction, tau_final, new_D, new_qa, new_qb
 
 
 def scale_with_curvature_muon(
@@ -960,9 +1018,11 @@ def scale_with_curvature_muon(
                 constraint=constraint,
             )
             if g.ndim == 3:
-                new_p, new_q, new_p_r, new_q_r, new_x, phi_traj, x, _tau, _D = jax.vmap(fn)(g, n, p, q, p_r, q_r, xx)
+                new_p, new_q, new_p_r, new_q_r, new_x, phi_traj, x, _tau, _D, _qa, _qb = jax.vmap(fn)(
+                    g, n, p, q, p_r, q_r, xx
+                )
             else:
-                new_p, new_q, new_p_r, new_q_r, new_x, phi_traj, x, _tau, _D = fn(g, n, p, q, p_r, q_r, xx)
+                new_p, new_q, new_p_r, new_q_r, new_x, phi_traj, x, _tau, _D, _qa, _qb = fn(g, n, p, q, p_r, q_r, xx)
             new_w = dataclasses.replace(n_layer.weight, array=x)
             # 7-tuple: (direction-layer, P_L, q_L, P_R, q_R, inner_x, phi_traj)
             return (dataclasses.replace(n_layer, weight=new_w), new_p, new_q, new_p_r, new_q_r, new_x, phi_traj)  # type: ignore
