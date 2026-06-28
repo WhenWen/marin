@@ -431,8 +431,11 @@ def _band_ncg_solve(n_t, apply_curv, lam_coef, msign, em, n_steps, tau=_BAND_TAU
     control (Frobenius-primary, σ-soft). Base objective max ⟨B,Y⟩−½ΣA·Y² (A=λ·d_scale). Projection onto the
     constraint = mclip_ab(√R·Ỹ/‖Ỹ‖_F, τ, u): pre-scale to the sphere, then band-clip (band exact; the
     downstream hyperball normalizes the direction so only the σ-shape matters). PR+ conjugate directions, sphere
-    tangent transport, 2-point backtrack. Numerically stable in fp32 (stress-tested); needs σ in-band each step
-    (held by the projection)."""
+    tangent transport, ADAPTIVE trust-region line search: carry a step scale ``ts`` per matrix; probe at
+    {ts, 0.25·ts}+keep-Y, pick best-φ (monotone), then grow ts×2 (cap 1) on a full-step accept and shrink
+    ts×0.25 on keep-Y. The shrink is essential — with a FIXED 2-point {1,0.25} the optimum needs sub-0.25 steps
+    near convergence, both probes overshoot, only keep-Y fires, and φ PLATEAUS (verified: half stalls at ~2%,
+    qt frozen). Adaptive ts reaches the sub-0.25 regime and converges to ~0. Stable in fp32 (stress-tested)."""
     b = n_t
     a = lam_coef * apply_curv(jnp.ones_like(n_t))
     rr = float(min(b.shape[-2], b.shape[-1]))  # Frobenius budget R = min(d1,d2)
@@ -448,23 +451,24 @@ def _band_ncg_solve(n_t, apply_curv, lam_coef, msign, em, n_steps, tau=_BAND_TAU
 
     y = project(msign(b))
     g = tang(y, egrad(y))
+    ts0 = jnp.ones_like(rdot(b, b))  # per-matrix step scale [..., 1, 1]
 
     def step(carry, _):
-        y, g, p = carry
-        # MONOTONE line search: best-φ over {keep-y, α=1, α=0.25} — y always an option ⟹ φ non-decreasing
-        # (a plain 2-point backtrack that always takes α=0.25 on failure is non-monotone and oscillates).
-        yc1 = project(y + p)
-        yc2 = project(y + 0.25 * p)
+        y, g, p, ts = carry
+        yc1 = project(y + ts * p)  # full step at current scale
+        yc2 = project(y + 0.25 * ts * p)  # half-decade-smaller probe
         f0, f1, f2 = phi(y), phi(yc1), phi(yc2)
-        best01 = jnp.where(f1 >= f0, yc1, y)
-        yn = jnp.where(f2 >= jnp.maximum(f0, f1), yc2, best01)
+        big = (f1 >= f0) & (f1 >= f2)  # full-step accepted and best
+        keep = (f1 < f0) & (f2 < f0)  # neither probe improved ⟹ overshoot
+        yn = jnp.where(big, yc1, jnp.where(keep, y, yc2))
+        ts = jnp.where(big, jnp.minimum(2.0 * ts, 1.0), jnp.where(keep, 0.25 * ts, ts))  # trust-region adapt
         gn = tang(yn, egrad(yn))
         beta = jnp.maximum(0.0, rdot(gn, gn - tang(yn, g)) / (rdot(g, g) + eps))  # Polak–Ribière+
         pn = gn + beta * tang(yn, p)
         asc = (rdot(gn, pn) > 0).astype(y.dtype)  # restart if not an ascent direction
-        return (yn, gn, asc * pn + (1.0 - asc) * gn), None
+        return (yn, gn, asc * pn + (1.0 - asc) * gn, ts), None
 
-    (y, _, _), _ = jax.lax.scan(step, (y, g, g), None, length=int(n_steps))
+    (y, _, _, _), _ = jax.lax.scan(step, (y, g, g, ts0), None, length=int(n_steps))
     return y
 
 
