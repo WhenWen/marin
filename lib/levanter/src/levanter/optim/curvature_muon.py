@@ -464,6 +464,32 @@ def _ncg_solve(n_t, apply_curv, x0, lam_coef, n_rounds, msign, em, es, bsym, j_c
     return jax.lax.scan(rnd, x0, None, length=int(n_rounds))[0]
 
 
+def _ek_secular_solve(n_t, apply_curv, lam_coef, bisect_iters=40, target=1.0, eps=1e-12):
+    """Relaxation 2: fixed row/column norms in the EK-FAC rotated basis. The EK-FAC inner objective is the
+    diagonal quadratic φ(Y) = Σ B_ij Y_ij − ½ Σ A_ij Y_ij², with A = λ·d_scale and B = Q_BᵀN Q_A (= ``n_t``
+    here, already rotated). Imposing the relaxed unit norm on the dimension the Stiefel manifold fixes —
+    column-Stiefel (XᵀX=I, tall) ⟹ unit columns; row-Stiefel (XXᵀ=I, wide) ⟹ unit rows; ties → rows — makes
+    it SEPARABLE: each row/column is an independent secular problem with closed-form Y_ij = B_ij/(A_ij+ν) and
+    ν the unique root (>−min A) of Σ B²/(A+ν)² = target. s(ν) is monotone decreasing on (−min A, ∞), so a
+    vectorized bisection over the per-line ν solves all lines at once. No msign, no eigh — pure elementwise +
+    reductions, so it shards trivially (matrix dims replicated in the batched path)."""
+    B = n_t
+    A = lam_coef * apply_curv(jnp.ones_like(n_t))  # A = λ·d_scale ≥ 0
+    axis = -1 if B.shape[-2] <= B.shape[-1] else -2  # wide→row-Stiefel→per-row; tall→col-Stiefel→per-col; tie→row
+    s = lambda nu: jnp.sum((B / (A + nu)) ** 2, axis=axis, keepdims=True)
+    lo = -jnp.min(A, axis=axis, keepdims=True) + eps  # s(lo)→∞ ≥ target
+    hi = jnp.sqrt(jnp.sum(B * B, axis=axis, keepdims=True) / target) + eps  # A≥0 ⟹ s(hi) ≤ target (valid bracket)
+
+    def step(c, _):
+        lo, hi = c
+        mid = 0.5 * (lo + hi)
+        big = s(mid) > target  # root is to the right ⟹ raise lo
+        return (jnp.where(big, mid, lo), jnp.where(big, hi, mid)), None
+
+    (lo, hi), _ = jax.lax.scan(step, (lo, hi), None, length=int(bisect_iters))
+    return B / (A + 0.5 * (lo + hi))
+
+
 def _best_phi(cands, n_t, apply_curv, lam_coef, es):
     """Per-matrix argmax of φ(z)=⟨Ñ,z⟩−(λ/2)⟨z,𝒞z⟩ over candidate directions — a cheap (no msign) guard so
     the returned direction is never worse than the warm start / cold msign(N)."""
@@ -668,6 +694,23 @@ def _curv_direction_2d(
     if inner_solver == "frank_wolfe":
         cold = msign(n_solve)
         x = _fw_solve(n_solve, apply_curv, cold, lam_coef, inner_steps, msign) if lam_static > 0.0 else cold
+        xr = post(x)
+        return (
+            new_p,
+            new_q,
+            new_p_r,
+            new_q_r,
+            xr,
+            phi_traj,
+            (xr.T if transpose else xr),
+            tau_out,
+            new_D,
+            new_qa,
+            new_qb,
+        )
+
+    if inner_solver == "secular":
+        x = _ek_secular_solve(n_solve, apply_curv, lam_coef) if lam_static > 0.0 else msign(n_solve)
         xr = post(x)
         return (
             new_p,
@@ -923,6 +966,12 @@ def curv_direction_batched(
             return x + alpha[..., None, None] * d, None
 
         x = jax.lax.scan(fw_step, cold, None, length=int(inner_steps))[0] if lam_static > 0.0 else cold
+        xr = post(x)
+        direction = bt(xr) if transpose else xr
+        return new_p, new_q, new_p_r, new_q_r, xr, direction, tau_final, new_D, new_qa, new_qb
+
+    if solver == "secular":
+        x = _ek_secular_solve(n_solve, apply_curv, lam_coef) if lam_static > 0.0 else cold
         xr = post(x)
         direction = bt(xr) if transpose else xr
         return new_p, new_q, new_p_r, new_q_r, xr, direction, tau_final, new_D, new_qa, new_qb
