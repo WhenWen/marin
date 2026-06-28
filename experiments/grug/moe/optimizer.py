@@ -151,6 +151,7 @@ def scale_with_grug_muonh(
     inner_solver: str = "riemannian_muon",
     kl_shampoo: bool = False,
     ekfac: bool = False,
+    ekfac_power: str = "half",
     lambda_tracks_lr: bool = False,
     peak_lr: float = 0.0,
 ) -> optax.GradientTransformation:
@@ -180,6 +181,7 @@ def scale_with_grug_muonh(
             inner_solver=inner_solver,
             kl_shampoo=kl_shampoo,
             ekfac=ekfac,
+            ekfac_power=ekfac_power,
         )
     else:
         muon_transform = _grug_scale_with_muon(
@@ -360,6 +362,8 @@ class GrugMoeMuonHConfig(OptimizerConfig):
     curvature_kl_shampoo: bool = False
     # EK-FAC: replace Kronecker eigenvalues with per-coordinate D=EMA((QᵀGQ)²) in the (KL-)Shampoo eigenbasis.
     curvature_ekfac: bool = False
+    # EK-FAC curvature scale: "half" (D^{1/2}=√S) or "quarter_trace" (D^{1/4}·tr_D^{1/4}, matches S^{1/4} shape).
+    curvature_ekfac_power: str = "half"
     # If True, the curvature strength tracks the LR schedule: λ_t = curvature_lambda · lr_t/peak_lr.
     curvature_lambda_tracks_lr: bool = False
 
@@ -390,6 +394,7 @@ class GrugMoeMuonHConfig(OptimizerConfig):
                         inner_solver=self.curvature_inner_solver,
                         kl_shampoo=self.curvature_kl_shampoo,
                         ekfac=self.curvature_ekfac,
+                        ekfac_power=self.curvature_ekfac_power,
                         lambda_tracks_lr=self.curvature_lambda_tracks_lr,
                         peak_lr=self.learning_rate,
                     )

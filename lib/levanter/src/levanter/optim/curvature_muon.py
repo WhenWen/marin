@@ -438,6 +438,7 @@ def _curv_direction_2d(
     kl_shampoo: bool = False,
     ekfac: bool = False,
     aug_eig=None,
+    ekfac_power: str = "half",
 ):
     """One matrix. g, n: [out, in]; p/q = left Gram P_L [M,M] + power vec; p_r/q_r = right Gram P_R [N,N] + vec.
 
@@ -522,7 +523,13 @@ def _curv_direction_2d(
         ghat = qa.T @ g_t @ qb
         base_D = aug_eig if aug_eig is not None else jnp.zeros_like(ghat)
         new_D = rho * base_D + (1.0 - rho) * (ghat * ghat)
-        d_scale = jnp.power(new_D / pdiv + eps, 0.25)
+        d_hat = new_D / pdiv
+        # Curvature scale (both units-G ⟹ λ dimensionless): "half" = √S = D̂^{1/2} (natural-gradient curvature);
+        # "quarter_trace" = D̂^{1/4}·tr_D^{1/4}, which reproduces the existing P_L^{1/4}·P_R^{1/4} (S^{1/4}) shape.
+        if ekfac_power == "quarter_trace":
+            d_scale = jnp.power(d_hat + eps, 0.25) * jnp.power(jnp.sum(d_hat) + eps, 0.25)
+        else:
+            d_scale = jnp.power(d_hat + eps, 0.5)
 
     phi_traj = jnp.zeros((int(inner_steps) + 1,), dtype=n_t.dtype)  # default; only riemannian fills it
     # Warm-start τ carried across outer steps; default 0.25 on step 1. tau_out is returned so the caller can
@@ -608,6 +615,7 @@ def curv_direction_batched(
     kl_shampoo=False,
     ekfac=False,
     aug_eig=None,
+    ekfac_power="half",
 ):
     """Batched two-sided curvature direction over a leading stack axis (e.g. MoE experts).
 
@@ -711,7 +719,12 @@ def curv_direction_batched(
         ghat = em("...ik,...kj->...ij", em("...ki,...kj->...ij", qa, g_t), qb)  # Q_aᵀ G Q_b
         base_D = aug_eig if aug_eig is not None else jnp.zeros_like(ghat)
         new_D = rho * base_D + (1.0 - rho) * (ghat * ghat)
-        d_scale = jnp.power(new_D / pdiv + eps, 0.25)
+        d_hat = new_D / pdiv
+        if ekfac_power == "quarter_trace":  # D̂^{1/4}·tr_D^{1/4} (per-stack trace); else "half" = D̂^{1/2}
+            trd = jnp.sum(d_hat, axis=(-2, -1), keepdims=True) + eps
+            d_scale = jnp.power(d_hat + eps, 0.25) * jnp.power(trd, 0.25)
+        else:
+            d_scale = jnp.power(d_hat + eps, 0.5)
         n_solve = ghat * 0.0 + em("...ik,...kj->...ij", em("...ki,...kj->...ij", qa, n_t), qb)  # Q_aᵀ N Q_b
         apply_curv = lambda x: d_scale * x  # elementwise in the eigenbasis
         post = lambda x: em("...ik,...kj->...ij", em("...ik,...kj->...ij", qa, x), bt(qb))  # Q_a (·) Q_bᵀ

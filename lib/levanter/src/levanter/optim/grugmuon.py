@@ -289,6 +289,7 @@ def _grug_scale_with_curvature_muon(
     inner_solver="riemannian_muon",
     kl_shampoo=False,
     ekfac=False,
+    ekfac_power="half",
 ):
     """Curvature-corrected Muon for raw grug arrays (matrix trailing dims). Drop-in for
     _grug_scale_with_muon: replaces msign(N) with the Riemannian curvature inner-solve, applies the same
@@ -406,6 +407,7 @@ def _grug_scale_with_curvature_muon(
                     kl_shampoo=kl_shampoo,
                     ekfac=ekfac,
                     aug_eig=xd,
+                    ekfac_power=ekfac_power,
                 )
             else:
                 # 2-D dense matrix (attn / shared / gated-norm): per-matrix solve, replicate inner so the NS
@@ -442,6 +444,7 @@ def _grug_scale_with_curvature_muon(
                     kl_shampoo=kl_shampoo,
                     ekfac=ekfac,
                     aug_eig=xd,
+                    ekfac_power=ekfac_power,
                 )
             fan_in, fan_out = d.shape[-2:]
             return _CurvOut(d * jnp.sqrt(jnp.maximum(1.0, fan_out / fan_in)), np_, nq, npr, nqr, nx, ntau, nd)

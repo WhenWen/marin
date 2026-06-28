@@ -107,6 +107,8 @@ _CURV_SOLVER: str = os.environ.get("CURV_SOLVER", "riemannian_muon")
 _CURV_KL_SHAMPOO: bool = os.environ.get("CURV_KL_SHAMPOO", "0") not in ("0", "false", "False")
 # EK-FAC: per-coordinate augmented eigenvalues D in the (KL-)Shampoo eigenbasis.
 _CURV_EKFAC: bool = os.environ.get("CURV_EKFAC", "0") not in ("0", "false", "False")
+# EK-FAC curvature scale: "half" (D^{1/2}) or "quarter_trace" (D^{1/4}·tr_D^{1/4}).
+_CURV_EKFAC_POWER: str = os.environ.get("CURV_EKFAC_POWER", "half")
 # msign Newton-Schulz schedule. The validated curvature optimizer uses polar_express@8 -- the precise
 # msign the ball mclip needs (quintic@5 fails to clip: sigma_out~12 at sigma=1e3). Default to the #6153
 # MuonH baseline (quintic@5); set COEFF_TYPE=polar_express BACKEND_STEPS=8 for the curvature runs.
@@ -239,6 +241,7 @@ for _dim, _bs, _steps in _COMPUTE_OPT_CELLS:
         curvature_inner_solver=_CURV_SOLVER,
         curvature_kl_shampoo=_CURV_KL_SHAMPOO,
         curvature_ekfac=_CURV_EKFAC,
+        curvature_ekfac_power=_CURV_EKFAC_POWER,
         curvature_lambda_tracks_lr=_CURV_LAMBDA_TRACKS_LR,
     )
     # Override the msign schedule when requested (curvature needs polar_express@8 for ball precision).
