@@ -720,6 +720,56 @@ def _best_phi_orig(cands, n_orig, curv_orig):
     return best
 
 
+def _sqrt_ncg_solve(n_t, apply_curv, alpha, n_rounds, msign, em, es, bsym, j_cg=_NCG_JCG, mu_rel=0.1, eps=1e-8):
+    """Newton-CG on the Stiefel SQUARE-ROOT-penalty problem: max_{XᵀX=I} ψ(X)=⟨N,X⟩−α·q(X), q=√(⟨X,𝒞X⟩+ε).
+    The penalty is positively homogeneous ⟹ the direction is scale-invariant (independent of trust-region
+    radius); effective curvature self-normalizes as λ_eff(X)=α/q(X). Euclidean grad Z=N−λ_eff·𝒞X. Riemannian
+    Hessian H[η]=Π(−λ_eff·𝒞η + λ_eff·(⟨𝒞X,η⟩/q²)·𝒞X − η·S), S=sym(XᵀZ) — the quadratic-NCG HVP at λ_eff PLUS
+    a rank-1 self-normalization term from the √. Damped Newton system (μI−H)η=G_R by j_cg CG steps; retract
+    msign(X+η); monotone backtrack on ψ over {keep, α∈{1,.5,.25}}. α reuses the curvature-strength knob; no
+    fixed λ and no trust-region radius to tune — α = how much Shampoo/Fisher risk to discount."""
+    cv = apply_curv
+    diagmax = jnp.max(cv(jnp.ones_like(n_t)), axis=(-2, -1), keepdims=True)
+    rd = lambda x, y: es("...mn,...mn->...", x, y)[..., None, None]
+    xt = lambda x, z: bsym(em("...ki,...kj->...ij", x, z))  # sym(Xᵀ Z)  [..., N, N]
+    projT = lambda x, z: z - em("...ik,...kj->...ij", x, xt(x, z))  # column-Stiefel tangent
+    qf = lambda x: jnp.sqrt(jnp.maximum(rd(x, cv(x)), 0.0) + eps)
+    psi = lambda x: rd(n_t, x) - alpha * qf(x)
+
+    def rnd(x, _):
+        q = qf(x)
+        le = alpha / q  # self-normalized curvature strength
+        cx = cv(x)
+        z = n_t - le * cx
+        s = xt(x, z)
+        g_r = z - em("...ik,...kj->...ij", x, s)
+        mu = mu_rel * (le * diagmax + jnp.sqrt(rd(s, s)))
+        hvp = lambda e: projT(x, -le * cv(e) + le * (rd(cx, e) / (q * q)) * cx - em("...ik,...kj->...ij", e, s))
+        eta = jnp.zeros_like(g_r)
+        r = g_r
+        p = g_r
+        rs = rd(r, r)
+        for _ in range(int(j_cg)):
+            ap = mu * p - hvp(p)
+            denom = rd(p, ap)
+            a = rs / jnp.where(jnp.abs(denom) > eps, denom, 1.0)
+            eta = eta + a * p
+            r = r - a * ap
+            rs2 = rd(r, r)
+            p = r + (rs2 / jnp.where(rs > eps, rs, 1.0)) * p
+            rs = rs2
+        best, bf = x, psi(x)  # monotone backtrack on ψ
+        for al in (1.0, 0.5, 0.25):
+            xc = msign(x + al * eta)
+            fc = psi(xc)
+            take = fc > bf
+            best = jnp.where(take, xc, best)
+            bf = jnp.maximum(fc, bf)
+        return best, None
+
+    return jax.lax.scan(rnd, msign(n_t), None, length=int(n_rounds))[0]
+
+
 def _best_phi(cands, n_t, apply_curv, lam_coef, es):
     """Per-matrix argmax of φ(z)=⟨Ñ,z⟩−(λ/2)⟨z,𝒞z⟩ over candidate directions — a cheap (no msign) guard so
     the returned direction is never worse than the warm start / cold msign(N)."""
@@ -873,7 +923,10 @@ def _curv_direction_2d(
         d_hat = new_D / pdiv
         # Curvature scale (both units-G ⟹ λ dimensionless): "half" = √S = D̂^{1/2} (natural-gradient curvature);
         # "quarter_trace" = D̂^{1/4}·tr_D^{1/4}, which reproduces the existing P_L^{1/4}·P_R^{1/4} (S^{1/4}) shape.
-        if ekfac_power == "quarter_trace":
+        if inner_solver == "sqrt_ncg":
+            d_scale = d_hat  # sqrt penalty: the √ is OUTSIDE ⟹ curvature is the RAW 2nd moment (units G²) so
+            # √(tr XᵀDX) ~ G matches ⟨N,X⟩ ~ G and α is dimensionless. ekfac_power is ignored here.
+        elif ekfac_power == "quarter_trace":
             d_scale = jnp.power(d_hat + eps, 0.25) * jnp.power(jnp.sum(d_hat) + eps, 0.25)
         else:
             d_scale = jnp.power(d_hat + eps, 0.5)
@@ -1086,6 +1139,29 @@ def _curv_direction_2d(
             new_qb,
         )
 
+    if inner_solver == "sqrt_ncg":
+        emf = lambda s, a, b: jnp.einsum(s, a, b)
+        bsymf = lambda a: 0.5 * (a + jnp.swapaxes(a, -1, -2))
+        x = (
+            _sqrt_ncg_solve(n_solve, apply_curv, lam_coef, inner_steps, msign, emf, emf, bsymf)
+            if lam_static > 0.0
+            else msign(n_solve)
+        )
+        xr = post(x)
+        return (
+            new_p,
+            new_q,
+            new_p_r,
+            new_q_r,
+            xr,
+            phi_traj,
+            (xr.T if transpose else xr),
+            tau_out,
+            new_D,
+            new_qa,
+            new_qb,
+        )
+
     # --- fixed-point inner solver ---
     if two_sided:
         if mudam_init:
@@ -1253,7 +1329,9 @@ def curv_direction_batched(
         base_D = aug_eig if aug_eig is not None else jnp.zeros_like(ghat)
         new_D = rho * base_D + (1.0 - rho) * (ghat * ghat)
         d_hat = new_D / pdiv
-        if ekfac_power == "quarter_trace":  # D̂^{1/4}·tr_D^{1/4} (per-stack trace); else "half" = D̂^{1/2}
+        if solver == "sqrt_ncg":
+            d_scale = d_hat  # sqrt penalty: √ is OUTSIDE ⟹ raw 2nd moment (units G²) keeps α dimensionless
+        elif ekfac_power == "quarter_trace":  # D̂^{1/4}·tr_D^{1/4} (per-stack trace); else "half" = D̂^{1/2}
             trd = jnp.sum(d_hat, axis=(-2, -1), keepdims=True) + eps
             d_scale = jnp.power(d_hat + eps, 0.25) * jnp.power(trd, 0.25)
         else:
@@ -1369,6 +1447,16 @@ def curv_direction_batched(
             else:
                 x = _ncg_solve(n_solve, apply_curv, ng, lam_coef, inner_steps, msign, em, es, bsym)
             x = _best_phi([cold, ng, x], n_solve, apply_curv, lam_coef, es)
+        xr = post(x)
+        direction = bt(xr) if transpose else xr
+        return new_p, new_q, new_p_r, new_q_r, xr, direction, tau_final, new_D, new_qa, new_qb
+
+    if solver == "sqrt_ncg":
+        x = (
+            _sqrt_ncg_solve(n_solve, apply_curv, lam_coef, inner_steps, msign, em, es, bsym)
+            if lam_static > 0.0
+            else cold
+        )
         xr = post(x)
         direction = bt(xr) if transpose else xr
         return new_p, new_q, new_p_r, new_q_r, xr, direction, tau_final, new_D, new_qa, new_qb
