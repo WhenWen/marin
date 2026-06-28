@@ -405,6 +405,67 @@ def _fw_solve(n_t, apply_curv, x0, lam_coef, inner_steps, msign, eps=1e-12):
 _GPI_SAFETY = 0.05  # shift margin: c = λ·max(diag)·(1+ε) so B = cI − λ𝒞 ⪰ 0 (shifted-polar monotonicity)
 _NCG_JCG = 4  # CG steps per Newton-CG round
 _NCG_MU_REL = 0.03  # damping fraction: μ = μ_rel·(λ·max diag + ‖S‖_F)
+_BAND_TAU = 0.7071067811865476  # √2/2 — singular-value floor for the soft-Stiefel band_ncg solver
+_BAND_UCAP = 1.4142135623730951  # √2 — singular-value cap (srank ≥ R/u² = R/2 ⟹ anti-collapse)
+
+
+def _mclip_ab(m, alpha, beta, msign, em):
+    """Double-sided spectral clip σ(m) → clip(σ, α, β) via the polar/sign trick (no SVD): S=msign(m) (polar
+    factor UVᵀ), A_α=msign(mᵀm−α²I), A_β=msign(mᵀm−β²I) (symmetric signs V·sign(σ²−·²)·Vᵀ). Then
+    ½[(α+β)S + (m−αS)A_α + (βS−m)A_β] = U·clip(σ,α,β)·Vᵀ. Accurate to ~1e-6 in fp32 when σ is in a benign
+    range (the operating regime here, σ≈[τ,u]); the floor is unreliable only for σ≪α (tiny/zero), which the
+    projection avoids by clipping every step from a well-conditioned start."""
+    s = msign(m)
+    mtm = em("...ki,...kj->...ij", m, m)
+    eye = jnp.broadcast_to(jnp.eye(mtm.shape[-1], dtype=m.dtype), mtm.shape)
+    a_a = msign(mtm - (alpha * alpha) * eye)
+    a_b = msign(mtm - (beta * beta) * eye)
+    return 0.5 * (
+        (alpha + beta) * s + em("...ik,...kj->...ij", m - alpha * s, a_a) + em("...ik,...kj->...ij", beta * s - m, a_b)
+    )
+
+
+def _band_ncg_solve(n_t, apply_curv, lam_coef, msign, em, n_steps, tau=_BAND_TAU, ucap=_BAND_UCAP, eps=1e-12):
+    """Projected Riemannian PR+ CG for the HARD soft-Stiefel constraint {‖Y‖_F²=R, τ≤σ_i(Y)≤u} in the EK-FAC
+    eigenbasis. Frobenius sphere gives the energy budget; the spectral band [τ,u] gives soft singular-value
+    control (Frobenius-primary, σ-soft). Base objective max ⟨B,Y⟩−½ΣA·Y² (A=λ·d_scale). Projection onto the
+    constraint = mclip_ab(√R·Ỹ/‖Ỹ‖_F, τ, u): pre-scale to the sphere, then band-clip (band exact; the
+    downstream hyperball normalizes the direction so only the σ-shape matters). PR+ conjugate directions, sphere
+    tangent transport, 2-point backtrack. Numerically stable in fp32 (stress-tested); needs σ in-band each step
+    (held by the projection)."""
+    b = n_t
+    a = lam_coef * apply_curv(jnp.ones_like(n_t))
+    rr = float(min(b.shape[-2], b.shape[-1]))  # Frobenius budget R = min(d1,d2)
+    rdot = lambda x, y: jnp.sum(x * y, axis=(-2, -1), keepdims=True)
+
+    def project(y):
+        ys = jnp.sqrt(rr) * y / (jnp.linalg.norm(y, axis=(-2, -1), keepdims=True) + eps)
+        return _mclip_ab(ys, tau, ucap, msign, em)
+
+    phi = lambda y: rdot(b, y) - 0.5 * rdot(a, y * y)
+    egrad = lambda y: b - a * y
+    tang = lambda y, z: z - y * (rdot(y, z) / rr)  # Frobenius-sphere tangent projection
+
+    y = project(msign(b))
+    g = tang(y, egrad(y))
+
+    def step(carry, _):
+        y, g, p = carry
+        # MONOTONE line search: best-φ over {keep-y, α=1, α=0.25} — y always an option ⟹ φ non-decreasing
+        # (a plain 2-point backtrack that always takes α=0.25 on failure is non-monotone and oscillates).
+        yc1 = project(y + p)
+        yc2 = project(y + 0.25 * p)
+        f0, f1, f2 = phi(y), phi(yc1), phi(yc2)
+        best01 = jnp.where(f1 >= f0, yc1, y)
+        yn = jnp.where(f2 >= jnp.maximum(f0, f1), yc2, best01)
+        gn = tang(yn, egrad(yn))
+        beta = jnp.maximum(0.0, rdot(gn, gn - tang(yn, g)) / (rdot(g, g) + eps))  # Polak–Ribière+
+        pn = gn + beta * tang(yn, p)
+        asc = (rdot(gn, pn) > 0).astype(y.dtype)  # restart if not an ascent direction
+        return (yn, gn, asc * pn + (1.0 - asc) * gn), None
+
+    (y, _, _), _ = jax.lax.scan(step, (y, g, g), None, length=int(n_steps))
+    return y
 
 
 def _ng_init(n_t, apply_curv, lam_coef, msign, eps):
@@ -891,6 +952,28 @@ def _curv_direction_2d(
             new_qb,
         )
 
+    if inner_solver == "band_ncg":
+        emf = lambda s, *a: jnp.einsum(s, *a)
+        x = (
+            _band_ncg_solve(n_solve, apply_curv, lam_coef, msign, emf, inner_steps)
+            if lam_static > 0.0
+            else msign(n_solve)
+        )
+        xr = post(x)
+        return (
+            new_p,
+            new_q,
+            new_p_r,
+            new_q_r,
+            xr,
+            phi_traj,
+            (xr.T if transpose else xr),
+            tau_out,
+            new_D,
+            new_qa,
+            new_qb,
+        )
+
     if inner_solver == "doublenorm_secular":
         md, nd = n_solve.shape[-2], n_solve.shape[-1]
         rmin = min(md, nd)
@@ -1218,6 +1301,12 @@ def curv_direction_batched(
 
     if solver == "secular":
         x = _ek_secular_solve(n_solve, apply_curv, lam_coef) if lam_static > 0.0 else cold
+        xr = post(x)
+        direction = bt(xr) if transpose else xr
+        return new_p, new_q, new_p_r, new_q_r, xr, direction, tau_final, new_D, new_qa, new_qb
+
+    if solver == "band_ncg":
+        x = _band_ncg_solve(n_solve, apply_curv, lam_coef, msign, em, inner_steps) if lam_static > 0.0 else cold
         xr = post(x)
         direction = bt(xr) if transpose else xr
         return new_p, new_q, new_p_r, new_q_r, xr, direction, tau_final, new_D, new_qa, new_qb
