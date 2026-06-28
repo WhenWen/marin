@@ -490,6 +490,46 @@ def _ek_secular_solve(n_t, apply_curv, lam_coef, bisect_iters=40, target=1.0, ep
     return B / (A + 0.5 * (lo + hi))
 
 
+def _ek_doublenorm_solve(n_t, apply_curv, lam_coef, r_val, c_val, outer_iters=15, bisect_iters=30, eps=1e-12):
+    """Double-norm relaxation in the EK-FAC ROTATED basis (additive-Sinkhorn dual). The rotated objective is
+    diagonal: max Σ B_ij Y_ij − ½ Σ A_ij Y_ij² (A=λ·d_scale, B=Q_BᵀNQ_A=``n_t``) s.t. Σ_j Y_ij²=r_i AND
+    Σ_i Y_ij²=c_j. KKT gives the closed form Y_ij=B_ij/(A_ij+u_i+v_j); the dual potentials u,v enforce the
+    row/col budgets and are found by alternating per-line secular bisection (the additive analogue of Sinkhorn
+    — monotone scalar roots, globally optimal over the transport polytope). Gauge (u+t, v−t) pinned by
+    mean(v)=0. Only matmuls are the rotations (in apply_curv setup / post); the solve is elementwise +
+    reductions. r_val=R/d1, c_val=R/d2, R=min(d1,d2)."""
+    B = n_t
+    A = lam_coef * apply_curv(jnp.ones_like(n_t))  # A = λ·d_scale ≥ 0
+    B2 = B * B
+
+    def potential(aeff, budget, axis):  # solve s (keepdims along `axis`) s.t. Σ_axis B2/(aeff+s)² = budget
+        s = lambda sp: jnp.sum(B2 / (aeff + sp) ** 2, axis=axis, keepdims=True)
+        lo = -jnp.min(aeff, axis=axis, keepdims=True) + eps  # aeff+s ≥ eps ⟹ s(lo)→large
+        hi = lo + jnp.sqrt(jnp.sum(B2, axis=axis, keepdims=True) / budget) + eps  # ⟹ s(hi) ≤ budget
+
+        def step(cc, _):
+            lo, hi = cc
+            mid = 0.5 * (lo + hi)
+            big = s(mid) > budget
+            return (jnp.where(big, mid, lo), jnp.where(big, hi, mid)), None
+
+        (lo, hi), _ = jax.lax.scan(step, (lo, hi), None, length=int(bisect_iters))
+        return 0.5 * (lo + hi)
+
+    u = jnp.zeros_like(jnp.sum(B2, axis=-1, keepdims=True))  # [..., M, 1]
+    v = jnp.zeros_like(jnp.sum(B2, axis=-2, keepdims=True))  # [..., 1, N]
+
+    def outer(carry, _):
+        u, v = carry
+        u = potential(A + v, r_val, -1)  # row budgets: reduce over cols
+        v = potential(A + u, c_val, -2)  # col budgets: reduce over rows
+        t = jnp.mean(v, axis=-1, keepdims=True)  # gauge fix
+        return (u + t, v - t), None
+
+    (u, v), _ = jax.lax.scan(outer, (u, v), None, length=int(outer_iters))
+    return B / (A + u + v)
+
+
 def _orignorm_solve(n_orig, apply_curv_orig, x0, inner_steps, normalize, c):
     """Shifted normalization-GPI for the ORIGINAL-coordinate row/column-norm relaxation: X ← normalize(N + cX
     − 𝒞[X]), monotone for c ≥ λ·max W. Unlike the EK-basis secular solve, the normalization (col/row-norm) is
@@ -851,6 +891,29 @@ def _curv_direction_2d(
             new_qb,
         )
 
+    if inner_solver == "doublenorm_secular":
+        md, nd = n_solve.shape[-2], n_solve.shape[-1]
+        rmin = min(md, nd)
+        x = (
+            _ek_doublenorm_solve(n_solve, apply_curv, lam_coef, rmin / md, rmin / nd)
+            if lam_static > 0.0
+            else msign(n_solve)
+        )
+        xr = post(x)
+        return (
+            new_p,
+            new_q,
+            new_p_r,
+            new_q_r,
+            xr,
+            phi_traj,
+            (xr.T if transpose else xr),
+            tau_out,
+            new_D,
+            new_qa,
+            new_qb,
+        )
+
     if inner_solver in ("orignorm", "orignorm_ncg"):
         cn = lambda M: M / (jnp.sqrt(jnp.sum(M * M, axis=-2, keepdims=True)) + eps)  # unit columns (col-Stiefel)
         rn = lambda M: M / (jnp.sqrt(jnp.sum(M * M, axis=-1, keepdims=True)) + eps)  # unit rows (row-Stiefel)
@@ -1155,6 +1218,14 @@ def curv_direction_batched(
 
     if solver == "secular":
         x = _ek_secular_solve(n_solve, apply_curv, lam_coef) if lam_static > 0.0 else cold
+        xr = post(x)
+        direction = bt(xr) if transpose else xr
+        return new_p, new_q, new_p_r, new_q_r, xr, direction, tau_final, new_D, new_qa, new_qb
+
+    if solver == "doublenorm_secular":
+        md, nd = n_solve.shape[-2], n_solve.shape[-1]
+        rmin = min(md, nd)
+        x = _ek_doublenorm_solve(n_solve, apply_curv, lam_coef, rmin / md, rmin / nd) if lam_static > 0.0 else cold
         xr = post(x)
         direction = bt(xr) if transpose else xr
         return new_p, new_q, new_p_r, new_q_r, xr, direction, tau_final, new_D, new_qa, new_qb
