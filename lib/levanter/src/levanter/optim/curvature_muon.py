@@ -1240,17 +1240,22 @@ def curv_direction_batched(
     es = lambda eq, *a: jnp.einsum(eq, *a)  # scalar/vector reductions: let the propagator infer
     bt = lambda a: jnp.swapaxes(a, -1, -2)
     coeffs = NEWTON_SCHULZ_COEFFICIENTS[ctype]
+    ca = jnp.asarray(coeffs)  # [n, 3] — index the per-iteration polar_express coeffs by the loop counter
+    ncoef = ca.shape[0]
 
     def msign(x):
         x = x / (jnp.linalg.norm(x, axis=(-2, -1), keepdims=True) + eps)
         tr = x.shape[-2] > x.shape[-1]
         if tr:
             x = bt(x)
-        for i in range(int(steps)):
-            a, b, c = coeffs[i % len(coeffs)]
+
+        def body(i, x):  # fori_loop (NOT unrolled) ⟹ the NS body compiles once → ~steps× smaller graph
+            c3 = ca[i % ncoef]
             amat = em("...ik,...jk->...ij", x, x)
-            bmat = b * amat + c * em("...ik,...kj->...ij", amat, amat)
-            x = a * x + em("...ik,...kj->...ij", bmat, x)
+            bmat = c3[1] * amat + c3[2] * em("...ik,...kj->...ij", amat, amat)
+            return c3[0] * x + em("...ik,...kj->...ij", bmat, x)
+
+        x = jax.lax.fori_loop(0, int(steps), body, x)
         return bt(x) if tr else x
 
     def sqrtns(a, iters):  # coupled Denman–Beavers; returns (Y→a^{1/2}, Z→a^{-1/2})

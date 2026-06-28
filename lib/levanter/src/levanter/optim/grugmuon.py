@@ -542,12 +542,17 @@ def _zeropower_via_newtonschulz_replicated(
         X = X.T
         transpose = True
 
-    for i in range(steps):
-        a, b, c = coeffs[i % len(coeffs)]
-        out_sharding = P(None, None) if has_mesh else None
+    ca = jnp.asarray(coeffs)
+    ncoef = ca.shape[0]
+    out_sharding = P(None, None) if has_mesh else None
+
+    def body(i, X):  # fori_loop (NOT unrolled) ⟹ NS body compiles once → ~steps× smaller graph
+        c3 = ca[i % ncoef]
         A = jnp.einsum("ik,jk->ij", X, X, out_sharding=out_sharding)
-        B = b * A + c * jnp.einsum("ik,kj->ij", A, A, out_sharding=out_sharding)
-        X = a * X + jnp.einsum("ik,kj->ij", B, X, out_sharding=out_sharding)
+        B = c3[1] * A + c3[2] * jnp.einsum("ik,kj->ij", A, A, out_sharding=out_sharding)
+        return c3[0] * X + jnp.einsum("ik,kj->ij", B, X, out_sharding=out_sharding)
+
+    X = jax.lax.fori_loop(0, int(steps), body, X)
 
     if transpose:
         X = X.T
@@ -581,11 +586,16 @@ def _zeropower_via_newtonschulz_batched_stack_sharded(
         X = reshard(X, target_pspec)
 
     X_out_sharding = target_pspec if (has_mesh and target_pspec is not None) else None
-    for i in range(steps):
-        a, b, c = coeffs[i % len(coeffs)]
+    ca = jnp.asarray(coeffs)
+    ncoef = ca.shape[0]
+
+    def body(i, X):  # fori_loop (NOT unrolled) ⟹ NS body compiles once → ~steps× smaller graph
+        c3 = ca[i % ncoef]
         A = jnp.einsum("...ik,...jk->...ij", X, X, out_sharding=X_out_sharding)
-        B = b * A + c * jnp.einsum("...ik,...kj->...ij", A, A, out_sharding=X_out_sharding)
-        X = a * X + jnp.einsum("...ik,...kj->...ij", B, X, out_sharding=X_out_sharding)
+        B = c3[1] * A + c3[2] * jnp.einsum("...ik,...kj->...ij", A, A, out_sharding=X_out_sharding)
+        return c3[0] * X + jnp.einsum("...ik,...kj->...ij", B, X, out_sharding=X_out_sharding)
+
+    X = jax.lax.fori_loop(0, int(steps), body, X)
 
     if transpose:
         X = jnp.swapaxes(X, -1, -2)
