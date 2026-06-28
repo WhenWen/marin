@@ -490,6 +490,69 @@ def _ek_secular_solve(n_t, apply_curv, lam_coef, bisect_iters=40, target=1.0, ep
     return B / (A + 0.5 * (lo + hi))
 
 
+def _orignorm_solve(n_orig, apply_curv_orig, x0, inner_steps, normalize, c):
+    """Shifted normalization-GPI for the ORIGINAL-coordinate row/column-norm relaxation: X ← normalize(N + cX
+    − 𝒞[X]), monotone for c ≥ λ·max W. Unlike the EK-basis secular solve, the normalization (col/row-norm) is
+    in the ORIGINAL basis — Q_A/Q_B mix columns/rows, so it is NOT eigenbasis-separable and each step must
+    rotate in/out (apply_curv_orig = λ·Q_B(W⊙(Q_BᵀXQ_A))Q_Aᵀ). normalize = colnorm (col-Stiefel relaxation,
+    diag(XᵀX)=1) or rownorm (row-Stiefel, diag(XXᵀ)=1). X stays in original coordinates throughout."""
+
+    def step(x, _):
+        return normalize(n_orig + c * x - apply_curv_orig(x)), None
+
+    return jax.lax.scan(step, x0, None, length=int(inner_steps))[0]
+
+
+def _orignorm_ncg_solve(
+    n_orig, curv_orig, x0, n_rounds, normalize, red_axis, lam_max_w, j_cg=4, mu_rel=0.03, eps=1e-12
+):
+    """Damped product-sphere Riemannian Newton-CG for the ORIGINAL-coordinate row/column-norm relaxation.
+    The product-of-spheres tangent projection and the Λ-scaling are ELEMENTWISE per-line (each row/column is a
+    sphere): Π_X(Y) = Y − ⟨X,Y⟩_line·X, Λ-scale = ⟨X,Z⟩_line·η, with ⟨·,·⟩_line the reduction along ``red_axis``
+    (−1 for row-norm, −2 for col-norm). Per round: Z=N−𝒞[X]; G_R=Z−⟨X,Z⟩·X; (μI−H)η=G_R via j_cg CG steps,
+    H[η]=Π(−𝒞[η]−⟨X,Z⟩·η); retract X←normalize(X+η). μ=μ_rel(λ·maxW+max|Λ|) (TPU-safe). The only matmuls are
+    in ``curv_orig`` (𝒞 needs the EK rotations); everything else is elementwise. Needs the NG warm start x0 —
+    cold normalize(N) leaves (μI−H) indefinite and the solve stalls."""
+
+    def rnd(x, _):
+        z = n_orig - curv_orig(x)
+        lam_vec = jnp.sum(x * z, axis=red_axis, keepdims=True)  # Λ diagonal (per row/col)
+        g_r = z - lam_vec * x
+        mu = mu_rel * (lam_max_w + jnp.max(jnp.abs(lam_vec), axis=(-2, -1), keepdims=True))
+        proj = lambda Y: Y - jnp.sum(x * Y, axis=red_axis, keepdims=True) * x
+        hvp = lambda e: proj(-curv_orig(e) - lam_vec * e)
+        eta = jnp.zeros_like(g_r)
+        r = g_r
+        p = g_r
+        rs = jnp.sum(r * r, axis=(-2, -1), keepdims=True)
+        for _ in range(int(j_cg)):
+            ap = mu * p - hvp(p)
+            denom = jnp.sum(p * ap, axis=(-2, -1), keepdims=True)
+            a = rs / jnp.where(jnp.abs(denom) > eps, denom, 1.0)
+            eta = eta + a * p
+            r = r - a * ap
+            rs2 = jnp.sum(r * r, axis=(-2, -1), keepdims=True)
+            p = r + (rs2 / jnp.where(rs > eps, rs, 1.0)) * p
+            rs = rs2
+        return normalize(x + eta), None
+
+    return jax.lax.scan(rnd, x0, None, length=int(n_rounds))[0]
+
+
+def _best_phi_orig(cands, n_orig, curv_orig):
+    """Per-matrix argmax of φ(z)=⟨N,z⟩−½⟨z,𝒞z⟩ in ORIGINAL coords (curv_orig includes λ) — cheap guard so the
+    returned direction is never worse than the warm start / cold normalize(N)."""
+    f = lambda z: jnp.sum(n_orig * z, axis=(-2, -1), keepdims=True) - 0.5 * jnp.sum(
+        z * curv_orig(z), axis=(-2, -1), keepdims=True
+    )
+    best, bf = cands[0], f(cands[0])
+    for c in cands[1:]:
+        fc = f(c)
+        best = jnp.where(fc >= bf, c, best)
+        bf = jnp.maximum(fc, bf)
+    return best
+
+
 def _best_phi(cands, n_t, apply_curv, lam_coef, es):
     """Per-matrix argmax of φ(z)=⟨Ñ,z⟩−(λ/2)⟨z,𝒞z⟩ over candidate directions — a cheap (no msign) guard so
     the returned direction is never worse than the warm start / cold msign(N)."""
@@ -720,6 +783,38 @@ def _curv_direction_2d(
             xr,
             phi_traj,
             (xr.T if transpose else xr),
+            tau_out,
+            new_D,
+            new_qa,
+            new_qb,
+        )
+
+    if inner_solver in ("orignorm", "orignorm_ncg"):
+        cn = lambda M: M / (jnp.sqrt(jnp.sum(M * M, axis=-2, keepdims=True)) + eps)  # unit columns (col-Stiefel)
+        rn = lambda M: M / (jnp.sqrt(jnp.sum(M * M, axis=-1, keepdims=True)) + eps)  # unit rows (row-Stiefel)
+        row_mode = n_t.shape[-2] <= n_t.shape[-1]  # wide→row-Stiefel; tall→col-Stiefel; tie→row
+        normalize = rn if row_mode else cn
+        if lam_static <= 0.0:
+            x = normalize(n_t)
+        else:
+            rin = lambda Z: qa.T @ Z @ qb  # rotate into the EK-FAC eigenbasis
+            curv_orig = lambda X: lam_coef * (qa @ (d_scale * rin(X)) @ qb.T)  # 𝒞[X] in ORIGINAL coords
+            if inner_solver == "orignorm":  # plain shifted-normalization GPI
+                cc = lam_coef * jnp.max(d_scale) * (1.0 + _GPI_SAFETY)
+                x = _orignorm_solve(n_t, curv_orig, normalize(n_t), inner_steps, normalize, cc)
+            else:  # product-sphere Newton-CG with NG warm start
+                ng = normalize(qa @ (rin(n_t) / (lam_coef * d_scale + eps)) @ qb.T)
+                red = -1 if row_mode else -2
+                x = _orignorm_ncg_solve(n_t, curv_orig, ng, inner_steps, normalize, red, lam_coef * jnp.max(d_scale))
+                x = _best_phi_orig([normalize(n_t), ng, x], n_t, curv_orig)
+        return (
+            new_p,
+            new_q,
+            new_p_r,
+            new_q_r,
+            x,
+            phi_traj,
+            (x.T if transpose else x),
             tau_out,
             new_D,
             new_qa,
@@ -975,6 +1070,28 @@ def curv_direction_batched(
         xr = post(x)
         direction = bt(xr) if transpose else xr
         return new_p, new_q, new_p_r, new_q_r, xr, direction, tau_final, new_D, new_qa, new_qb
+
+    if solver in ("orignorm", "orignorm_ncg"):
+        cn = lambda M: M / (jnp.sqrt(jnp.sum(M * M, axis=-2, keepdims=True)) + eps)
+        rn = lambda M: M / (jnp.sqrt(jnp.sum(M * M, axis=-1, keepdims=True)) + eps)
+        row_mode = n_t.shape[-2] <= n_t.shape[-1]
+        normalize = rn if row_mode else cn
+        if lam_static <= 0.0:
+            x = normalize(n_t)
+        else:
+            rin = lambda Z: em("...ik,...kj->...ij", em("...ki,...kj->...ij", qa, Z), qb)  # rotate into eigenbasis
+            curv_orig = lambda X: lam_coef * post(d_scale * rin(X))  # 𝒞[X] in ORIGINAL coords
+            if solver == "orignorm":
+                cc = lam_coef * jnp.max(d_scale, axis=(-2, -1), keepdims=True) * (1.0 + _GPI_SAFETY)
+                x = _orignorm_solve(n_t, curv_orig, normalize(n_t), inner_steps, normalize, cc)
+            else:
+                ng = normalize(post(rin(n_t) / (lam_coef * d_scale + eps)))
+                red = -1 if row_mode else -2
+                lmw = lam_coef * jnp.max(d_scale, axis=(-2, -1), keepdims=True)
+                x = _orignorm_ncg_solve(n_t, curv_orig, ng, inner_steps, normalize, red, lmw)
+                x = _best_phi_orig([normalize(n_t), ng, x], n_t, curv_orig)
+        direction = bt(x) if transpose else x
+        return new_p, new_q, new_p_r, new_q_r, x, direction, tau_final, new_D, new_qa, new_qb
 
     if solver in ("gpi", "ncg"):
         if lam_static <= 0.0:
