@@ -539,6 +539,68 @@ def _orignorm_ncg_solve(
     return jax.lax.scan(rnd, x0, None, length=int(n_rounds))[0]
 
 
+def _doublenorm_ncg_solve(
+    n_orig, curv_orig, x0, n_rounds, r_val, c_val, lam_max_w, j_cg=4, n_proj=20, n_sink=20, mu_rel=0.1, eps=1e-12
+):
+    """Damped Riemannian Newton-CG on the DOUBLE-norm manifold {diag(XXᵀ)=r, diag(XᵀX)=c} (EK-FAC curvature).
+    Tangent proj Π_X(Y)=Y−a⊙_row X−X⊙_col b, with (a,b) the multipliers of the [[Diag r,S],[Sᵀ,Diag c]] system
+    (S=X²) found by a few block-coordinate sweeps (Π is gauge-invariant; the gauge mode is pinned by mean(b)=0).
+    Retraction = Sinkhorn scaling of squared entries to row sums r / col sums c → exactly feasible. HVP
+    H[η]=Π(−𝒞η−a⊙_row η−η⊙_col b). NG warm start (Sinkhorn-retracted at entry). Only 𝒞[·] is matmul; the
+    projection/retraction are elementwise + row/col reductions. r_val=R/d1, c_val=R/d2, R=min(d1,d2)."""
+
+    def mults(Y, X):
+        S = X * X
+        u = jnp.sum(Y * X, axis=-1, keepdims=True)  # diag(YXᵀ)  [..., M, 1]
+        v = jnp.sum(Y * X, axis=-2, keepdims=True)  # diag(XᵀY)  [..., 1, N]
+        a = jnp.zeros_like(u)
+        b = jnp.zeros_like(v)
+        for _ in range(int(n_proj)):
+            a = (u - jnp.sum(S * b, axis=-1, keepdims=True)) / r_val
+            b = (v - jnp.sum(S * a, axis=-2, keepdims=True)) / c_val
+            b = b - jnp.mean(b, axis=-1, keepdims=True)  # gauge fix
+        return a, b
+
+    def proj(Y, X):
+        a, b = mults(Y, X)
+        return Y - a * X - X * b, a, b
+
+    def retract(Y):
+        tt = Y * Y
+        p = jnp.ones_like(jnp.sum(tt, axis=-1, keepdims=True))
+        q = jnp.ones_like(jnp.sum(tt, axis=-2, keepdims=True))
+        for _ in range(int(n_sink)):
+            p = r_val / (jnp.sum(tt * q, axis=-1, keepdims=True) + eps)
+            q = c_val / (jnp.sum(tt * p, axis=-2, keepdims=True) + eps)
+        return jnp.sqrt(p) * Y * jnp.sqrt(q)
+
+    def rnd(x, _):
+        z = n_orig - curv_orig(x)
+        g_r, a, b = proj(z, x)
+        mu = mu_rel * (
+            lam_max_w
+            + jnp.max(jnp.abs(a), axis=(-2, -1), keepdims=True)
+            + jnp.max(jnp.abs(b), axis=(-2, -1), keepdims=True)
+        )
+        hvp = lambda e: proj(-curv_orig(e) - a * e - e * b, x)[0]
+        eta = jnp.zeros_like(g_r)
+        r = g_r
+        p = g_r
+        rs = jnp.sum(r * r, axis=(-2, -1), keepdims=True)
+        for _ in range(int(j_cg)):
+            ap = mu * p - hvp(p)
+            denom = jnp.sum(p * ap, axis=(-2, -1), keepdims=True)
+            al = rs / jnp.where(jnp.abs(denom) > eps, denom, 1.0)
+            eta = eta + al * p
+            r = r - al * ap
+            rs2 = jnp.sum(r * r, axis=(-2, -1), keepdims=True)
+            p = r + (rs2 / jnp.where(rs > eps, rs, 1.0)) * p
+            rs = rs2
+        return retract(x + eta), None
+
+    return jax.lax.scan(rnd, retract(x0), None, length=int(n_rounds))[0]
+
+
 def _best_phi_orig(cands, n_orig, curv_orig):
     """Per-matrix argmax of φ(z)=⟨N,z⟩−½⟨z,𝒞z⟩ in ORIGINAL coords (curv_orig includes λ) — cheap guard so the
     returned direction is never worse than the warm start / cold normalize(N)."""
@@ -807,6 +869,32 @@ def _curv_direction_2d(
                 red = -1 if row_mode else -2
                 x = _orignorm_ncg_solve(n_t, curv_orig, ng, inner_steps, normalize, red, lam_coef * jnp.max(d_scale))
                 x = _best_phi_orig([normalize(n_t), ng, x], n_t, curv_orig)
+        return (
+            new_p,
+            new_q,
+            new_p_r,
+            new_q_r,
+            x,
+            phi_traj,
+            (x.T if transpose else x),
+            tau_out,
+            new_D,
+            new_qa,
+            new_qb,
+        )
+
+    if inner_solver == "doublenorm_ncg":
+        if lam_static <= 0.0:
+            x = n_t
+        else:
+            md, nd = n_t.shape[-2], n_t.shape[-1]
+            rmin = min(md, nd)
+            rin = lambda Z: qa.T @ Z @ qb
+            curv_orig = lambda X: lam_coef * (qa @ (d_scale * rin(X)) @ qb.T)
+            ng = qa @ (rin(n_t) / (lam_coef * d_scale + eps)) @ qb.T  # NG direction (retracted inside the solver)
+            x = _doublenorm_ncg_solve(
+                n_t, curv_orig, ng, inner_steps, rmin / md, rmin / nd, lam_coef * jnp.max(d_scale)
+            )
         return (
             new_p,
             new_q,
@@ -1090,6 +1178,20 @@ def curv_direction_batched(
                 lmw = lam_coef * jnp.max(d_scale, axis=(-2, -1), keepdims=True)
                 x = _orignorm_ncg_solve(n_t, curv_orig, ng, inner_steps, normalize, red, lmw)
                 x = _best_phi_orig([normalize(n_t), ng, x], n_t, curv_orig)
+        direction = bt(x) if transpose else x
+        return new_p, new_q, new_p_r, new_q_r, x, direction, tau_final, new_D, new_qa, new_qb
+
+    if solver == "doublenorm_ncg":
+        if lam_static <= 0.0:
+            x = n_t
+        else:
+            md, nd = n_t.shape[-2], n_t.shape[-1]
+            rmin = min(md, nd)
+            rin = lambda Z: em("...ik,...kj->...ij", em("...ki,...kj->...ij", qa, Z), qb)
+            curv_orig = lambda X: lam_coef * post(d_scale * rin(X))
+            ng = post(rin(n_t) / (lam_coef * d_scale + eps))  # NG direction (retracted inside the solver)
+            lmw = lam_coef * jnp.max(d_scale, axis=(-2, -1), keepdims=True)
+            x = _doublenorm_ncg_solve(n_t, curv_orig, ng, inner_steps, rmin / md, rmin / nd, lmw)
         direction = bt(x) if transpose else x
         return new_p, new_q, new_p_r, new_q_r, x, direction, tau_final, new_D, new_qa, new_qb
 
