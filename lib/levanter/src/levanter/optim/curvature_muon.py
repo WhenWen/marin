@@ -402,6 +402,80 @@ def _fw_solve(n_t, apply_curv, x0, lam_coef, inner_steps, msign, eps=1e-12):
     return x_final
 
 
+_GPI_SAFETY = 0.05  # shift margin: c = λ·max(diag)·(1+ε) so B = cI − λ𝒞 ⪰ 0 (shifted-polar monotonicity)
+_NCG_JCG = 4  # CG steps per Newton-CG round
+_NCG_MU_REL = 0.03  # damping fraction: μ = μ_rel·(λ·max diag + ‖S‖_F)
+
+
+def _ng_init(n_t, apply_curv, lam_coef, msign, eps):
+    """Damped natural-gradient warm start msign(Ñ ⊘ (λ·diag)), diag = apply_curv(1) (the elementwise curvature
+    diagonal in the EK-FAC eigenbasis). This lands the solve in the basin where the shifted-polar GPI and
+    Newton-CG converge — cold msign(N) does NOT for strong curvature (Newton-CG stalls there). For the EK-FAC
+    path apply_curv is elementwise so apply_curv(1)=d_scale exactly; falls back toward msign(N) where d_scale→0.
+    """
+    return msign(n_t / (lam_coef * apply_curv(jnp.ones_like(n_t)) + eps))
+
+
+def _gpi_solve(n_t, apply_curv, x0, lam_coef, inner_steps, msign):
+    """Shifted-polar generalized power iteration on row-Stiefel: X ← msign(Ñ + cX − λ𝒞X). Monotone MM step
+    (B = cI − λ𝒞 ⪰ 0 for c ≥ λ·max diag), but the per-step contraction degrades on a clustered curvature
+    spectrum, so it needs large K. Elementwise + msign only ⟹ works unchanged in the 2D and batched paths."""
+    c = lam_coef * jnp.max(apply_curv(jnp.ones_like(n_t)), axis=(-2, -1), keepdims=True) * (1.0 + _GPI_SAFETY)
+
+    def step(x, _):
+        return msign(n_t + c * x - lam_coef * apply_curv(x)), None
+
+    return jax.lax.scan(step, x0, None, length=int(inner_steps))[0]
+
+
+def _ncg_solve(n_t, apply_curv, x0, lam_coef, n_rounds, msign, em, es, bsym, j_cg=_NCG_JCG, eps=1e-12):
+    """Damped Riemannian Newton-CG on column-Stiefel (XᵀX=I — matches the riemannian solver's convention).
+    Per round: Z = Ñ − λ𝒞X; S = sym(XᵀZ); Riemannian grad G_R = Z − X·S; solve the damped Newton system
+    (μI − H)η = G_R by ``j_cg`` CG steps with H[η] = Π(−λ𝒞η − η·S), Π_X(Y) = Y − X·sym(XᵀY); retract
+    X ← msign(X + η). μ = μ_rel·(λ·max diag + ‖S‖_F) (Frobenius bound on ‖S‖₂ — TPU-safe, no eigh). Converges
+    where the GPI power-iteration tail stalls; needs the NG warm start (cold msign(N) leaves (μI−H) indefinite).
+    ``em``/``es``/``bsym`` are the path's sharding-aware einsum/reduction/symmetrize primitives."""
+    diagmax = lam_coef * jnp.max(apply_curv(jnp.ones_like(n_t)), axis=(-2, -1), keepdims=True)
+    xtY = lambda x, Y: bsym(em("...ki,...kj->...ij", x, Y))  # sym(Xᵀ Y)  [..., N, N]
+    proj = lambda x, Y: Y - em("...ik,...kj->...ij", x, xtY(x, Y))  # Π_X(Y) = Y − X·sym(XᵀY)
+    rdot = lambda a, b: es("...mn,...mn->...", a, b)[..., None, None]
+
+    def rnd(x, _):
+        z = n_t - lam_coef * apply_curv(x)
+        S = xtY(x, z)  # sym(Xᵀ Z)  [..., N, N]
+        g_r = z - em("...ik,...kj->...ij", x, S)  # Riemannian gradient
+        mu = _NCG_MU_REL * (diagmax + jnp.sqrt(rdot(S, S)))  # μ_rel·(λ·max diag + ‖S‖_F)
+        hvp = lambda e: proj(x, -lam_coef * apply_curv(e) - em("...ik,...kj->...ij", e, S))
+        eta = jnp.zeros_like(g_r)
+        r = g_r
+        p = g_r
+        rs = rdot(r, r)
+        for _ in range(int(j_cg)):  # CG solve (μI − H) η = G_R in the tangent space
+            ap = mu * p - hvp(p)
+            denom = rdot(p, ap)
+            a = rs / jnp.where(jnp.abs(denom) > eps, denom, 1.0)
+            eta = eta + a * p
+            r = r - a * ap
+            rs2 = rdot(r, r)
+            p = r + (rs2 / jnp.where(rs > eps, rs, 1.0)) * p
+            rs = rs2
+        return msign(x + eta), None
+
+    return jax.lax.scan(rnd, x0, None, length=int(n_rounds))[0]
+
+
+def _best_phi(cands, n_t, apply_curv, lam_coef, es):
+    """Per-matrix argmax of φ(z)=⟨Ñ,z⟩−(λ/2)⟨z,𝒞z⟩ over candidate directions — a cheap (no msign) guard so
+    the returned direction is never worse than the warm start / cold msign(N)."""
+    f = lambda z: es("...mn,...mn->...", n_t, z) - 0.5 * lam_coef * es("...mn,...mn->...", z, apply_curv(z))
+    best, bf = cands[0], f(cands[0])
+    for c in cands[1:]:
+        fc = f(c)
+        best = jnp.where((fc >= bf)[..., None, None], c, best)
+        bf = jnp.maximum(fc, bf)
+    return best
+
+
 def _power_iter(mat, q, iters, eps):
     for _ in range(int(iters)):
         mq = mat @ q
@@ -594,6 +668,33 @@ def _curv_direction_2d(
     if inner_solver == "frank_wolfe":
         cold = msign(n_solve)
         x = _fw_solve(n_solve, apply_curv, cold, lam_coef, inner_steps, msign) if lam_static > 0.0 else cold
+        xr = post(x)
+        return (
+            new_p,
+            new_q,
+            new_p_r,
+            new_q_r,
+            xr,
+            phi_traj,
+            (xr.T if transpose else xr),
+            tau_out,
+            new_D,
+            new_qa,
+            new_qb,
+        )
+
+    if inner_solver in ("gpi", "ncg"):
+        emf = lambda s, a, b: jnp.einsum(s, a, b)
+        bsymf = lambda a: 0.5 * (a + jnp.swapaxes(a, -1, -2))
+        if lam_static <= 0.0:
+            x = msign(n_solve)
+        else:
+            ng = _ng_init(n_solve, apply_curv, lam_coef, msign, eps)
+            if inner_solver == "gpi":
+                x = _gpi_solve(n_solve, apply_curv, ng, lam_coef, inner_steps, msign)
+            else:
+                x = _ncg_solve(n_solve, apply_curv, ng, lam_coef, inner_steps, msign, emf, emf, bsymf)
+            x = _best_phi([msign(n_solve), ng, x], n_solve, apply_curv, lam_coef, emf)
         xr = post(x)
         return (
             new_p,
@@ -822,6 +923,20 @@ def curv_direction_batched(
             return x + alpha[..., None, None] * d, None
 
         x = jax.lax.scan(fw_step, cold, None, length=int(inner_steps))[0] if lam_static > 0.0 else cold
+        xr = post(x)
+        direction = bt(xr) if transpose else xr
+        return new_p, new_q, new_p_r, new_q_r, xr, direction, tau_final, new_D, new_qa, new_qb
+
+    if solver in ("gpi", "ncg"):
+        if lam_static <= 0.0:
+            x = cold
+        else:
+            ng = _ng_init(n_solve, apply_curv, lam_coef, msign, eps)
+            if solver == "gpi":
+                x = _gpi_solve(n_solve, apply_curv, ng, lam_coef, inner_steps, msign)
+            else:
+                x = _ncg_solve(n_solve, apply_curv, ng, lam_coef, inner_steps, msign, em, es, bsym)
+            x = _best_phi([cold, ng, x], n_solve, apply_curv, lam_coef, es)
         xr = post(x)
         direction = bt(xr) if transpose else xr
         return new_p, new_q, new_p_r, new_q_r, xr, direction, tau_final, new_D, new_qa, new_qb
