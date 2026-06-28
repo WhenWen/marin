@@ -150,6 +150,7 @@ def scale_with_grug_muonh(
     power_iters: int = 8,
     inner_solver: str = "riemannian_muon",
     kl_shampoo: bool = False,
+    ekfac: bool = False,
     lambda_tracks_lr: bool = False,
     peak_lr: float = 0.0,
 ) -> optax.GradientTransformation:
@@ -178,6 +179,7 @@ def scale_with_grug_muonh(
             power_iters=power_iters,
             inner_solver=inner_solver,
             kl_shampoo=kl_shampoo,
+            ekfac=ekfac,
         )
     else:
         muon_transform = _grug_scale_with_muon(
@@ -356,6 +358,8 @@ class GrugMoeMuonHConfig(OptimizerConfig):
     # KL-Shampoo Gram update (arXiv 2509.03378): whiten each outer product by the other factor's inverse
     # (coupled MLE estimate) instead of plain GGᵀ. Grams init at identity. Two-sided only.
     curvature_kl_shampoo: bool = False
+    # EK-FAC: replace Kronecker eigenvalues with per-coordinate D=EMA((QᵀGQ)²) in the (KL-)Shampoo eigenbasis.
+    curvature_ekfac: bool = False
     # If True, the curvature strength tracks the LR schedule: λ_t = curvature_lambda · lr_t/peak_lr.
     curvature_lambda_tracks_lr: bool = False
 
@@ -385,6 +389,7 @@ class GrugMoeMuonHConfig(OptimizerConfig):
                         curv_power=self.curv_power,
                         inner_solver=self.curvature_inner_solver,
                         kl_shampoo=self.curvature_kl_shampoo,
+                        ekfac=self.curvature_ekfac,
                         lambda_tracks_lr=self.curvature_lambda_tracks_lr,
                         peak_lr=self.learning_rate,
                     )

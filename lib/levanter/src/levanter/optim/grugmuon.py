@@ -252,6 +252,7 @@ class _GrugCurvState(NamedTuple):
     power_vec_r: optax.Updates  # q_R [..., N]
     inner_x: optax.Updates  # carried inner solution [..., M, N]
     inner_tau: optax.Updates  # carried line-search step-size τ [...] (warm-started across outer steps)
+    aug_eig: optax.Updates  # EK-FAC augmented eigenvalues D [..., M, N] (per-coordinate, in the eigenbasis)
     count: jax.Array  # scalar step counter for Adam-style bias correction of N (momentum) and P (Gram)
 
 
@@ -268,6 +269,7 @@ class _CurvOut(NamedTuple):
     power_vec_r: jax.Array
     inner_x: jax.Array
     inner_tau: jax.Array  # carried line-search step-size τ (warm-started across outer steps)
+    aug_eig: jax.Array  # EK-FAC augmented eigenvalues D
 
 
 def _grug_scale_with_curvature_muon(
@@ -286,6 +288,7 @@ def _grug_scale_with_curvature_muon(
     power_iters=8,
     inner_solver="riemannian_muon",
     kl_shampoo=False,
+    ekfac=False,
 ):
     """Curvature-corrected Muon for raw grug arrays (matrix trailing dims). Drop-in for
     _grug_scale_with_muon: replaces msign(N) with the Riemannian curvature inner-solve, applies the same
@@ -317,6 +320,8 @@ def _grug_scale_with_curvature_muon(
             return jnp.broadcast_to(jnp.ones(n, dtype=x.dtype) / jnp.sqrt(n), lead + (n,))
         if kind == "tau":
             return jnp.zeros(lead, dtype=x.dtype)  # per-stack [...] step-size carry
+        if kind == "d":
+            return jnp.zeros(lead + (m, n), dtype=x.dtype)  # EK-FAC augmented eigenvalues [.., max, min] (g_t shape)
         return jnp.zeros(lead + (m, n), dtype=x.dtype)
 
     def init_fn(params):
@@ -329,6 +334,7 @@ def _grug_scale_with_curvature_muon(
             tm(lambda x: _mk(x, "qr"), params, is_leaf=none_leaf),
             tm(lambda x: _mk(x, "x"), params, is_leaf=none_leaf),
             tm(lambda x: _mk(x, "tau"), params, is_leaf=none_leaf),
+            tm(lambda x: _mk(x, "d"), params, is_leaf=none_leaf),
             jnp.zeros([], jnp.int32),
         )
 
@@ -357,7 +363,7 @@ def _grug_scale_with_curvature_muon(
 
         has_mesh = not jax.sharding.get_abstract_mesh().empty
 
-        def per(g, n, p, q, pr, qr, xx, xt):
+        def per(g, n, p, q, pr, qr, xx, xt, xd):
             if not _ismat(g):
                 return n  # passthrough (non-matrix params unchanged here)
             if g.ndim == 3:
@@ -371,11 +377,11 @@ def _grug_scale_with_curvature_muon(
                     lead = jax.typeof(g).sharding.spec[0]
                     mp = lambda a: reshard(a, PartitionSpec(lead, None, None))
                     vp = lambda a: reshard(a, PartitionSpec(lead, None))
-                    g, n, p, pr, xx = mp(g), mp(n), mp(p), mp(pr), mp(xx)
+                    g, n, p, pr, xx, xd = mp(g), mp(n), mp(p), mp(pr), mp(xx), mp(xd)
                     q, qr = vp(q), vp(qr)
                     xt = reshard(xt, PartitionSpec(lead))  # carried τ is per-stack [E]
                     out_p = PartitionSpec(lead, None, None)
-                np_, nq, npr, nqr, nx, d, ntau = curv_direction_batched(
+                np_, nq, npr, nqr, nx, d, ntau, nd = curv_direction_batched(
                     g,
                     n,
                     p,
@@ -398,11 +404,13 @@ def _grug_scale_with_curvature_muon(
                     warm_tau=xt,
                     solver=inner_solver,
                     kl_shampoo=kl_shampoo,
+                    ekfac=ekfac,
+                    aug_eig=xd,
                 )
             else:
                 # 2-D dense matrix (attn / shared / gated-norm): per-matrix solve, replicate inner so the NS
                 # constraint + Gram matmuls don't contract over a model-sharded dim (shard_ns=False).
-                np_, nq, npr, nqr, nx, _pt, d, ntau = _curv_direction_2d(
+                np_, nq, npr, nqr, nx, _pt, d, ntau, nd = _curv_direction_2d(
                     g,
                     n,
                     p,
@@ -432,9 +440,11 @@ def _grug_scale_with_curvature_muon(
                     bias_t=t,
                     warm_tau=xt,
                     kl_shampoo=kl_shampoo,
+                    ekfac=ekfac,
+                    aug_eig=xd,
                 )
             fan_in, fan_out = d.shape[-2:]
-            return _CurvOut(d * jnp.sqrt(jnp.maximum(1.0, fan_out / fan_in)), np_, nq, npr, nqr, nx, ntau)
+            return _CurvOut(d * jnp.sqrt(jnp.maximum(1.0, fan_out / fan_in)), np_, nq, npr, nqr, nx, ntau, nd)
 
         comb = jax.tree.map(
             per,
@@ -446,11 +456,12 @@ def _grug_scale_with_curvature_muon(
             state.power_vec_r,
             state.inner_x,
             state.inner_tau,
+            state.aug_eig,
             is_leaf=none_leaf,
         )
         is_out = lambda c: isinstance(c, _CurvOut)
         pick = lambda i: jax.tree.map(lambda c: c[i] if is_out(c) else c, comb, is_leaf=is_out)
-        return pick(0), _GrugCurvState(buf, pick(1), pick(2), pick(3), pick(4), pick(5), pick(6), t)
+        return pick(0), _GrugCurvState(buf, pick(1), pick(2), pick(3), pick(4), pick(5), pick(6), pick(7), t)
 
     return optax.GradientTransformation(init_fn, update_fn)
 

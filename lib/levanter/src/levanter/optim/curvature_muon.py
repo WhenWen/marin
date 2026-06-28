@@ -436,6 +436,8 @@ def _curv_direction_2d(
     bias_t=None,
     warm_tau=None,
     kl_shampoo: bool = False,
+    ekfac: bool = False,
+    aug_eig=None,
 ):
     """One matrix. g, n: [out, in]; p/q = left Gram P_L [M,M] + power vec; p_r/q_r = right Gram P_R [N,N] + vec.
 
@@ -507,34 +509,57 @@ def _curv_direction_2d(
         else:
             curv = p_c / se  # P/√e_max
 
+    # EK-FAC augmented eigenvalues (arXiv 2509.03378, KL-SOAP): replace the Kronecker eigenvalues λ_a⊗λ_b
+    # with a full per-coordinate D = EMA((Q_aᵀ G Q_b)²) in the KL-Shampoo eigenbasis (Q_a,Q_b = eigvecs of the
+    # bias-corrected Grams). The curvature operator becomes rotate→scale by (D̂)^{1/4}→rotate-back: P[X] =
+    # Q_a((D̂^{1/4})⊙(Q_aᵀ X Q_b))Q_bᵀ. D̂≈λ_aλ_b (second-moment eigenvalue), so the 1/4 exponent matches the
+    # two-sided P^{1/4} convention and keeps λ comparable. D is bias-corrected by pdiv like the Grams.
+    new_D = aug_eig
+    ekfac_on = ekfac and two_sided
+    if ekfac_on:
+        _, qa = jnp.linalg.eigh(0.5 * (p_c + p_c.T))
+        _, qb = jnp.linalg.eigh(0.5 * (pr_c + pr_c.T))
+        ghat = qa.T @ g_t @ qb
+        base_D = aug_eig if aug_eig is not None else jnp.zeros_like(ghat)
+        new_D = rho * base_D + (1.0 - rho) * (ghat * ghat)
+        d_scale = jnp.power(new_D / pdiv + eps, 0.25)
+
     phi_traj = jnp.zeros((int(inner_steps) + 1,), dtype=n_t.dtype)  # default; only riemannian fills it
     # Warm-start τ carried across outer steps; default 0.25 on step 1. tau_out is returned so the caller can
     # store the accepted τ for the next outer step (non-riemannian paths just pass it through).
     tau_init = 0.25 if warm_tau is None else warm_tau
     tau_out = jnp.asarray(tau_init, n_t.dtype)
 
-    if inner_solver == "riemannian_muon":
-        # Curvature operator 𝒞X: two-sided P_L^{1/4} X P_R^{1/4}, else one-sided C·X.
+    # Build the inner-solve problem. EK-FAC: solve in the eigenbasis where the curvature is the ELEMENTWISE
+    # d_scale ⊙ X̂ — rotate N in ONCE, rotate the solution out ONCE (msign/mclip are orthogonally equivariant
+    # and ⟨·,·⟩/the ball are rotation-invariant, so the hat-space optimum rotates back exactly). This avoids
+    # the two matmuls per apply_curv call that a naive Q(D⊙QᵀXQ)Qᵀ operator would incur every inner step.
+    if ekfac_on:
+        n_solve = qa.T @ n_t @ qb
+        apply_curv = lambda X: d_scale * X
+        post = lambda X: qa @ X @ qb.T
+    else:
+        n_solve = n_t
         apply_curv = (lambda X: pl4 @ X @ pr4) if two_sided else (lambda X: curv @ X)
-        # Cold start msign(N) (λ=0 optimum; best init for small λ). Optional warm start from the carried X.
-        cold = msign(n_t)
+        post = lambda X: X
+
+    if inner_solver == "riemannian_muon":
+        cold = msign(n_solve)  # cold start msign(N) (λ=0 optimum); warm start from carried X optional
         if lam_static > 0.0:
-            if warm_start:
-                x0 = jnp.where(jnp.linalg.norm(inner_x) > eps, inner_x, cold)
-            else:
-                x0 = cold
+            x0 = jnp.where(jnp.linalg.norm(inner_x) > eps, inner_x, cold) if warm_start else cold
             x, phi_traj, tau_out = _riem_solve(
-                n_t, apply_curv, x0, lam_coef, inner_steps, maxbt, msign, constraint, tau_init=tau_init
+                n_solve, apply_curv, x0, lam_coef, inner_steps, maxbt, msign, constraint, tau_init=tau_init
             )
         else:
             x = cold
-        return new_p, new_q, new_p_r, new_q_r, x, phi_traj, (x.T if transpose else x), tau_out
+        xr = post(x)
+        return new_p, new_q, new_p_r, new_q_r, xr, phi_traj, (xr.T if transpose else xr), tau_out, new_D
 
     if inner_solver == "frank_wolfe":
-        apply_curv = (lambda X: pl4 @ X @ pr4) if two_sided else (lambda X: curv @ X)
-        cold = msign(n_t)
-        x = _fw_solve(n_t, apply_curv, cold, lam_coef, inner_steps, msign) if lam_static > 0.0 else cold
-        return new_p, new_q, new_p_r, new_q_r, x, phi_traj, (x.T if transpose else x), tau_out
+        cold = msign(n_solve)
+        x = _fw_solve(n_solve, apply_curv, cold, lam_coef, inner_steps, msign) if lam_static > 0.0 else cold
+        xr = post(x)
+        return new_p, new_q, new_p_r, new_q_r, xr, phi_traj, (xr.T if transpose else xr), tau_out, new_D
 
     # --- fixed-point inner solver ---
     if two_sided:
@@ -547,14 +572,14 @@ def _curv_direction_2d(
             for _ in range(int(inner_steps)):
                 arg = n_t + lam_coef * (shift2 * x - pl4 @ x @ pr4)
                 x = msign(arg)
-        return new_p, new_q, new_p_r, new_q_r, inner_x, phi_traj, (x.T if transpose else x), tau_out
+        return new_p, new_q, new_p_r, new_q_r, inner_x, phi_traj, (x.T if transpose else x), tau_out, new_D
 
     x = _mudam_direction(n_t, new_p, mudam_steps, eps) if mudam_init else msign(n_t)
     if lam_static > 0.0:
         operator = lam_coef * (alpha * se * eye - curv)  # PSD for α≥1
         for _ in range(int(inner_steps)):
             x = msign(n_t + operator @ x)
-    return new_p, new_q, new_p_r, new_q_r, inner_x, phi_traj, (x.T if transpose else x), tau_out
+    return new_p, new_q, new_p_r, new_q_r, inner_x, phi_traj, (x.T if transpose else x), tau_out, new_D
 
 
 def curv_direction_batched(
@@ -581,6 +606,8 @@ def curv_direction_batched(
     warm_tau=None,
     solver="riemannian_muon",
     kl_shampoo=False,
+    ekfac=False,
+    aug_eig=None,
 ):
     """Batched two-sided curvature direction over a leading stack axis (e.g. MoE experts).
 
@@ -674,13 +701,29 @@ def curv_direction_batched(
     pl4 = pow4(p_c)
     pr4 = pow4(pr_c)
 
-    def apply_curv(x):
-        return em("...ik,...kj->...ij", em("...ik,...kj->...ij", pl4, x), pr4)
+    # EK-FAC augmented eigenvalues (see _curv_direction_2d): batched eigh of the Grams gives the eigenbasis;
+    # D = EMA((Q_aᵀG Q_b)²). We solve in the eigenbasis (rotate N in ONCE, solution out ONCE) where the
+    # curvature is the ELEMENTWISE d_scale ⊙ X̂ — avoiding two matmuls per apply_curv call.
+    new_D = aug_eig
+    if ekfac:
+        _, qa = jnp.linalg.eigh(0.5 * (p_c + bt(p_c)))
+        _, qb = jnp.linalg.eigh(0.5 * (pr_c + bt(pr_c)))
+        ghat = em("...ik,...kj->...ij", em("...ki,...kj->...ij", qa, g_t), qb)  # Q_aᵀ G Q_b
+        base_D = aug_eig if aug_eig is not None else jnp.zeros_like(ghat)
+        new_D = rho * base_D + (1.0 - rho) * (ghat * ghat)
+        d_scale = jnp.power(new_D / pdiv + eps, 0.25)
+        n_solve = ghat * 0.0 + em("...ik,...kj->...ij", em("...ki,...kj->...ij", qa, n_t), qb)  # Q_aᵀ N Q_b
+        apply_curv = lambda x: d_scale * x  # elementwise in the eigenbasis
+        post = lambda x: em("...ik,...kj->...ij", em("...ik,...kj->...ij", qa, x), bt(qb))  # Q_a (·) Q_bᵀ
+    else:
+        n_solve = n_t
+        apply_curv = lambda x: em("...ik,...kj->...ij", em("...ik,...kj->...ij", pl4, x), pr4)
+        post = lambda x: x
 
     ball = constraint == "ball"
 
     def phi(z):
-        return es("...mn,...mn->...", n_t, z) - 0.5 * lam_coef * es("...mn,...mn->...", z, apply_curv(z))
+        return es("...mn,...mn->...", n_solve, z) - 0.5 * lam_coef * es("...mn,...mn->...", z, apply_curv(z))
 
     def project(y):
         return mclip(y) if ball else msign(y)
@@ -692,15 +735,15 @@ def curv_direction_batched(
     def bsym(a):  # batched symmetrize (a.T transposes all axes; we want only the trailing two)
         return 0.5 * (a + bt(a))
 
-    cold = msign(n_t)
+    cold = msign(n_solve)
     # Warm-start τ across outer steps (per-stack [...] vector). Default carry value returned for the lam=0
     # path; the scan overwrites it with the accepted τ when lam>0.
-    tau_final = (es("...mn,...mn->...", n_t, n_t) * 0.0) if warm_tau is None else warm_tau
+    tau_final = (es("...mn,...mn->...", n_solve, n_solve) * 0.0) if warm_tau is None else warm_tau
 
     if solver == "frank_wolfe":
         # Frank-Wolfe (closed-form step, no backtracking, no mclip — see _fw_solve). ~1 msign/step.
         def fw_step(x, _):
-            g = n_t - lam_coef * apply_curv(x)
+            g = n_solve - lam_coef * apply_curv(x)
             s = msign(g)
             d = s - x
             cd = apply_curv(d)
@@ -710,15 +753,16 @@ def curv_direction_batched(
             return x + alpha[..., None, None] * d, None
 
         x = jax.lax.scan(fw_step, cold, None, length=int(inner_steps))[0] if lam_static > 0.0 else cold
-        direction = bt(x) if transpose else x
-        return new_p, new_q, new_p_r, new_q_r, x, direction, tau_final
+        xr = post(x)
+        direction = bt(xr) if transpose else xr
+        return new_p, new_q, new_p_r, new_q_r, xr, direction, tau_final, new_D
 
     if lam_static > 0.0:
         tau0, beta, cc = 0.5, 0.5, 1e-4
         # Per-stack [...] zero that carries the stack-axis sharding (derived from a reduction over n_t), so the
         # scan/fori_loop scalar carries match the body's (stack-sharded) outputs — a replicated jnp.zeros(lead)
         # would mismatch the carry type under the explicit mesh.
-        zlead = es("...mn,...mn->...", n_t, n_t) * 0.0
+        zlead = es("...mn,...mn->...", n_solve, n_solve) * 0.0
 
         def line_search(x, d, dd, f0, tau_start):
             def body(_, carry):
@@ -733,7 +777,7 @@ def curv_direction_batched(
 
         def step(carry, _):
             x, last_tau = carry
-            z = n_t - lam_coef * apply_curv(x)
+            z = n_solve - lam_coef * apply_curv(x)
             grad = z if ball else z - em("...ik,...kj->...ij", x, bsym(em("...ki,...kj->...ij", x, z)))
             d = msign(grad)
             dd = es("...mn,...mn->...", grad, d)
@@ -747,8 +791,9 @@ def curv_direction_batched(
     else:
         x = cold
 
-    direction = bt(x) if transpose else x
-    return new_p, new_q, new_p_r, new_q_r, x, direction, tau_final
+    xr = post(x)
+    direction = bt(xr) if transpose else xr
+    return new_p, new_q, new_p_r, new_q_r, xr, direction, tau_final, new_D
 
 
 def scale_with_curvature_muon(
@@ -904,9 +949,9 @@ def scale_with_curvature_muon(
                 constraint=constraint,
             )
             if g.ndim == 3:
-                new_p, new_q, new_p_r, new_q_r, new_x, phi_traj, x, _tau = jax.vmap(fn)(g, n, p, q, p_r, q_r, xx)
+                new_p, new_q, new_p_r, new_q_r, new_x, phi_traj, x, _tau, _D = jax.vmap(fn)(g, n, p, q, p_r, q_r, xx)
             else:
-                new_p, new_q, new_p_r, new_q_r, new_x, phi_traj, x, _tau = fn(g, n, p, q, p_r, q_r, xx)
+                new_p, new_q, new_p_r, new_q_r, new_x, phi_traj, x, _tau, _D = fn(g, n, p, q, p_r, q_r, xx)
             new_w = dataclasses.replace(n_layer.weight, array=x)
             # 7-tuple: (direction-layer, P_L, q_L, P_R, q_R, inner_x, phi_traj)
             return (dataclasses.replace(n_layer, weight=new_w), new_p, new_q, new_p_r, new_q_r, new_x, phi_traj)  # type: ignore
