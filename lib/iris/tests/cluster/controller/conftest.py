@@ -14,8 +14,6 @@ from unittest.mock import MagicMock, Mock
 import pytest
 from finelog.client.log_client import Table
 from finelog.rpc.logging_connect import LogServiceClientSync
-from iris.cluster.backends.gcp.fake import InMemoryGcpService
-from iris.cluster.backends.gcp.workers import GcpWorkerProvider
 from iris.cluster.backends.types import CloudSliceState
 from iris.cluster.bundle import BundleStore
 from iris.cluster.config import (
@@ -73,6 +71,8 @@ from iris.cluster.controller.schema import (
 from iris.cluster.controller.service import ControllerServiceImpl
 from iris.cluster.controller.task_state import ACTIVE_TASK_STATES, task_is_finished, task_row_can_be_scheduled
 from iris.cluster.controller.worker_health import WorkerHealthEvent, WorkerHealthEventKind
+from iris.cluster.platforms.gcp.fake import InMemoryGcpService
+from iris.cluster.platforms.gcp.workers import GcpWorkerProvider
 from iris.cluster.service_mode import ServiceMode
 from iris.cluster.types import (
     TERMINAL_TASK_STATES,
@@ -638,6 +638,7 @@ def make_job_request(
     replicas: int = 1,
     max_retries_failure: int = 0,
     max_retries_preemption: int = 0,
+    max_task_failures: int = 0,
     scheduling_timeout_seconds: int = 0,
     priority_band: int = 0,
     task_image: str = "",
@@ -650,6 +651,7 @@ def make_job_request(
         environment=job_pb2.EnvironmentConfig(),
         max_retries_failure=max_retries_failure,
         max_retries_preemption=max_retries_preemption,
+        max_task_failures=max_task_failures,
         replicas=replicas,
         priority_band=priority_band,
         task_image=task_image,
