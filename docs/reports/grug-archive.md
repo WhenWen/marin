@@ -44,5 +44,5 @@ This file is the paper trail for grug experiments.
 - Last known-good: pending Iris gate
 - Status: active
 - Purpose: exact July Baseline d512 with fixed-C hierarchical Over-Encoding and an OE-table-only LR sweep.
-- Diff: [against `july_baseline`](https://github.com/marin-community/marin/compare/july_baseline...codex/july-baseline-oe-lr-sweep-7368)
+- Diff: [against `july_baseline`](https://github.com/marin-community/marin/compare/july_baseline...WhenWen:codex/july-baseline-oe-lr-sweep-7368)
 - Issue: [#7368](https://github.com/marin-community/marin/issues/7368)
