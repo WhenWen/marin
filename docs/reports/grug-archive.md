@@ -37,3 +37,12 @@ This file is the paper trail for grug experiments.
 - Status: deleted
 - Purpose: historical head-to-head comparison.
 - Superseded by: template-first workflow centered on `experiments/grug/base/`.
+
+### moe-july-over-encoding-lr-sweep-7368
+- Path: `experiments/grug/moe_july_over_encoding/`
+- Introduced: `codex/july-baseline-oe-lr-sweep-7368`
+- Last known-good: pending Iris gate
+- Status: active
+- Purpose: exact July Baseline d512 with fixed-C hierarchical Over-Encoding and an OE-table-only LR sweep.
+- Diff: [against `july_baseline`](https://github.com/marin-community/marin/compare/july_baseline...codex/july-baseline-oe-lr-sweep-7368)
+- Issue: [#7368](https://github.com/marin-community/marin/issues/7368)
