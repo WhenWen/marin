@@ -79,3 +79,12 @@
 - Result: both jobs succeeded with zero failures/preemptions, finite loss, and uploaded XPlane profiles. Baseline averaged 357,057.71 tokens/s; candidate averaged 327,957.19 tokens/s. Slowdown is 8.1501%, exceeding the hard limit by 0.1501 percentage points. Candidate added 196,728 parameters (746,803,832 versus 746,607,104). No HBM/OOM signature appeared. The d768 baseline was allocated next and is compiling.
 - Interpretation: memory/compile viability passes at d512, but the requested throughput gate fails narrowly. Gate 1 remains blocked. Per-token coefficient-telemetry reductions inside every rematerialized block are a non-model overhead candidate and will be checked against the XPlane breakdown before a new identity is launched.
 - Next action: finish both profile summaries, remove only proven observability overhead, validate locally, and run a new optimized profile identity; continue the original d768 pair for scale evidence.
+
+### 2026-07-19 10:41 - d768 baseline complete; candidate compiling
+
+- Hypothesis: the wider July cell supplies independent scale evidence for both throughput and activation viability.
+- Command: final-100-row W&B scan after Iris terminal success.
+- Config: `MOE-JULY-IHC-PERF-BASE-d768`, hidden 768, 8 layers, batch 32, sequence 8,192, seed 0, profiler steps 20-69.
+- Result: baseline succeeded with zero failures/preemptions, finite final loss 5.841033, and a completed XPlane artifact. The final 100 rows averaged 251,195.43 tokens/s (median 251,190.35). The original d768 candidate then acquired the released v5p-8 and its live W&B config exactly matches four streams, alpha 0.01, and remat group 2.
+- Interpretation: the d768 reference is ready; candidate compilation is the strongest current memory test because d768 has the larger widened residual state.
+- Next action: monitor the d768 candidate to terminal, then compare its last 100 rows and profile while preparing the fresh PERF2 remeasurement snapshot.

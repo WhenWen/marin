@@ -45,17 +45,17 @@
   "restart_count": 1,
   "max_restart_count": 1,
   "submitted_at": "2026-07-19T09:49:02-07:00",
-  "status": "d512_v1_failed_throughput_gate_d768_baseline_compiling",
-  "last_checked_at": "2026-07-19T10:27:26-07:00",
+  "status": "d512_v1_failed_throughput_gate_d768_candidate_compiling",
+  "last_checked_at": "2026-07-19T10:41:03-07:00",
   "parent_state": "JOB_STATE_RUNNING",
   "child_state_summary": {
     "count": 4,
-    "pending": 1,
+    "pending": 0,
     "running": 1,
-    "succeeded": 2,
+    "succeeded": 3,
     "failed": 0,
     "preemptions": 0,
-    "pending_reason": "d768 candidate v5p-8 capacity pending; d768 baseline compiling"
+    "pending_reason": "d768 candidate compiling"
   },
   "profile_results": {
     "d512_baseline": {
@@ -91,6 +91,21 @@
       "preemption_count": 0,
       "slowdown_vs_baseline": 0.08150087889645297,
       "passes_8_percent": false
+    },
+    "d768_baseline": {
+      "iris_state": "JOB_STATE_SUCCEEDED",
+      "wandb_state": "finished",
+      "wandb_run": "marin-community/dial_moe/MOE-JULY-IHC-PERF-BASE-d768",
+      "trainer_steps_completed": 220,
+      "wandb_summary_global_step": 219,
+      "final_train_loss": 5.841033458709717,
+      "loss_finite": true,
+      "steady_state_window": "global_step >= 120; 100 rows",
+      "mean_tokens_per_second": 251195.43483681724,
+      "median_tokens_per_second": 251190.35280480894,
+      "profile_uploaded": true,
+      "failure_count": 0,
+      "preemption_count": 0
     }
   },
   "last_failure": {
