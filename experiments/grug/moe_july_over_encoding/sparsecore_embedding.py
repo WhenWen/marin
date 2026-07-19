@@ -64,6 +64,8 @@ def _sparsecore_embedding_scatter_add(
     update_dtype = updates.dtype
     updates = updates.astype(jnp.float32)
     output = jnp.zeros((num_rows, updates.shape[-1]), dtype=jnp.float32)
+    ids_ref = jax.new_ref(ids, memory_space=pltpu.HBM)
+    updates_ref = jax.new_ref(updates, memory_space=pltpu.HBM)
     output_ref = jax.new_ref(output, memory_space=pltpu.HBM)
     mesh = plsc.VectorSubcoreMesh(
         core_axis_name="core",
@@ -72,16 +74,12 @@ def _sparsecore_embedding_scatter_add(
         num_subcores=sparse_core_info.num_subcores,
     )
 
-    @pl.kernel(
-        out_shape=(),
-        mesh=mesh,
-        name="over_encoding_embedding_scatter_add",
-    )
-    def kernel(ids_hbm_ref, updates_hbm_ref, dense_gradient_hbm_ref):
+    @pl.core_map(mesh, name="over_encoding_embedding_scatter_add")
+    def kernel():
         def scatter_body(ids_vmem_ref, updates_vmem_ref):
             pltpu.sync_copy(
                 updates_vmem_ref,
-                dense_gradient_hbm_ref.at[ids_vmem_ref.at[0]],
+                output_ref.at[ids_vmem_ref.at[0]],
                 add=True,
             )
 
@@ -98,9 +96,9 @@ def _sparsecore_embedding_scatter_add(
             out_specs=(),
             core_axis_name=("core", "subcore"),
             dimension_semantics=(pltpu.PARALLEL,),
-        )(ids_hbm_ref, updates_hbm_ref)
+        )(ids_ref, updates_ref)
 
-    kernel(ids, updates, output_ref)
+    kernel()
     return jax.freeze(output_ref).astype(update_dtype)
 
 

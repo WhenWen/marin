@@ -55,6 +55,7 @@ def main() -> None:
         )
         result, compile_time, steady_state_time = _timed_call(fn, ids, updates, repeats=args.repeats)
         results[implementation] = result
+        result_f32 = result.astype(jnp.float32)
         print(
             json.dumps(
                 {
@@ -69,6 +70,11 @@ def main() -> None:
                     "git_sha": os.environ.get("GIT_COMMIT", "unknown"),
                     "implementation": implementation,
                     "kernel": "over_encoding_embedding_scatter_add",
+                    "result_stats": {
+                        "l1_norm": float(jnp.sum(jnp.abs(result_f32))),
+                        "max_absolute_value": float(jnp.max(jnp.abs(result_f32))),
+                        "mean_absolute_value": float(jnp.mean(jnp.abs(result_f32))),
+                    },
                     "shape": {
                         "embedding_dim": args.embedding_dim,
                         "num_indices": args.num_indices,
@@ -82,12 +88,14 @@ def main() -> None:
         )
 
     absolute_error = jnp.abs(results["sparsecore"].astype(jnp.float32) - results["xla"].astype(jnp.float32))
+    reference_l1 = jnp.sum(jnp.abs(results["xla"].astype(jnp.float32)))
     print(
         json.dumps(
             {
                 "correctness": {
                     "max_absolute_error": float(jnp.max(absolute_error)),
                     "mean_absolute_error": float(jnp.mean(absolute_error)),
+                    "relative_l1_error": float(jnp.sum(absolute_error) / reference_l1),
                 }
             },
             sort_keys=True,
