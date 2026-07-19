@@ -129,3 +129,12 @@
 - Config identity: hidden 512, six layers, four attention heads, one KV head, batch 16, sequence 8,192, four residual streams, alpha 0.01, two-layer rematerialization, and 10,980 steps.
 - Interpretation: d512 Gate 1 has healthy numerical, compile, throughput, identity, and checkpoint-path evidence.
 - Next action: keep d512 running; wait for d768 capacity, then require the same compile and finite-startup evidence independently.
+
+### 2026-07-19 11:28 - Both Gate 1 widths pass startup
+
+- Command: verify the exact Iris prefix, live W&B config/history/heartbeats for both Gate 1 runs, and terminal matched PERF2 histories over steps 120-219.
+- Result: the parent has exactly two running children and no siblings. Both have zero failures/preemptions. d512 is at step 1,449 with finite loss 4.046039 and 328,600.09 tokens/s. d768 passed the larger first-step compile and is at step 45 with finite loss 10.977134 and 227,401.84 tokens/s. Both W&B heartbeats are fresh.
+- Checkpoints: d512 final is `gs://marin-us-east5/grug/MOE-JULY-IHC-G1-001-d512-39b35d/checkpoints/step-10980`; d768 final is `gs://marin-us-east5/grug/MOE-JULY-IHC-G1-002-d768-c9eb80/checkpoints/step-16875`.
+- Throughput gate: optimized matched PERF2 final-100 means are 354,247.48 baseline versus 329,300.35 candidate at d512 (7.0423% slower), and 251,248.13 versus 225,620.46 at d768 (10.2001% slower). Both pass the accepted 11% ceiling. Both candidates completed 220 steps with finite loss, profile artifacts, and no HBM/OOM signature.
+- Interpretation: the requested real-July-baseline Identity-HC Gate 1 launch is reproducible, correctly scoped, within the accepted throughput budget, activation-memory viable under two-layer recomputation, and healthy at both widths.
+- Next action: leave both Gate 1 cells running for scheduled 1,000-step Paloma evaluations and final checkpoints; no recovery action is indicated.

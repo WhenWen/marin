@@ -5,7 +5,7 @@
   "snapshot": {
     "branch": "codex/july-baseline-identity-hc",
     "code_commit": "f51a83fdd",
-    "launch_head": "bf57507cf",
+    "launch_head": "3e9e72353",
     "tag": "identity-hc-gate1-launch",
     "base": "52d8a9eb8d9434cf1dcaaee060edeadc60dfff9d"
   },
@@ -48,10 +48,14 @@
   },
   "launch_gate_evidence": {
     "maximum_throughput_decrease": 0.11,
-    "d512_slowdown": 0.08150087889645297,
-    "d768_slowdown": 0.10492625983155357,
+    "d512_baseline_tokens_per_second": 354247.4786427944,
+    "d512_candidate_tokens_per_second": 329300.3480107205,
+    "d512_slowdown": 0.07042288833685492,
+    "d768_baseline_tokens_per_second": 251248.12908028494,
+    "d768_candidate_tokens_per_second": 225620.46341180033,
+    "d768_slowdown": 0.10200141892517509,
     "activation_memory_viable": true,
-    "basis": "d768 profile candidate compiled and completed 220 steps with remat group 2 and no HBM/OOM signature"
+    "basis": "matched optimized PERF2 baseline/candidate final-100 means; both candidates compiled and completed 220 steps with remat group 2 and no HBM/OOM signature"
   },
   "expected_final_steps": {
     "d512": 10980,
@@ -59,20 +63,21 @@
   },
   "final_checkpoint_paths": {
     "d512": "gs://marin-us-east5/grug/MOE-JULY-IHC-G1-001-d512-39b35d/checkpoints/step-10980",
-    "d768": null
+    "d768": "gs://marin-us-east5/grug/MOE-JULY-IHC-G1-002-d768-c9eb80/checkpoints/step-16875"
   },
   "sanitized_resubmit_command": "/Users/kaiyuew/Downloads/Project/marin/.venv/bin/iris --config <(sed -e '1s/^/name: marin\\n/' -e 's/mode: GCP_SLICE_MODE_VM/mode: vm/' -e '/^log_server_config:/d' lib/iris/config/marin.yaml) job run --no-wait --zone us-east5-a --cpu=1 --memory=2G --extra=cpu --job-name july-baseline-identity-hc-gate1-7409 -e WANDB_API_KEY \"${WANDB_API_KEY}\" -- python -m experiments.grug.moe_identity_hyperconnection.gate1",
   "restart_count": 0,
   "max_restart_count": 2,
   "submitted_at": "2026-07-19T11:09:35-07:00",
-  "last_checked_at": "2026-07-19T11:17:03-07:00",
-  "status": "d512_finite_startup_waiting_for_d768_capacity",
+  "last_checked_at": "2026-07-19T11:28:45-07:00",
+  "launch_verified_at": "2026-07-19T11:28:45-07:00",
+  "status": "both_finite_startup_gate1_running",
   "parent_state": "JOB_STATE_RUNNING",
   "child_summary": {
     "expected": 2,
     "observed": 2,
-    "pending": 1,
-    "running": 1,
+    "pending": 0,
+    "running": 2,
     "succeeded": 0,
     "failed": 0,
     "preempted": 0
@@ -85,19 +90,26 @@
       "preemption_count": 0,
       "pending_reason": "",
       "wandb_state": "running",
-      "wandb_heartbeat_at": "2026-07-19T18:16:42Z",
-      "global_step": 55,
-      "train_loss": 10.350955963134766,
-      "tokens_per_second": 329969.96599097055,
+      "wandb_heartbeat_at": "2026-07-19T18:28:12Z",
+      "global_step": 1449,
+      "train_loss": 4.046038627624512,
+      "tokens_per_second": 328600.0934056178,
       "finite_startup": true,
       "checkpoint_base_path": "gs://marin-us-east5/grug/MOE-JULY-IHC-G1-001-d512-39b35d/checkpoints"
     },
     "d768": {
-      "state": "JOB_STATE_PENDING",
-      "task_state": "pending",
+      "state": "JOB_STATE_RUNNING",
+      "task_state": "running",
       "failure_count": 0,
       "preemption_count": 0,
-      "pending_reason": "Insufficient v5p capacity"
+      "pending_reason": "",
+      "wandb_state": "running",
+      "wandb_heartbeat_at": "2026-07-19T18:28:26Z",
+      "global_step": 45,
+      "train_loss": 10.977133750915527,
+      "tokens_per_second": 227401.83980767828,
+      "finite_startup": true,
+      "checkpoint_base_path": "gs://marin-us-east5/grug/MOE-JULY-IHC-G1-002-d768-c9eb80/checkpoints"
     }
   }
 }
