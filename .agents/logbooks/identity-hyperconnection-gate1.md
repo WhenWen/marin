@@ -167,3 +167,10 @@
 - Result: d768 remains running with zero failures/preemptions at step 8,370, past the halfway point. All scanned train losses remain finite; current loss is 3.179600 at 224,782.49 tokens/s. Step-8,000 Paloma macro loss is 3.527793 (BPB 1.265393), improved from 3.667298 at step 5,000. Complete temporary checkpoint metadata exists at step 8,080, timestamp `2026-07-19T21:30:21.504535`. The error scan is clean apart from the successful JAX serialization check.
 - Interpretation: d768 remains numerically stable, evaluated, and recoverable through the halfway point, with no recovery action indicated.
 - Next action: continue monitoring the original d768 child to terminal success and permanent step-16,875 metadata.
+
+### 2026-07-19 15:58 - d768 passes step-12,000 evaluation
+
+- Command: refresh the exact Iris prefix, scan the complete d768 W&B train history and scheduled evaluations, read the newest temporary checkpoint metadata, and scan recent logs for non-finite, memory, task-failure, and dead-node signatures.
+- Result: d768 remains running with zero failures/preemptions at step 12,006. All 12,006 scanned train losses are finite; current loss is 3.044673 at 224,892.66 tokens/s. Step-12,000 Paloma macro loss is 3.377856 (BPB 1.212346), improved from 3.413383 at step 11,000. Complete temporary checkpoint metadata exists at step 11,826, timestamp `2026-07-19T22:53:20.727462`. The error scan is clean apart from the successful JAX serialization check.
+- Interpretation: the remaining arm is numerically stable, evaluated, and recoverable beyond 70% of its run, with no recovery action indicated.
+- Next action: continue monitoring the original d768 child to terminal success and permanent step-16,875 metadata.
