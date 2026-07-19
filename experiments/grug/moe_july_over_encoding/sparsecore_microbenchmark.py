@@ -46,7 +46,7 @@ def run_sparsecore_microbenchmark(config: SparseCoreMicrobenchmarkConfig) -> dic
 
 
 microbenchmark = ExecutorStep(
-    name="grug/MOE-OE-SPARSECORE-MICROBENCH-RANK64-COREMAP-V6-7368",
+    name="grug/MOE-OE-SPARSECORE-MICROBENCH-RANK64-SHARED-V7-7368",
     fn=run_sparsecore_microbenchmark,
     config=SparseCoreMicrobenchmarkConfig(
         num_rows=3_238_400,

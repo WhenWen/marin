@@ -87,10 +87,15 @@ def _sparsecore_embedding_scatter_add(
             scatter_body,
             grid=(grid_size,),
             in_specs=(
-                pl.BlockSpec((1, _SCATTER_WINDOW_SIZE), lambda step: (0, step)),
+                pl.BlockSpec(
+                    (1, _SCATTER_WINDOW_SIZE),
+                    lambda step: (0, step),
+                    memory_space=pltpu.VMEM_SHARED,
+                ),
                 pl.BlockSpec(
                     (_SCATTER_WINDOW_SIZE, updates.shape[-1]),
                     lambda step: (step, 0),
+                    memory_space=pltpu.VMEM_SHARED,
                 ),
             ),
             out_specs=(),
