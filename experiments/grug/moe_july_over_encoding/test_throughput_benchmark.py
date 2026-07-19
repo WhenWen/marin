@@ -34,3 +34,6 @@ def test_throughput_cells_differ_only_by_over_encoding_model_fields():
     assert baseline.profiler.enabled
     assert baseline.profiler.start_step == 100
     assert baseline.profiler.num_steps == 50
+    assert baseline.run_id == "MOE-JULY-SORTED-SCATTER-PERF-BASELINE-d512"
+    assert over_encoding.run_id == "MOE-JULY-SORTED-SCATTER-PERF-OE-d512"
+    assert baseline.tracker.group == over_encoding.tracker.group == ("MOE-OE-JULY-sorted-scatter-throughput-issue-7368")
