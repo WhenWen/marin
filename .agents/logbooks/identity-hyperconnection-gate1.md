@@ -138,3 +138,11 @@
 - Throughput gate: optimized matched PERF2 final-100 means are 354,247.48 baseline versus 329,300.35 candidate at d512 (7.0423% slower), and 251,248.13 versus 225,620.46 at d768 (10.2001% slower). Both pass the accepted 11% ceiling. Both candidates completed 220 steps with finite loss, profile artifacts, and no HBM/OOM signature.
 - Interpretation: the requested real-July-baseline Identity-HC Gate 1 launch is reproducible, correctly scoped, within the accepted throughput budget, activation-memory viable under two-layer recomputation, and healthy at both widths.
 - Next action: leave both Gate 1 cells running for scheduled 1,000-step Paloma evaluations and final checkpoints; no recovery action is indicated.
+
+### 2026-07-19 12:06 - Both widths have evaluations and recoverable checkpoints
+
+- Command: verify the exact Iris prefix, scan dense W&B train histories for non-finite loss, inspect scheduled eval rows, and read temporary checkpoint `metadata.json` for both widths.
+- Result: both children remain running with zero failures/preemptions. d512 reached step 5,999 with finite loss 3.433643 at 328,645.55 tokens/s; its step-5,000 Paloma macro loss is 3.950007 (BPB 1.414534). d768 reached step 1,760 with finite loss 3.602213 at 225,306.26 tokens/s; its step-1,000 Paloma macro loss is 4.169527 (BPB 1.492243). All scanned train losses are finite.
+- Checkpoints: complete temporary metadata exists at d512 step 5,615 (timestamp `2026-07-19T19:02:55.245413`) and d768 step 1,590 (timestamp `2026-07-19T19:03:35.825568`).
+- Interpretation: both arms have durable recovery points and scheduled evaluation evidence; no recovery action is indicated.
+- Next action: continue monitoring independently to terminal success, then verify finished W&B state, final permanent checkpoint metadata, and matched final Paloma comparisons.
