@@ -37,3 +37,11 @@ This file is the paper trail for grug experiments.
 - Status: deleted
 - Purpose: historical head-to-head comparison.
 - Superseded by: template-first workflow centered on `experiments/grug/base/`.
+
+### moe-july-rope-relative-position-inkling-gate1
+- Path: `experiments/grug/moe_rope_relative_position/`
+- Introduced: `codex/july-baseline-rope-relattn-7208`
+- Last known-good: pending Gate 1 completion
+- Status: active
+- Purpose: preserve the real July baseline half-RoPE/GQA architecture while adding Inkling-parameterized learned relative attention.
+- Issue: #7208
