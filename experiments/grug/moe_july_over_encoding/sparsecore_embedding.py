@@ -98,7 +98,6 @@ def _sparsecore_embedding_scatter_add(
             dimension_semantics=(pltpu.PARALLEL,),
         )(ids_ref, updates_ref)
 
-    kernel()
     return jax.freeze(output_ref).astype(update_dtype)
 
 
