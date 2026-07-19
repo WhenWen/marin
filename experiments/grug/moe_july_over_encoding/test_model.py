@@ -7,11 +7,18 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
-from jax.sharding import AxisType, Mesh
+from jax.sharding import AxisType, Mesh, reshard
+from jax.sharding import PartitionSpec as P
 
 from experiments.grug.moe.model import GrugModelConfig as JulyGrugModelConfig
 from experiments.grug.moe.model import Transformer as JulyTransformer
-from experiments.grug.moe_july_over_encoding.model import GrugModelConfig, OverEncoding, Transformer, _causal_ngram_ids
+from experiments.grug.moe_july_over_encoding.model import (
+    GrugModelConfig,
+    OverEncoding,
+    Transformer,
+    _causal_ngram_ids,
+    _tablewise_embedding_lookup,
+)
 
 
 def _single_device_grug_mesh() -> Mesh:
@@ -64,9 +71,64 @@ def test_over_encoding_single_rank_uses_all_hierarchical_slices():
         output = over_encoding(token_ids, segment_ids)
 
     assert over_encoding.logical_vocab_sizes == (17, 19, 21, 23)
-    assert all(table.shape == (256, 2) for table in over_encoding.tables)
+    assert over_encoding.tables.shape == (4, 256, 2)
     assert output.shape == (1, 4, 8)
     assert bool(jnp.all(jnp.isfinite(output)))
+
+
+def test_tablewise_over_encoding_matches_independent_lookup_values_and_gradients():
+    config = GrugModelConfig(
+        **_tiny_model_fields(),
+        over_encoding_vocab_size=17,
+        over_encoding_splits=2,
+        over_encoding_num_grams=3,
+    )
+    token_ids = jnp.array([[1, 2, 3, 4]], dtype=jnp.int32)
+    segment_ids = jnp.array([[0, 0, 1, 1]], dtype=jnp.int32)
+
+    with jax.set_mesh(_single_device_grug_mesh()):
+        over_encoding = OverEncoding.init(config, key=jax.random.PRNGKey(0))
+        ids = []
+        for order in range(2, over_encoding.num_grams + 1):
+            for split_index in range(over_encoding.splits):
+                table_index = (order - 2) * over_encoding.splits + split_index
+                ids.append(
+                    _causal_ngram_ids(
+                        token_ids,
+                        order=order,
+                        modulus=over_encoding.logical_vocab_sizes[table_index],
+                        base_vocab_size=over_encoding.base_vocab_size,
+                        segment_ids=segment_ids,
+                    )
+                )
+        stacked_ids = jnp.stack(ids)
+
+        def tablewise_loss(tables, projections):
+            return jnp.sum(_tablewise_embedding_lookup(tables, jnp.stack(projections), stacked_ids))
+
+        def reference_loss(tables, projections):
+            tables = reshard(tables, P(None, None, None))
+            output = jnp.zeros((*token_ids.shape, config.hidden_dim), dtype=tables.dtype)
+            for table_index, table_ids in enumerate(ids):
+                embedding_slice = tables[table_index][table_ids]
+                output = output + jnp.einsum("bsd,dh->bsh", embedding_slice, projections[table_index])
+            return jnp.sum(output)
+
+        tablewise_value, tablewise_grads = jax.value_and_grad(tablewise_loss, argnums=(0, 1))(
+            over_encoding.tables,
+            over_encoding.projections,
+        )
+        reference_value, reference_grads = jax.value_and_grad(reference_loss, argnums=(0, 1))(
+            over_encoding.tables,
+            over_encoding.projections,
+        )
+
+    np.testing.assert_allclose(tablewise_value, reference_value, rtol=1e-6, atol=1e-6)
+    jax.tree.map(
+        lambda actual, expected: np.testing.assert_allclose(actual, expected, rtol=1e-6, atol=1e-6),
+        tablewise_grads,
+        reference_grads,
+    )
 
 
 def test_disabling_over_encoding_preserves_canonical_july_initialization():

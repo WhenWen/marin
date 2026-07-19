@@ -12,7 +12,7 @@ def _embedding_params():
     return {
         "token_embed": jnp.ones((8, 2), dtype=jnp.float32),
         "over_encoding": {
-            "tables": (jnp.ones((8, 2), dtype=jnp.float32),),
+            "tables": jnp.ones((1, 8, 2), dtype=jnp.float32),
             "projections": (jnp.ones((2, 2), dtype=jnp.float32),),
         },
     }
@@ -22,7 +22,7 @@ def test_muonh_mask_routes_only_over_encoding_tables_to_separate_adam():
     mask = GrugMoeMuonHConfig().create_mask(_embedding_params())
 
     assert mask["token_embed"] == "adam"
-    assert mask["over_encoding"]["tables"][0] == "over_encoding_adam"
+    assert mask["over_encoding"]["tables"] == "over_encoding_adam"
     assert mask["over_encoding"]["projections"][0] == "muonh"
 
 
@@ -52,12 +52,12 @@ def test_over_encoding_lr_multiplier_changes_only_table_update():
     np.testing.assert_allclose(quarter_updates["token_embed"], unit_updates["token_embed"])
     np.testing.assert_allclose(quadruple_updates["token_embed"], unit_updates["token_embed"])
     np.testing.assert_allclose(
-        quarter_updates["over_encoding"]["tables"][0],
-        unit_updates["over_encoding"]["tables"][0] * 0.25,
+        quarter_updates["over_encoding"]["tables"],
+        unit_updates["over_encoding"]["tables"] * 0.25,
     )
     np.testing.assert_allclose(
-        quadruple_updates["over_encoding"]["tables"][0],
-        unit_updates["over_encoding"]["tables"][0] * 4.0,
+        quadruple_updates["over_encoding"]["tables"],
+        unit_updates["over_encoding"]["tables"] * 4.0,
     )
     np.testing.assert_allclose(
         quarter_updates["over_encoding"]["projections"][0],

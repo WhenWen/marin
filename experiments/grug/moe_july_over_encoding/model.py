@@ -7,9 +7,9 @@ Architecture: QB-routed MoE with GatedNorm, XSA, sigmoid combine weights.
 No load-balancing loss; router z-loss only. All layers are MoE (no dense layers).
 
 The base 1-gram embedding is augmented with low-rank causal 2-gram and 3-gram
-tables following arXiv:2501.16975. The additional tables use row-wise sharding
-and routed ragged all-to-all lookup; the base embedding keeps its original
-July Baseline sharding.
+tables following arXiv:2501.16975. The additional tables are distributed across
+the data-parallel mesh and use one static all-to-all pair per lookup; the base
+embedding keeps its original July Baseline sharding.
 """
 
 import dataclasses
@@ -171,6 +171,74 @@ def _rowwise_embedding_lookup(
         in_specs=(P(_BATCH_AXES, None), P(_BATCH_AXES, None)),
         out_specs=P(_BATCH_AXES, None, None),
     )(table, ids)
+
+
+def _tablewise_embedding_lookup_local(
+    tables_local: Float[Array, "Tlocal V Dslice"],
+    projections: Float[Array, "T Dslice D"],
+    ids_local: Int[Array, "T Blocal S"],
+) -> Float[Array, "Blocal S D"]:
+    """Transpose table/batch ownership, look up local tables, then transpose back."""
+    axis_name = _BATCH_AXES
+    num_local_tables = tables_local.shape[0]
+    owned_ids = jax.lax.all_to_all(
+        ids_local,
+        axis_name,
+        split_axis=0,
+        concat_axis=1,
+        tiled=True,
+    )
+
+    local_table_ids = jnp.arange(num_local_tables)[:, None, None]
+    embedding_slices = tables_local[local_table_ids, owned_ids]
+    local_embedding_slices = jax.lax.all_to_all(
+        embedding_slices,
+        axis_name,
+        split_axis=1,
+        concat_axis=0,
+        tiled=True,
+    )
+    return jnp.einsum("tbsd,tdh->bsh", local_embedding_slices, projections)
+
+
+def _tablewise_embedding_lookup(
+    tables: Float[Array, "T V Dslice"],
+    projections: Float[Array, "T Dslice D"],
+    ids: Int[Array, "T B S"],
+) -> Float[Array, "B S D"]:
+    """Look up table-sharded OE slices with one static all-to-all pair."""
+    mesh = get_abstract_mesh()
+    dp_size = math.prod(_mesh_axis_size(mesh, axis_name) for axis_name in _BATCH_AXES)
+    if tables.shape[0] % dp_size != 0:
+        raise ValueError(f"OE table count ({tables.shape[0]}) must be divisible by DP size ({dp_size})")
+    if dp_size == 1:
+        table_ids = jnp.arange(tables.shape[0])[:, None, None]
+        embedding_slices = tables.at[table_ids, ids].get(
+            out_sharding=P(None, _BATCH_AXES, None, None),
+        )
+        return jnp.einsum("tbsd,tdh->bsh", embedding_slices, projections, out_sharding=_batch_spec())
+
+    tables = reshard(tables, P(_BATCH_AXES, None, None))
+    projections = reshard(projections, P(None, None, None))
+    ids = reshard(ids, P(None, _BATCH_AXES, None))
+
+    def local_lookup(
+        tables_local: jax.Array,
+        replicated_projections: jax.Array,
+        ids_local: jax.Array,
+    ) -> jax.Array:
+        return _tablewise_embedding_lookup_local(
+            tables_local,
+            replicated_projections,
+            ids_local,
+        )
+
+    return shard_map(
+        local_lookup,
+        mesh=mesh,
+        in_specs=(P(_BATCH_AXES, None, None), P(None, None, None), P(None, _BATCH_AXES, None)),
+        out_specs=P(_BATCH_AXES, None, None),
+    )(tables, projections, ids)
 
 
 def _layer_attention_masks(mask: AttentionMask, *, sliding_window: int) -> tuple[AttentionMask, AttentionMask]:
@@ -711,7 +779,7 @@ def _causal_ngram_ids(
 class OverEncoding(eqx.Module):
     """Hierarchical input-only 2/3-gram embedding tables."""
 
-    tables: tuple[jax.Array, ...]
+    tables: jax.Array
     projections: tuple[jax.Array, ...]
     logical_vocab_sizes: tuple[int, ...] = eqx.field(static=True)
     splits: int = eqx.field(static=True)
@@ -726,17 +794,21 @@ class OverEncoding(eqx.Module):
         slice_dim = cfg.hidden_dim // num_tables
         table_keys = random.split(key, num_tables * 2)
         logical_vocab_sizes = tuple(cfg.over_encoding_vocab_size + 2 * index for index in range(num_tables))
-        tables = tuple(
-            reshard(
+        physical_rows = max(_over_encoding_table_rows(logical_rows) for logical_rows in logical_vocab_sizes)
+        table_values = jnp.stack(
+            tuple(
                 _init_weight(
                     table_keys[index],
-                    (_over_encoding_table_rows(logical_rows), slice_dim),
+                    (physical_rows, slice_dim),
                     cfg.initializer_std,
-                ),
-                P(_BATCH_AXES, None),
+                )
+                for index in range(num_tables)
             )
-            for index, logical_rows in enumerate(logical_vocab_sizes)
         )
+        mesh = get_abstract_mesh()
+        dp_size = math.prod(_mesh_axis_size(mesh, axis_name) for axis_name in _BATCH_AXES)
+        table_spec = P(_BATCH_AXES, None, None) if num_tables % dp_size == 0 else P(None, _BATCH_AXES, None)
+        tables = reshard(table_values, table_spec)
         projection_std = 1.0 / math.sqrt(slice_dim)
         projections = tuple(
             reshard(
@@ -760,25 +832,42 @@ class OverEncoding(eqx.Module):
         token_ids: Int[Array, "B S"],
         segment_ids: jax.Array | None,
     ) -> Float[Array, "B S D"]:
-        added_embedding = None
+        ngram_ids = []
         for order in range(2, self.num_grams + 1):
             for split_index in range(self.splits):
                 table_index = (order - 2) * self.splits + split_index
-                ngram_ids = _causal_ngram_ids(
-                    token_ids,
-                    order=order,
-                    modulus=self.logical_vocab_sizes[table_index],
-                    base_vocab_size=self.base_vocab_size,
-                    segment_ids=segment_ids,
+                ngram_ids.append(
+                    _causal_ngram_ids(
+                        token_ids,
+                        order=order,
+                        modulus=self.logical_vocab_sizes[table_index],
+                        base_vocab_size=self.base_vocab_size,
+                        segment_ids=segment_ids,
+                    )
                 )
-                embedding_slice = _rowwise_embedding_lookup(self.tables[table_index], ngram_ids)
-                projected = jnp.einsum(
-                    "bsd,dh->bsh",
-                    embedding_slice,
-                    self.projections[table_index],
-                    out_sharding=_batch_spec(),
-                )
-                added_embedding = projected if added_embedding is None else added_embedding + projected
+
+        if not ngram_ids:
+            raise AssertionError("OverEncoding must contain at least one table")
+
+        mesh = get_abstract_mesh()
+        dp_size = math.prod(_mesh_axis_size(mesh, axis_name) for axis_name in _BATCH_AXES)
+        if len(ngram_ids) % dp_size == 0:
+            return _tablewise_embedding_lookup(
+                self.tables,
+                jnp.stack(self.projections),
+                jnp.stack(ngram_ids),
+            )
+
+        added_embedding = None
+        for table_index, table_ngram_ids in enumerate(ngram_ids):
+            embedding_slice = _rowwise_embedding_lookup(self.tables[table_index], table_ngram_ids)
+            projected = jnp.einsum(
+                "bsd,dh->bsh",
+                embedding_slice,
+                self.projections[table_index],
+                out_sharding=_batch_spec(),
+            )
+            added_embedding = projected if added_embedding is None else added_embedding + projected
 
         if added_embedding is None:
             raise AssertionError("OverEncoding must contain at least one table")
