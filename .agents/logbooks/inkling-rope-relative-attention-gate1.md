@@ -62,3 +62,11 @@ author: kaiyuew
 - Config: parent `/kaiyuew/july-baseline-rope-relative-attention-v2-gate1-7208`; W&B group `MOE-JULY-ROPE-RPE-INKP2-gate1-issue-7208`; fresh d512/d768 run IDs with the `INKP2` prefix. Architecture, optimizer routing, budgets, and widths are unchanged.
 - Result: preflight found no Iris or W&B duplicates. The corrected parent is running with exactly the intended d512 and d768 children and no siblings. Both children are pending normal demand-routed v5p capacity with zero failures/preemptions.
 - Next action: wait through allocation and TPU compilation, then require fresh finite step/loss signals from both arms.
+
+### 2026-07-18 23:35 - Reduced July-JAX backward tiles after scoped VMEM compile OOM
+- Hypothesis: the second startup failure is caused by the TPU wrapper ignoring the configured 128-token attention block size and selecting 512-token default backward tiles under July's JAX 0.9.2 compiler.
+- Evidence: corrected d512 passed the earlier `manual_axis_type` site, then failed during first-step compilation with `CompileTimeScopedVmemOom`; `flash_mha_bwd_dq_block_q_major_512_block_k_major_512_block_k_512` requested 16.12 MB against a 16.00 MB scoped VMEM limit. No step or loss was emitted. d768 was stopped before completing the same unusable compile to release its TPU.
+- Fix: the TPU call now explicitly maps the existing `attention_block_size=128` config into all forward and backward Pallas block sizes. No model, data, batch, sequence-length, optimizer, initialization, or positional parameter changed.
+- Validation: eight model/recipe tests and four kernel value/gradient tests pass; the TPU dispatch regression test verifies the configured tile reaches the kernel; `UV_OFFLINE=1 ./infra/pre-commit.py --all-files --fix` passes completely.
+- Interpretation: this is a compile-resource correction, not an architecture change. The final allowed recovery must use fresh Iris/W&B identities because the `INKP2` runs now exist.
+- Next action: commit and push the 128-token TPU tile fix, submit the `INKP3`/v3 fresh identities, and require finite metrics from both widths.

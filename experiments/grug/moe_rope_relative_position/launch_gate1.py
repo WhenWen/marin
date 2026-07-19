@@ -46,11 +46,11 @@ class Gate1Point:
 
 _SEQ_LEN = 8192
 _ISSUE_NUMBER = 7208
-_WANDB_GROUP = "MOE-JULY-ROPE-RPE-INKP2-gate1-issue-7208"
+_WANDB_GROUP = "MOE-JULY-ROPE-RPE-INKP3-gate1-issue-7208"
 _GATE_1_RESOURCES = ResourceConfig.with_tpu("v5p-8")
 GATE_1_POINTS: tuple[Gate1Point, ...] = (
-    Gate1Point("MOE-JULY-ROPE-RPE-INKP2-001", 512, 3.82e17, 16, 10_980, 3.5667, 352_609),
-    Gate1Point("MOE-JULY-ROPE-RPE-INKP2-002", 768, 2.81e18, 32, 16_875, 3.2272, 249_954),
+    Gate1Point("MOE-JULY-ROPE-RPE-INKP3-001", 512, 3.82e17, 16, 10_980, 3.5667, 352_609),
+    Gate1Point("MOE-JULY-ROPE-RPE-INKP3-002", 768, 2.81e18, 32, 16_875, 3.2272, 249_954),
 )
 
 
@@ -91,7 +91,7 @@ def gate_1_step(point: Gate1Point) -> ExecutorStep[GrugMoeLaunchConfig]:
     model, optimizer = gate_1_recipe(point)
     run_id = f"{point.experiment_id}-d{point.hidden_dim}"
     return ExecutorStep(
-        name=f"grug/moe_july_rope_relative_position_inkling_gate1_v2_d{point.hidden_dim}",
+        name=f"grug/moe_july_rope_relative_position_inkling_gate1_v3_d{point.hidden_dim}",
         fn=run_grug_moe_trial,
         config=GrugMoeLaunchConfig(
             model=versioned(model),
@@ -107,7 +107,7 @@ def gate_1_step(point: Gate1Point) -> ExecutorStep[GrugMoeLaunchConfig]:
                 entity="marin-community",
                 project="dial_moe",
                 tags=[
-                    "MOE-JULY-ROPE-RPE-INKP2",
+                    "MOE-JULY-ROPE-RPE-INKP3",
                     f"issue-{_ISSUE_NUMBER}",
                     "gate1",
                     "july-baseline",

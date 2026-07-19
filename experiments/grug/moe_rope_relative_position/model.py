@@ -45,6 +45,9 @@ from levanter.grug.grug_moe import (
 from levanter.grug.loss import fused_linear_softmax_cross_entropy_loss
 from levanter.grug.sharding import Pembed_vocab, Plm_head, unshard
 from levanter.kernels.pallas.relative_position_attention import (
+    BlockSizes as RelativePositionBlockSizes,
+)
+from levanter.kernels.pallas.relative_position_attention import (
     SegmentIds as RelativePositionSegmentIds,
 )
 from levanter.kernels.pallas.relative_position_attention import (
@@ -211,6 +214,7 @@ def rms_norm(x: jax.Array, eps: float = 1e-6) -> jax.Array:
     variance = jnp.mean(jnp.square(x.astype(jnp.float32)), axis=-1, keepdims=True)
     return (x * jax.lax.rsqrt(variance + eps)).astype(x.dtype)
 
+
 def _padded_segment_ids(
     segment_ids: jax.Array,
     *,
@@ -237,6 +241,22 @@ def _reshard_attention_heads(x: jax.Array) -> jax.Array:
     if mesh is None or mesh.empty:
         return x
     return reshard(x, P(_BATCH_AXES, None, "model", None))
+
+
+def _relative_position_block_sizes(block_size: int) -> RelativePositionBlockSizes:
+    return RelativePositionBlockSizes(
+        block_q=block_size,
+        block_k_major=block_size,
+        block_k=block_size,
+        block_b=1,
+        block_q_major_dkv=block_size,
+        block_k_major_dkv=block_size,
+        block_k_dkv=block_size,
+        block_q_dkv=block_size,
+        block_k_major_dq=block_size,
+        block_k_dq=block_size,
+        block_q_dq=block_size,
+    )
 
 
 def relative_position_attention(
@@ -342,6 +362,7 @@ def relative_position_attention(
             causal=True,
             sliding_window=mask.sliding_window,
             sm_scale=head_dim**-0.5,
+            block_sizes=_relative_position_block_sizes(block_size),
         )
         return jnp.transpose(output, (0, 2, 1, 3))[:, :seq_len]
 
@@ -444,8 +465,6 @@ def relative_position_attention(
     )
     output = jnp.reshape(jnp.swapaxes(output_blocks, 0, 1), (batch_size, padded_seq_len, num_heads, head_dim))
     return output[:, :seq_len]
-
-
 
 
 class CausalSelfAttention(eqx.Module):

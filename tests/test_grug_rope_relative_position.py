@@ -7,8 +7,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 from jax.sharding import Mesh
-from marin.execution.types import VersionedValue
 from levanter.grug.attention import AttentionMask
+from marin.execution.types import VersionedValue
 
 from experiments.grug.moe_rope_relative_position import model
 from experiments.grug.moe_rope_relative_position.launch_gate1 import (
@@ -90,6 +90,47 @@ def test_relative_attention_matches_dense_values_and_gradients():
     )
     for actual_grad, expected_grad in zip(actual_grads, expected_grads, strict=True):
         np.testing.assert_allclose(np.asarray(actual_grad), np.asarray(expected_grad), rtol=1e-5, atol=1e-5)
+
+
+def test_tpu_relative_attention_honors_configured_block_size(monkeypatch):
+    captured = {}
+
+    def capture_kernel(q, k, v, relative_logits, segment_ids, **kwargs):
+        del k, relative_logits, segment_ids
+        captured.update(kwargs)
+        return jnp.zeros_like(q, dtype=v.dtype)
+
+    monkeypatch.setattr(model.jax, "default_backend", lambda: "tpu")
+    monkeypatch.setattr(model, "_reshard_attention_heads", lambda x: x)
+    monkeypatch.setattr(model, "reshard", lambda x, spec: x)
+    monkeypatch.setattr(model, "relative_position_attention_kernel", capture_kernel)
+
+    output = model.relative_position_attention(
+        jnp.ones((1, 4, 2, 3)),
+        jnp.ones((1, 4, 1, 3)),
+        jnp.ones((1, 4, 1, 3)),
+        jnp.ones((1, 4, 2, 2)),
+        jnp.ones((2, 4)),
+        AttentionMask.causal(),
+        block_size=128,
+    )
+    block_sizes = captured["block_sizes"]
+
+    assert output.shape == (1, 4, 2, 3)
+    assert block_sizes.block_b == 1
+    assert block_sizes.has_backward_blocks
+    assert {
+        block_sizes.block_q,
+        block_sizes.block_k_major,
+        block_sizes.block_k,
+        block_sizes.block_q_major_dkv,
+        block_sizes.block_k_major_dkv,
+        block_sizes.block_k_dkv,
+        block_sizes.block_q_dkv,
+        block_sizes.block_k_major_dq,
+        block_sizes.block_k_dq,
+        block_sizes.block_q_dq,
+    } == {128}
 
 
 def test_inkling_parameters_use_independent_untruncated_normal_initialization():
@@ -191,8 +232,8 @@ def test_relative_attention_preserves_july_half_rope_policy(monkeypatch, disable
 @pytest.mark.parametrize(
     ("index", "hidden_dim", "expected_run_id", "batch_size", "num_steps", "initializer_std"),
     (
-        (0, 512, "MOE-JULY-ROPE-RPE-INKP2-001-d512", 16, 10_980, 0.022097086912079608),
-        (1, 768, "MOE-JULY-ROPE-RPE-INKP2-002-d768", 32, 16_875, 0.018042195912175808),
+        (0, 512, "MOE-JULY-ROPE-RPE-INKP3-001-d512", 16, 10_980, 0.022097086912079608),
+        (1, 768, "MOE-JULY-ROPE-RPE-INKP3-002-d768", 32, 16_875, 0.018042195912175808),
     ),
 )
 def test_gate_1_cells_match_real_july_baseline_and_inkling_parameterization(
@@ -223,6 +264,6 @@ def test_gate_1_cells_match_real_july_baseline_and_inkling_parameterization(
     assert optimizer_cfg.relative_query_projection_optimizer is RelativeQueryProjectionOptimizer.ADAM
     assert config.batch_size.value == batch_size
     assert config.steps.value == num_steps
-    assert config.tracker.group == "MOE-JULY-ROPE-RPE-INKP2-gate1-issue-7208"
+    assert config.tracker.group == "MOE-JULY-ROPE-RPE-INKP3-gate1-issue-7208"
     assert "half-rope" in config.tracker.tags
     assert "learned-qk-rmsnorm" in config.tracker.tags
