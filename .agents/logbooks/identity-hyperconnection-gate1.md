@@ -88,3 +88,12 @@
 - Result: baseline succeeded with zero failures/preemptions, finite final loss 5.841033, and a completed XPlane artifact. The final 100 rows averaged 251,195.43 tokens/s (median 251,190.35). The original d768 candidate then acquired the released v5p-8 and its live W&B config exactly matches four streams, alpha 0.01, and remat group 2.
 - Interpretation: the d768 reference is ready; candidate compilation is the strongest current memory test because d768 has the larger widened residual state.
 - Next action: monitor the d768 candidate to terminal, then compare its last 100 rows and profile while preparing the fresh PERF2 remeasurement snapshot.
+
+### 2026-07-19 10:44 - Optimized PERF2 profile cells queued
+
+- Hypothesis: removing per-layer coefficient telemetry collectives, while retaining the exact Identity-HC routing equations, parameters, optimizer groups, and two-layer rematerialization, will recover the 0.1501 percentage-point d512 miss without changing the model.
+- Command: submit `/kaiyuew/july-baseline-identity-hc-profile-v2-7409` from `us-east5-a` at snapshot `identity-hc-profile-v2` / `f51a83fdd`; W&B group `MOE-JULY-IHC-perf-v2-issue-7409`.
+- Config: fresh `PERF2` W&B identities; otherwise the same four matched `BASE/CAND` x `d512/d768` cells, seed, data, shapes, 220 steps, and XPlane window as v1. The implementation now uses the paper's exact sigmoid routing coefficient without an epsilon offset and omits coefficient-only monitoring reductions.
+- Result: after the required 120-second check, the parent is running and exactly four intended children are capacity-pending in `us-east5-a`, all with zero failures and zero preemptions. No sibling or cross-width identity exists. The v1 d512 baseline XPlane summary also completed; candidate XPlane ingestion is running.
+- Interpretation: this is a fresh, decision-grade measurement identity. Capacity pending is normal; Gate 1 remains blocked until both optimized width pairs pass the 8% throughput limit and the d768 candidate supplies successful compile/memory evidence.
+- Next action: monitor v1 d768 to terminal for diagnostic scale evidence, monitor all PERF2 cells in place, and compare matched final-100 throughput plus structured profiles before any Gate 1 submission.
