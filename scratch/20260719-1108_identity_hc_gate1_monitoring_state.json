@@ -69,7 +69,7 @@
   "restart_count": 0,
   "max_restart_count": 2,
   "submitted_at": "2026-07-19T11:09:35-07:00",
-  "last_checked_at": "2026-07-19T12:52:01-07:00",
+  "last_checked_at": "2026-07-19T13:24:07-07:00",
   "launch_verified_at": "2026-07-19T11:28:45-07:00",
   "status": "d512_succeeded_d768_running",
   "parent_state": "JOB_STATE_RUNNING",
@@ -118,24 +118,24 @@
       "preemption_count": 0,
       "pending_reason": "",
       "wandb_state": "running",
-      "wandb_heartbeat_at": "2026-07-19T19:51:56Z",
-      "global_step": 3809,
-      "train_loss": 3.357501268386841,
-      "tokens_per_second": 224876.30835814818,
+      "wandb_heartbeat_at": "2026-07-19T20:23:56Z",
+      "global_step": 5153,
+      "train_loss": 3.2835023403167725,
+      "tokens_per_second": 214794.00035790083,
       "all_train_loss_finite": true,
       "finite_startup": true,
       "checkpoint_base_path": "gs://marin-us-east5/grug/MOE-JULY-IHC-G1-002-d768-c9eb80/checkpoints",
       "latest_eval": {
-        "global_step": 3000,
-        "eval_loss": 3.5393893718719482,
-        "eval_macro_loss": 3.71614670753479,
-        "paloma_macro_loss": 3.777038097381592,
-        "paloma_macro_bpb": 1.3535372018814087
+        "global_step": 5000,
+        "eval_loss": 3.4252686500549316,
+        "eval_macro_loss": 3.5976758003234863,
+        "paloma_macro_loss": 3.667297601699829,
+        "paloma_macro_bpb": 1.3150733709335327
       },
       "latest_temporary_checkpoint": {
-        "path": "gs://marin-us-east5/tmp/ttl=14d/checkpoints-temp/marin-us-east5/grug/MOE-JULY-IHC-G1-002-d768-c9eb80/checkpoints/step-3500",
-        "step": 3500,
-        "timestamp": "2026-07-19T19:46:25.175247",
+        "path": "gs://marin-us-east5/tmp/ttl=14d/checkpoints-temp/marin-us-east5/grug/MOE-JULY-IHC-G1-002-d768-c9eb80/checkpoints/step-4915",
+        "step": 4915,
+        "timestamp": "2026-07-19T20:17:24.999238",
         "is_temporary": true
       }
     }
