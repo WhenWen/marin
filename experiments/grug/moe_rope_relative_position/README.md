@@ -26,4 +26,4 @@ uv run python -m experiments.grug.moe_rope_relative_position.launch_gate1
 ```
 
 The launcher contains only the d512 and d768 cells and records them in W&B group
-`MOE-JULY-ROPE-RPE-INKP-gate1-issue-7208`.
+`MOE-JULY-ROPE-RPE-INKP2-gate1-issue-7208`.

@@ -191,8 +191,8 @@ def test_relative_attention_preserves_july_half_rope_policy(monkeypatch, disable
 @pytest.mark.parametrize(
     ("index", "hidden_dim", "expected_run_id", "batch_size", "num_steps", "initializer_std"),
     (
-        (0, 512, "MOE-JULY-ROPE-RPE-INKP-001-d512", 16, 10_980, 0.022097086912079608),
-        (1, 768, "MOE-JULY-ROPE-RPE-INKP-002-d768", 32, 16_875, 0.018042195912175808),
+        (0, 512, "MOE-JULY-ROPE-RPE-INKP2-001-d512", 16, 10_980, 0.022097086912079608),
+        (1, 768, "MOE-JULY-ROPE-RPE-INKP2-002-d768", 32, 16_875, 0.018042195912175808),
     ),
 )
 def test_gate_1_cells_match_real_july_baseline_and_inkling_parameterization(
@@ -223,6 +223,6 @@ def test_gate_1_cells_match_real_july_baseline_and_inkling_parameterization(
     assert optimizer_cfg.relative_query_projection_optimizer is RelativeQueryProjectionOptimizer.ADAM
     assert config.batch_size.value == batch_size
     assert config.steps.value == num_steps
-    assert config.tracker.group == "MOE-JULY-ROPE-RPE-INKP-gate1-issue-7208"
+    assert config.tracker.group == "MOE-JULY-ROPE-RPE-INKP2-gate1-issue-7208"
     assert "half-rope" in config.tracker.tags
     assert "learned-qk-rmsnorm" in config.tracker.tags

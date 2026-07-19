@@ -48,7 +48,7 @@ author: kaiyuew
 
 ### 2026-07-18 23:05 - Diagnosed pre-step-1 kernel compatibility failure
 - Hypothesis: the failure is an API-version mismatch in the ported kernel rather than an architecture, data, or numerical-stability issue.
-- Commit Hash: pending
+- Commit Hash: `e1303c0fd`
 - Evidence: both W&B `output.log` files end at the first compiled training step with `AttributeError: 'ShapedArray' object has no attribute 'manual_axis_type'` in `relative_position_attention/pallas_tpu.py::_output_shape`; neither run reported a global step or loss.
 - Fix: construct plain `jax.ShapeDtypeStruct(shape, dtype)` outputs, matching the real July baseline's JAX 0.9.2 API, instead of reading the later-JAX `manual_axis_type` attribute.
 - Validation: all four relative-attention kernel value/gradient tests pass; targeted Ruff, Black, Pyrefly, and `git diff --check` pass. The repository-wide pre-commit wrapper reached only network timeouts while resolving already-known tool packages, not code findings.
