@@ -23,6 +23,7 @@ from experiments.grug.moe_july_over_encoding.model import (
 )
 from experiments.grug.moe_july_over_encoding.sparsecore_embedding import (
     _coalesce_embedding_updates,
+    _mark_embedding_gradient_varying,
     _shape_dtype_struct_with_mesh_metadata,
     embedding_lookup,
     embedding_scatter_add,
@@ -200,6 +201,24 @@ def test_sparsecore_output_shape_preserves_shard_map_variation_metadata():
     )(input_array)
 
     np.testing.assert_array_equal(output, input_array)
+
+
+def test_sparsecore_gradient_can_be_marked_varying_across_table_replicas():
+    mesh = Mesh(np.asarray(jax.devices()[:1]), ("data",), axis_types=(AxisType.Explicit,))
+    input_array = jax.device_put(jnp.array(0, dtype=jnp.int32), NamedSharding(mesh, P()))
+
+    def varying_zeros(_):
+        return _mark_embedding_gradient_varying(jnp.zeros((8,), dtype=jnp.float32), ("data",))
+
+    output = jax.shard_map(
+        varying_zeros,
+        mesh=mesh,
+        in_specs=P(),
+        out_specs=P("data"),
+        check_vma=True,
+    )(input_array)
+
+    np.testing.assert_array_equal(output, jnp.zeros((8,), dtype=jnp.float32))
 
 
 def test_embedding_scatter_add_rejects_sparsecore_off_tpu():

@@ -195,7 +195,7 @@ def _tablewise_embedding_lookup_local(
     flat_tables = tables_local.reshape((-1, tables_local.shape[-1]))
     local_table_ids = jnp.arange(num_local_tables)[:, None, None]
     flat_ids = local_table_ids * rows_per_table + owned_ids
-    embedding_slices = embedding_lookup(flat_tables, flat_ids)
+    embedding_slices = embedding_lookup(flat_tables, flat_ids, "auto", _BATCH_AXES)
     local_embedding_slices = jax.lax.all_to_all(
         embedding_slices,
         axis_name,

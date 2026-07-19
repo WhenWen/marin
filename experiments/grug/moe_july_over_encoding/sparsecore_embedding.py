@@ -23,6 +23,11 @@ def _shape_dtype_struct_with_mesh_metadata(value: Array) -> jax.ShapeDtypeStruct
     return jax.eval_shape(jnp.asarray, value)
 
 
+def _mark_embedding_gradient_varying(value: Array, varying_axes: tuple[str, ...]) -> Array:
+    """Mark a locally accumulated gradient as varying across table replicas."""
+    return jax.lax.pcast(value, varying_axes, to="varying")
+
+
 def _sparsecore_shape_is_supported(ids: Array, updates: Array) -> bool:
     sparse_core_info = plsc.get_sparse_core_info()
     num_sparse_workers = sparse_core_info.num_cores * sparse_core_info.num_subcores
@@ -161,6 +166,7 @@ def embedding_scatter_add(
     *,
     num_rows: int,
     implementation: EmbeddingGradientImplementation = "auto",
+    varying_axes: tuple[str, ...] = (),
 ) -> Float[Array, "v d"]:
     """Accumulate embedding gradients with an explicit backend choice."""
     if implementation == "auto":
@@ -173,26 +179,28 @@ def embedding_scatter_add(
     if implementation == "sparsecore":
         if jax.default_backend() != "tpu":
             raise ValueError("SparseCore embedding gradients require a TPU backend")
-        return _sparsecore_embedding_scatter_add(ids, updates, num_rows=num_rows)
+        gradient = _sparsecore_embedding_scatter_add(ids, updates, num_rows=num_rows)
+        return _mark_embedding_gradient_varying(gradient, varying_axes)
     raise ValueError(f"Unknown embedding gradient implementation: {implementation}")
 
 
-@functools.partial(jax.custom_vjp, nondiff_argnums=(2,))
+@functools.partial(jax.custom_vjp, nondiff_argnums=(2, 3))
 def embedding_lookup(
     table: Float[Array, "v d"],
     ids: Int[Array, "..."],
     implementation: EmbeddingGradientImplementation = "auto",
+    gradient_varying_axes: tuple[str, ...] = (),
 ) -> Float[Array, "... d"]:
     """Gather rows while dispatching the dense gradient to the selected backend."""
     return table[ids]
 
 
-def _embedding_lookup_fwd(table, ids, implementation):
-    del implementation
+def _embedding_lookup_fwd(table, ids, implementation, gradient_varying_axes):
+    del implementation, gradient_varying_axes
     return table[ids], (ids, table.shape)
 
 
-def _embedding_lookup_bwd(implementation, residuals, output_gradient):
+def _embedding_lookup_bwd(implementation, gradient_varying_axes, residuals, output_gradient):
     ids, table_shape = residuals
     flat_ids = ids.reshape(-1)
     flat_updates = output_gradient.reshape((flat_ids.shape[0], table_shape[-1]))
@@ -201,6 +209,7 @@ def _embedding_lookup_bwd(implementation, residuals, output_gradient):
         flat_updates,
         num_rows=table_shape[0],
         implementation=implementation,
+        varying_axes=gradient_varying_axes,
     )
     return table_gradient, None
 
