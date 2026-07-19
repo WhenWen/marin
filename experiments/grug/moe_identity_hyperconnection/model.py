@@ -305,7 +305,7 @@ def _identity_hc_collapse(
 
     scale = mapping_scale.astype(jnp.float32)
     bias = mapping_bias.astype(jnp.float32)
-    pre = jax.nn.sigmoid(projected[..., :num_streams] * scale[0] + bias[:num_streams]) + norm_eps
+    pre = jax.nn.sigmoid(projected[..., :num_streams] * scale[0] + bias[:num_streams])
     post = 2.0 * jax.nn.sigmoid(projected[..., num_streams:] * scale[1] + bias[num_streams:])
     collapsed = jnp.sum(streams * pre.astype(streams.dtype)[..., None], axis=-2)
     return collapsed, pre, post
@@ -475,8 +475,6 @@ def _summarize_router_metrics(router_metrics: dict[str, jax.Array]) -> dict[str,
     load_balancing_loss = router_metrics["load_balancing_loss_per_layer"]
     router_z_loss = router_metrics["router_z_loss_per_layer"]
     capacity_overflow = router_metrics["capacity_overflow_per_layer"]
-    identity_hc_pre_mean = router_metrics["identity_hc_pre_mean_per_layer"]
-    identity_hc_post_mean = router_metrics["identity_hc_post_mean_per_layer"]
     num_layers = int(routing_entropy.shape[0])
 
     # Per-layer total assignments = sum of routing_counts over experts (= tokens * k).
@@ -489,8 +487,6 @@ def _summarize_router_metrics(router_metrics: dict[str, jax.Array]) -> dict[str,
         "train/router/router_z_loss": jnp.mean(router_z_loss),
         "train/router/routing_counts_per_layer": routing_counts,
         "train/router/capacity_overflow_rate_mean": jnp.mean(capacity_overflow_rate),
-        "train/identity_hc/pre_mean": jnp.mean(identity_hc_pre_mean),
-        "train/identity_hc/post_mean": jnp.mean(identity_hc_post_mean),
         "qb_beta_per_layer": router_metrics.get("qb_beta_per_layer"),
     }
     for i in range(num_layers):
@@ -499,10 +495,6 @@ def _summarize_router_metrics(router_metrics: dict[str, jax.Array]) -> dict[str,
         out[f"train/router/layer_{i}/router_z_loss"] = router_z_loss[i]
         out[f"train/router/layer_{i}/routing_hist"] = _histogram_from_expert_counts(routing_counts[i])
         out[f"train/router/layer_{i}/capacity_overflow_rate"] = capacity_overflow_rate[i]
-        out[f"train/identity_hc/layer_{i}/attn_pre_mean"] = identity_hc_pre_mean[i, 0]
-        out[f"train/identity_hc/layer_{i}/mlp_pre_mean"] = identity_hc_pre_mean[i, 1]
-        out[f"train/identity_hc/layer_{i}/attn_post_mean"] = identity_hc_post_mean[i, 0]
-        out[f"train/identity_hc/layer_{i}/mlp_post_mean"] = identity_hc_post_mean[i, 1]
     return out
 
 
@@ -668,19 +660,17 @@ class Block(eqx.Module):
         use_pko: bool = False,
         disable_rope: bool = False,
     ) -> tuple[Float[Array, "B S N D"], dict[str, jax.Array]]:
-        attn_collapsed, attn_pre, attn_post = self.attn_hc.collapse(x)
+        attn_collapsed, _, attn_post = self.attn_hc.collapse(x)
         attn_in = self.attn_gated_norm(self.rms_attn(attn_collapsed))
         attn_out = self.attn(attn_in, mask, use_pko=use_pko, disable_rope=disable_rope)
         x = self.attn_hc.add_sublayer_output(x, attn_out, attn_post)
 
-        mlp_collapsed, mlp_pre, mlp_post = self.mlp_hc.collapse(x)
+        mlp_collapsed, _, mlp_post = self.mlp_hc.collapse(x)
         mlp_in = self.mlp_gated_norm(self.rms_mlp(mlp_collapsed))
         mlp_out, router_stats = self.mlp(mlp_in)
         if self.shared is not None:
             mlp_out = mlp_out + self.shared(mlp_in, activation=ActivationFunctionEnum.silu)
         x = self.mlp_hc.add_sublayer_output(x, mlp_out, mlp_post)
-        router_stats["identity_hc_pre_mean"] = jnp.stack([jnp.mean(attn_pre), jnp.mean(mlp_pre)])
-        router_stats["identity_hc_post_mean"] = jnp.stack([jnp.mean(attn_post), jnp.mean(mlp_post)])
         return x, router_stats
 
 
@@ -789,8 +779,6 @@ class Transformer(eqx.Module):
             "router_z_loss_per_layer": jnp.stack([s["router_z_loss"] for s in moe_router_stats], axis=0),
             "qb_beta_per_layer": jnp.stack([s["qb_beta"] for s in moe_router_stats], axis=0),
             "capacity_overflow_per_layer": jnp.stack([s["capacity_overflow"] for s in moe_router_stats], axis=0),
-            "identity_hc_pre_mean_per_layer": jnp.stack([s["identity_hc_pre_mean"] for s in moe_router_stats], axis=0),
-            "identity_hc_post_mean_per_layer": jnp.stack([s["identity_hc_post_mean"] for s in moe_router_stats], axis=0),
         }
         hidden = jnp.mean(hidden, axis=-2)
         hidden = _batch_reshard(hidden)

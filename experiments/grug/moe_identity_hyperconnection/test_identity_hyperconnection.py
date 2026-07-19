@@ -25,9 +25,9 @@ def test_zero_dynamic_mapping_has_paper_initial_coefficients():
         norm_eps=1e-6,
     )
 
-    np.testing.assert_allclose(pre, 0.5 + 1e-6)
+    np.testing.assert_allclose(pre, 0.5)
     np.testing.assert_allclose(post, 1.0)
-    np.testing.assert_allclose(collapsed, (0.5 + 1e-6) * streams.sum(axis=-2))
+    np.testing.assert_allclose(collapsed, 0.5 * streams.sum(axis=-2))
 
 
 def test_residual_update_never_mixes_streams():

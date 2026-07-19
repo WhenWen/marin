@@ -35,7 +35,7 @@ from experiments.grug.moe_identity_hyperconnection.train import GrugTrainerConfi
 _SEQ_LEN = 8192
 _TPU = "v5p-8"
 _NUM_STEPS = 220
-_GROUP = "MOE-JULY-IHC-perf-issue-7409"
+_GROUP = "MOE-JULY-IHC-perf-v2-issue-7409"
 _POINTS: tuple[tuple[int, int, int], ...] = (
     (512, 16, 10_980),
     (768, 32, 16_875),
@@ -64,7 +64,7 @@ def _build_baseline_step(hidden_dim: int, batch_size: int, gate_steps: int) -> E
     )
     tokens = float(gate_steps * batch_size * _SEQ_LEN)
     optimizer = heuristic.build_optimizer_config(batch_size, tokens, hidden_dim, seq_len=_SEQ_LEN)
-    run_id = f"MOE-JULY-IHC-PERF-BASE-d{hidden_dim}"
+    run_id = f"MOE-JULY-IHC-PERF2-BASE-d{hidden_dim}"
     return ExecutorStep(
         name=f"grug/{run_id}",
         fn=run_baseline,
@@ -106,7 +106,7 @@ def _build_identity_hc_step(hidden_dim: int, batch_size: int, gate_steps: int) -
     )
     tokens = float(gate_steps * batch_size * _SEQ_LEN)
     optimizer = heuristic.build_optimizer_config(batch_size, tokens, hidden_dim, seq_len=_SEQ_LEN)
-    run_id = f"MOE-JULY-IHC-PERF-CAND-d{hidden_dim}"
+    run_id = f"MOE-JULY-IHC-PERF2-CAND-d{hidden_dim}"
     return ExecutorStep(
         name=f"grug/{run_id}",
         fn=run_identity_hc,

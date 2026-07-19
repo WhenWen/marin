@@ -45,16 +45,53 @@
   "restart_count": 1,
   "max_restart_count": 1,
   "submitted_at": "2026-07-19T09:49:02-07:00",
-  "status": "four_exact_children_capacity_pending",
-  "last_checked_at": "2026-07-19T09:51:14-07:00",
+  "status": "d512_v1_failed_throughput_gate_d768_baseline_compiling",
+  "last_checked_at": "2026-07-19T10:27:26-07:00",
   "parent_state": "JOB_STATE_RUNNING",
   "child_state_summary": {
     "count": 4,
-    "pending": 4,
-    "running": 0,
+    "pending": 1,
+    "running": 1,
+    "succeeded": 2,
     "failed": 0,
     "preemptions": 0,
-    "pending_reason": "v5p-8 capacity pending; quota-pool tier monotonicity"
+    "pending_reason": "d768 candidate v5p-8 capacity pending; d768 baseline compiling"
+  },
+  "profile_results": {
+    "d512_baseline": {
+      "iris_state": "JOB_STATE_SUCCEEDED",
+      "wandb_state": "finished",
+      "wandb_run": "marin-community/dial_moe/MOE-JULY-IHC-PERF-BASE-d512",
+      "trainer_steps_completed": 220,
+      "wandb_summary_global_step": 219,
+      "final_train_loss": 6.069026470184326,
+      "loss_finite": true,
+      "steady_state_window": "global_step >= 120; 100 rows",
+      "mean_tokens_per_second": 357057.7057017903,
+      "median_tokens_per_second": 357301.5217026407,
+      "profile_uploaded": true,
+      "hbm_or_oom_signature": false,
+      "failure_count": 0,
+      "preemption_count": 0
+    },
+    "d512_candidate_v1": {
+      "iris_state": "JOB_STATE_SUCCEEDED",
+      "wandb_state": "finished",
+      "wandb_run": "marin-community/dial_moe/MOE-JULY-IHC-PERF-CAND-d512",
+      "trainer_steps_completed": 220,
+      "wandb_summary_global_step": 219,
+      "final_train_loss": 5.99627161026001,
+      "loss_finite": true,
+      "steady_state_window": "global_step >= 120; 100 rows",
+      "mean_tokens_per_second": 327957.1888703433,
+      "median_tokens_per_second": 329323.36915761465,
+      "profile_uploaded": true,
+      "hbm_or_oom_signature": false,
+      "failure_count": 0,
+      "preemption_count": 0,
+      "slowdown_vs_baseline": 0.08150087889645297,
+      "passes_8_percent": false
+    }
   },
   "last_failure": {
     "observed_at": "2026-07-19T09:47:40-07:00",

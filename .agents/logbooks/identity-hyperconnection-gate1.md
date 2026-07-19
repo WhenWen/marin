@@ -61,3 +61,21 @@
 - Result: the parent is running and exactly four intended children are pending in `us-east5-a`; every child has zero failures and zero preemptions. Pending reason is v5p capacity with quota-pool tier monotonicity. No sibling or cross-width launch exists.
 - Interpretation: placement is corrected. Capacity pending is not a training failure, and no W&B evidence is expected until a worker is allocated.
 - Next action: monitor in place; require compile/memory evidence, finite W&B progress, completed XPlane profiles, and matched steady-state throughput at both widths.
+
+### 2026-07-19 10:15 - d512 baseline complete; candidate allocated
+
+- Hypothesis: the 220-step baseline provides a stable post-profiler reference once the first 120 steps are excluded.
+- Command: W&B history scan over `global_step >= 120`, plus Iris terminal state and compile/error log scan.
+- Config: `MOE-JULY-IHC-PERF-BASE-d512`, July d512, batch 16, sequence 8,192, seed 0, profiler steps 20-69.
+- Result: Iris succeeded with zero failures/preemptions; W&B finished at summary step 219 and the trainer completed 220/220. All logged losses were finite; final loss was 6.069026. The last 100 rows averaged 357,057.71 tokens/s (median 357,301.52). The XPlane profiler completed and uploaded eight artifact files. No HBM/OOM signature appeared. The scheduler then allocated `MOE-JULY-IHC-PERF-CAND-d512`; its live config exactly records four streams, alpha 0.01, and two-layer rematerialization groups.
+- Interpretation: the d512 reference is decision-grade. Candidate compilation is now the first direct activation-memory test; d768 remains capacity-pending.
+- Next action: require the d512 candidate to compile, finish with finite loss, upload its profile, and keep its matched last-100-step throughput loss at or below 8%.
+
+### 2026-07-19 10:27 - d512 v1 narrowly misses throughput gate
+
+- Hypothesis: two-layer rematerialization plus fixed identity residual routing would keep four-stream overhead at or below 8%.
+- Command: matched W&B history scan over the final 100 rows (`global_step >= 120`) for baseline and candidate; Iris/log/profile verification for both runs.
+- Config: d512 baseline and four-stream candidate, otherwise identical July architecture, data, batch 16, sequence 8,192, seed 0, and 220 steps.
+- Result: both jobs succeeded with zero failures/preemptions, finite loss, and uploaded XPlane profiles. Baseline averaged 357,057.71 tokens/s; candidate averaged 327,957.19 tokens/s. Slowdown is 8.1501%, exceeding the hard limit by 0.1501 percentage points. Candidate added 196,728 parameters (746,803,832 versus 746,607,104). No HBM/OOM signature appeared. The d768 baseline was allocated next and is compiling.
+- Interpretation: memory/compile viability passes at d512, but the requested throughput gate fails narrowly. Gate 1 remains blocked. Per-token coefficient-telemetry reductions inside every rematerialized block are a non-model overhead candidate and will be checked against the XPlane breakdown before a new identity is launched.
+- Next action: finish both profile summaries, remove only proven observability overhead, validate locally, and run a new optimized profile identity; continue the original d768 pair for scale evidence.
