@@ -37,3 +37,11 @@ This file is the paper trail for grug experiments.
 - Status: deleted
 - Purpose: historical head-to-head comparison.
 - Superseded by: template-first workflow centered on `experiments/grug/base/`.
+
+### july-baseline-identity-hyperconnection
+- Path: `experiments/grug/moe_identity_hyperconnection/`
+- Introduced: `identity-hc-profile-v1`
+- Last known-good: pending matched v5p-8 profile
+- Status: active
+- Purpose: test four-stream Identity Hyper-Connections on the real July MoE baseline with bounded throughput and rematerialized activation memory.
+- Issue: [#7409](https://github.com/marin-community/marin/issues/7409)
