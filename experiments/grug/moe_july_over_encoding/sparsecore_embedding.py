@@ -88,6 +88,10 @@ def _sparsecore_embedding_scatter_add(
             f"{_SCATTER_WINDOW_SIZE * num_sparse_workers}"
         )
     grid_size = ids.shape[0] // _SCATTER_WINDOW_SIZE
+    num_cores = sparse_core_info.num_cores
+    num_subcores = sparse_core_info.num_subcores
+    num_sparse_workers = num_cores * num_subcores
+    windows_per_worker = grid_size // num_sparse_workers
     update_dtype = updates.dtype
     scatter_ids, coalesced_updates = _coalesce_embedding_updates(
         ids.astype(jnp.int32),
@@ -95,47 +99,55 @@ def _sparsecore_embedding_scatter_add(
         num_rows=num_rows,
     )
     scatter_ids = scatter_ids.reshape(1, -1)
-    output = jnp.zeros((num_rows + ids.shape[0], updates.shape[-1]), dtype=jnp.float32)
-    ids_ref = jax.new_ref(scatter_ids, memory_space=pltpu.HBM)
-    updates_ref = jax.new_ref(coalesced_updates, memory_space=pltpu.HBM)
-    output_ref = jax.new_ref(output, memory_space=pltpu.HBM)
-    mesh = plsc.VectorSubcoreMesh(
-        core_axis_name="core",
-        subcore_axis_name="subcore",
-        num_cores=sparse_core_info.num_cores,
-        num_subcores=sparse_core_info.num_subcores,
-    )
+    output_shape = (num_rows + ids.shape[0], updates.shape[-1])
+    output = jnp.zeros(output_shape, dtype=jnp.float32)
 
-    @pl.core_map(
-        mesh,
-        name="over_encoding_embedding_scatter_add",
-    )
-    def kernel():
-        def scatter_body(ids_vmem_ref, updates_vmem_ref):
-            pltpu.sync_copy(
-                updates_vmem_ref,
-                output_ref.at[ids_vmem_ref.at[0]],
-            )
+    def worker_window(core, subcore, step):
+        worker = core * num_subcores + subcore
+        return worker * windows_per_worker + step
 
-        pltpu.emit_pipeline(
-            scatter_body,
-            grid=(grid_size,),
-            in_specs=(
-                pl.BlockSpec(
-                    (1, _SCATTER_WINDOW_SIZE),
-                    lambda step: (0, step),
-                ),
-                pl.BlockSpec(
-                    (_SCATTER_WINDOW_SIZE, updates.shape[-1]),
-                    lambda step: (step, 0),
-                ),
+    def kernel(ids_vmem_ref, updates_vmem_ref, output_input_hbm_ref, output_hbm_ref):
+        del output_input_hbm_ref
+        pltpu.sync_copy(
+            updates_vmem_ref,
+            output_hbm_ref.at[ids_vmem_ref.at[0]],
+        )
+
+    scatter_bytes = ids.shape[0] * (
+        jnp.dtype(jnp.int32).itemsize + 2 * updates.shape[-1] * jnp.dtype(jnp.float32).itemsize
+    )
+    result = pl.pallas_call(
+        kernel,
+        out_shape=jax.ShapeDtypeStruct(output_shape, jnp.float32),
+        grid=(num_cores, num_subcores, windows_per_worker),
+        in_specs=(
+            pl.BlockSpec(
+                (1, _SCATTER_WINDOW_SIZE),
+                lambda core, subcore, step: (0, worker_window(core, subcore, step)),
+                memory_space=pltpu.VMEM,
             ),
-            out_specs=(),
-            core_axis_name=("core", "subcore"),
-            dimension_semantics=(pltpu.PARALLEL,),
-        )(ids_ref, updates_ref)
-
-    return jax.freeze(output_ref)[:num_rows].astype(update_dtype)
+            pl.BlockSpec(
+                (_SCATTER_WINDOW_SIZE, updates.shape[-1]),
+                lambda core, subcore, step: (worker_window(core, subcore, step), 0),
+                memory_space=pltpu.VMEM,
+            ),
+            pl.BlockSpec(memory_space=pltpu.HBM),
+        ),
+        out_specs=pl.BlockSpec(memory_space=pltpu.HBM),
+        input_output_aliases={2: 0},
+        name="over_encoding_embedding_scatter_add",
+        compiler_params=pltpu.CompilerParams(
+            kernel_type=pltpu.CoreType.SC_VECTOR_SUBCORE,
+            dimension_semantics=(pltpu.CORE_PARALLEL, pltpu.SUBCORE_PARALLEL, pltpu.PARALLEL),
+            use_tc_tiling_on_sc=False,
+        ),
+        cost_estimate=pl.CostEstimate(
+            flops=0,
+            transcendentals=0,
+            bytes_accessed=scatter_bytes,
+        ),
+    )(scatter_ids, coalesced_updates, output)
+    return result[:num_rows].astype(update_dtype)
 
 
 def embedding_scatter_add(
