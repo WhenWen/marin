@@ -51,8 +51,8 @@ def _sparsecore_embedding_scatter_add(
     if updates.ndim != 2 or updates.shape[0] != ids.shape[0]:
         raise ValueError(f"embedding updates must have shape ({ids.shape[0]}, D), got {updates.shape}")
 
+    sparse_core_info = plsc.get_sparse_core_info()
     if not _sparsecore_shape_is_supported(ids, updates):
-        sparse_core_info = plsc.get_sparse_core_info()
         num_sparse_workers = sparse_core_info.num_cores * sparse_core_info.num_subcores
         raise ValueError(
             f"SparseCore embedding scatter requires the number of ids ({ids.shape[0]}) to be divisible by "
@@ -69,19 +69,12 @@ def _sparsecore_embedding_scatter_add(
         core_axis_name="core",
         subcore_axis_name="subcore",
         num_cores=sparse_core_info.num_cores,
-    )
-    cost_estimate = pl.estimate_cost(
-        lambda scatter_ids, scatter_updates, initial: initial.at[scatter_ids].add(scatter_updates),
-        ids.reshape(-1),
-        updates,
-        output,
+        num_subcores=sparse_core_info.num_subcores,
     )
 
     @pl.kernel(
         out_type=(),
         mesh=mesh,
-        compiler_params=pltpu.CompilerParams(use_tc_tiling_on_sc=False, needs_layout_passes=False),
-        cost_estimate=cost_estimate,
         name="over_encoding_embedding_scatter_add",
     )
     def kernel(ids_hbm_ref, updates_hbm_ref, dense_gradient_hbm_ref):
