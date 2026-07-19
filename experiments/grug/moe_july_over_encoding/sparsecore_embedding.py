@@ -18,6 +18,11 @@ EmbeddingGradientImplementation = Literal["auto", "xla", "sparsecore"]
 _SCATTER_WINDOW_SIZE = 128
 
 
+def _shape_dtype_struct_with_mesh_metadata(value: Array) -> jax.ShapeDtypeStruct:
+    """Describe an array while preserving shard-map variation metadata."""
+    return jax.eval_shape(jnp.asarray, value)
+
+
 def _sparsecore_shape_is_supported(ids: Array, updates: Array) -> bool:
     sparse_core_info = plsc.get_sparse_core_info()
     num_sparse_workers = sparse_core_info.num_cores * sparse_core_info.num_subcores
@@ -118,7 +123,7 @@ def _sparsecore_embedding_scatter_add(
     )
     result = pl.pallas_call(
         kernel,
-        out_shape=jax.ShapeDtypeStruct(output_shape, jnp.float32),
+        out_shape=_shape_dtype_struct_with_mesh_metadata(output),
         grid=(num_cores, num_subcores, windows_per_worker),
         in_specs=(
             pl.BlockSpec(

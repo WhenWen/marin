@@ -8,7 +8,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from jax.sharding import AxisType, Mesh, reshard
+from jax.experimental import pallas as pl
+from jax.sharding import AxisType, Mesh, NamedSharding, reshard
 from jax.sharding import PartitionSpec as P
 
 from experiments.grug.moe.model import GrugModelConfig as JulyGrugModelConfig
@@ -22,6 +23,7 @@ from experiments.grug.moe_july_over_encoding.model import (
 )
 from experiments.grug.moe_july_over_encoding.sparsecore_embedding import (
     _coalesce_embedding_updates,
+    _shape_dtype_struct_with_mesh_metadata,
     embedding_lookup,
     embedding_scatter_add,
 )
@@ -170,6 +172,34 @@ def test_coalesced_embedding_updates_preserve_duplicate_sums():
     expected = jnp.zeros((8, 4), dtype=jnp.float32).at[ids].add(updates)
 
     np.testing.assert_array_equal(actual, expected)
+
+
+def test_sparsecore_output_shape_preserves_shard_map_variation_metadata():
+    mesh = Mesh(np.asarray(jax.devices()[:1]), ("data",), axis_types=(AxisType.Explicit,))
+    input_array = jax.device_put(jnp.arange(8, dtype=jnp.float32), NamedSharding(mesh, P("data")))
+
+    def pallas_copy(local_array):
+        output_shape = _shape_dtype_struct_with_mesh_metadata(jnp.zeros_like(local_array))
+
+        def kernel(input_ref, output_ref):
+            output_ref[...] = input_ref[...]
+
+        return pl.pallas_call(
+            kernel,
+            out_shape=output_shape,
+            input_output_aliases={0: 0},
+            interpret=True,
+        )(local_array)
+
+    output = jax.shard_map(
+        pallas_copy,
+        mesh=mesh,
+        in_specs=P("data"),
+        out_specs=P("data"),
+        check_vma=True,
+    )(input_array)
+
+    np.testing.assert_array_equal(output, input_array)
 
 
 def test_embedding_scatter_add_rejects_sparsecore_off_tpu():
