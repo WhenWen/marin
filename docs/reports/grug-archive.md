@@ -41,7 +41,7 @@ This file is the paper trail for grug experiments.
 ### moe-july-rope-relative-position-inkling-gate1
 - Path: `experiments/grug/moe_rope_relative_position/`
 - Introduced: `codex/july-baseline-rope-relattn-7208`
-- Last known-good: pending Gate 1 completion
+- Last known-good: `8581074ae` (local validation)
 - Status: active
 - Purpose: preserve the real July baseline half-RoPE/GQA architecture while adding Inkling-parameterized learned relative attention.
 - Issue: #7208
