@@ -79,26 +79,20 @@ def _sparsecore_embedding_scatter_add(
         name="over_encoding_embedding_scatter_add",
         scratch_shapes=(
             pltpu.VMEM_SHARED(
-                (sparse_core_info.num_subcores, 1, _SCATTER_WINDOW_SIZE),
-                jnp.int32,
-            ),
-            pltpu.VMEM_SHARED(
                 (sparse_core_info.num_subcores, _SCATTER_WINDOW_SIZE, updates.shape[-1]),
                 jnp.float32,
             ),
         ),
     )
-    def kernel(shared_ids_ref, shared_updates_ref):
+    def kernel(shared_updates_ref):
         subcore_index = jax.lax.axis_index("subcore")
 
         def scatter_body(ids_vmem_ref, updates_vmem_ref):
-            shared_ids_slice = shared_ids_ref.at[subcore_index]
             shared_updates_slice = shared_updates_ref.at[subcore_index]
-            pltpu.sync_copy(ids_vmem_ref, shared_ids_slice)
             pltpu.sync_copy(updates_vmem_ref, shared_updates_slice)
             pltpu.sync_copy(
                 shared_updates_slice,
-                output_ref.at[shared_ids_slice.at[0]],
+                output_ref.at[ids_vmem_ref.at[0]],
                 add=True,
             )
 
