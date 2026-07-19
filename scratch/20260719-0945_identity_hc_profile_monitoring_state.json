@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "experiment": "July baseline versus four-stream Identity Hyper-Connections",
+  "issue": "https://github.com/marin-community/marin/issues/7409",
+  "snapshot": {
+    "branch": "codex/july-baseline-identity-hc",
+    "commit": "444b5ea66bda75b6dfc7746ff20c9dfec6ba159a",
+    "tag": "identity-hc-profile-v1",
+    "base": "52d8a9eb8d9434cf1dcaaee060edeadc60dfff9d"
+  },
+  "parent": "/kaiyuew/july-baseline-identity-hc-profile-7409",
+  "expected_children": [
+    "/kaiyuew/july-baseline-identity-hc-profile-7409/grug-train-MOE-JULY-IHC-PERF-BASE-d512",
+    "/kaiyuew/july-baseline-identity-hc-profile-7409/grug-train-MOE-JULY-IHC-PERF-CAND-d512",
+    "/kaiyuew/july-baseline-identity-hc-profile-7409/grug-train-MOE-JULY-IHC-PERF-BASE-d768",
+    "/kaiyuew/july-baseline-identity-hc-profile-7409/grug-train-MOE-JULY-IHC-PERF-CAND-d768"
+  ],
+  "cluster": "marin",
+  "parent_resources": "cpu=1,memory=2G,extra=cpu,zone=us-east5-a",
+  "child_resources": "v5p-8",
+  "wandb_project": "marin-community/dial_moe",
+  "wandb_group": "MOE-JULY-IHC-perf-issue-7409",
+  "wandb_runs": [
+    "MOE-JULY-IHC-PERF-BASE-d512",
+    "MOE-JULY-IHC-PERF-CAND-d512",
+    "MOE-JULY-IHC-PERF-BASE-d768",
+    "MOE-JULY-IHC-PERF-CAND-d768"
+  ],
+  "profile_steps": {
+    "total": 220,
+    "start": 20,
+    "count": 50
+  },
+  "expected_config": {
+    "sequence_length": 8192,
+    "d512_batch": 16,
+    "d768_batch": 32,
+    "candidate_num_residual_streams": 4,
+    "candidate_alpha_init": 0.01,
+    "candidate_remat_layers": 2,
+    "maximum_throughput_decrease": 0.08
+  },
+  "checkpoints": "worker-local /tmp only; profiling runs have no durable checkpoint contract",
+  "sanitized_resubmit_command": "/Users/kaiyuew/Downloads/Project/marin/.venv/bin/iris --config <(sed -e '1s/^/name: marin\\n/' -e 's/mode: GCP_SLICE_MODE_VM/mode: vm/' -e '/^log_server_config:/d' lib/iris/config/marin.yaml) job run --no-wait --zone us-east5-a --cpu=1 --memory=2G --extra=cpu --job-name july-baseline-identity-hc-profile-7409 -e WANDB_API_KEY \"${WANDB_API_KEY}\" -- python -m experiments.grug.moe_identity_hyperconnection.profile_comparison",
+  "restart_count": 1,
+  "max_restart_count": 1,
+  "submitted_at": "2026-07-19T09:49:02-07:00",
+  "status": "four_exact_children_capacity_pending",
+  "last_checked_at": "2026-07-19T09:51:14-07:00",
+  "parent_state": "JOB_STATE_RUNNING",
+  "child_state_summary": {
+    "count": 4,
+    "pending": 4,
+    "running": 0,
+    "failed": 0,
+    "preemptions": 0,
+    "pending_reason": "v5p-8 capacity pending; quota-pool tier monotonicity"
+  },
+  "last_failure": {
+    "observed_at": "2026-07-19T09:47:40-07:00",
+    "state": "JOB_STATE_FAILED",
+    "failure_count": 1,
+    "preemption_count": 0,
+    "children_created": 0,
+    "error": "all four intended v5p-8 child submissions rejected because the unpinned CPU parent resolved europe-west4, where no v5p-8 group exists"
+  },
+  "gate1_launched": false
+}

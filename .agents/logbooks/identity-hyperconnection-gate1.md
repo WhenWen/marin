@@ -26,7 +26,7 @@
 - Interpretation: local equations and boundary behavior match the upstream Hyper-Connection implementation; real compile/performance evidence is still required.
 - Next action: run required lint/type checks, create matched v5p-8 baseline/candidate profiles, and launch Gate 1 only if both widths remain within the 8% throughput budget.
 
-### 2026-07-19 09:55 - Profile harness ready
+### 2026-07-19 09:40 - Profile harness ready
 
 - Hypothesis: matched 220-step baseline/candidate jobs at each Gate 1 width provide enough post-compile steady-state steps and a 50-step XPlane window to enforce the throughput budget.
 - Command: `python -m experiments.grug.moe_identity_hyperconnection.profile_comparison` through Iris on four v5p-8 workers.
@@ -34,3 +34,30 @@
 - Result: all four profile `ExecutorStep` configs and both Gate 1 configs build in one process. Variant-specific optimizer registry names fixed an import collision with the baseline. Full repository pre-commit and Pyrefly checks pass.
 - Interpretation: the harness is reproducible and cannot accidentally reuse baseline optimizer identities or stale demo runs.
 - Next action: snapshot the implementation and submit only the matched profile parent.
+
+### 2026-07-19 09:45 - Matched profiles submitted
+
+- Hypothesis: the paired runs will isolate Identity-HC overhead because every shape, schedule, data, dtype, and hardware choice is matched within width.
+- Command: `/Users/kaiyuew/Downloads/Project/marin/.venv/bin/iris --config <July-config normalized for current client> job run --no-wait --cpu=1 --memory=2G --extra=cpu --job-name july-baseline-identity-hc-profile-7409 -e WANDB_API_KEY "${WANDB_API_KEY}" -- python -m experiments.grug.moe_identity_hyperconnection.profile_comparison`.
+- Config: snapshot `identity-hc-profile-v1` / `444b5ea66`; CPU-only parent; four v5p-8 children; W&B group `MOE-JULY-IHC-perf-issue-7409`.
+- Result: parent `/kaiyuew/july-baseline-identity-hc-profile-7409` accepted and entered building with zero failures or preemptions. The first attempt with the July branch's stale Iris client was rejected before job creation; the current client submitted the same clean workspace and config.
+- Interpretation: exactly one parent exists. Gate 1 is still unlaunched.
+- Next action: verify exactly four children, successful TPU compile, finite metrics, structured profiles, and the 8% threshold at both widths.
+
+### 2026-07-19 09:48 - Placement-only failure; one exact retry
+
+- Hypothesis: the July launcher resolves its regional Marin prefix and dispatch placement from the CPU parent, so pinning that parent to `us-east5-a` will place the four `v5p-8` children in the same region as the successful July baseline cells.
+- Command: repeat the exact profile parent command with `--zone us-east5-a`; preserve the parent name, snapshot, four child identities, W&B group, and all model/profile settings.
+- Config: no model, optimizer, data, batch, step, profiler, or checkpoint change.
+- Result: the first parent failed before creating a child or W&B run. Its unpinned CPU worker landed in `europe-west4`, and all four child submissions were rejected as unschedulable because no `v5p-8` group exists there. Failure count was one; preemption count was zero.
+- Interpretation: this is an orchestration-placement error before TPU allocation, not compile, memory, numerical, or throughput evidence. The single allowed retry is safe because no training work or identity was created.
+- Next action: resubmit once from `us-east5-a`, then require exactly four children and resume the original performance gate.
+
+### 2026-07-19 09:51 - Exact profile children materialized
+
+- Hypothesis: the zone-pinned retry should preserve all scientific identities while changing only scheduler placement.
+- Command: Iris prefix query after the mandatory 120-second post-submit window.
+- Config: parent `/kaiyuew/july-baseline-identity-hc-profile-7409`; exactly the four `BASE/CAND` x `d512/d768` child names recorded in the monitoring state.
+- Result: the parent is running and exactly four intended children are pending in `us-east5-a`; every child has zero failures and zero preemptions. Pending reason is v5p capacity with quota-pool tier monotonicity. No sibling or cross-width launch exists.
+- Interpretation: placement is corrected. Capacity pending is not a training failure, and no W&B evidence is expected until a worker is allocated.
+- Next action: monitor in place; require compile/memory evidence, finite W&B progress, completed XPlane profiles, and matched steady-state throughput at both widths.
