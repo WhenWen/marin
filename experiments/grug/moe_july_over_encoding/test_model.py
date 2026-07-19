@@ -83,8 +83,8 @@ def test_tablewise_over_encoding_matches_independent_lookup_values_and_gradients
         over_encoding_splits=2,
         over_encoding_num_grams=3,
     )
-    token_ids = jnp.array([[1, 2, 3, 4]], dtype=jnp.int32)
-    segment_ids = jnp.array([[0, 0, 1, 1]], dtype=jnp.int32)
+    token_ids = jnp.array([[1, 1, 1, 1]], dtype=jnp.int32)
+    segment_ids = jnp.array([[0, 0, 0, 0]], dtype=jnp.int32)
 
     with jax.set_mesh(_single_device_grug_mesh()):
         over_encoding = OverEncoding.init(config, key=jax.random.PRNGKey(0))

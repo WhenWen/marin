@@ -189,8 +189,11 @@ def _tablewise_embedding_lookup_local(
         tiled=True,
     )
 
+    rows_per_table = tables_local.shape[1]
+    flat_tables = tables_local.reshape((-1, tables_local.shape[-1]))
     local_table_ids = jnp.arange(num_local_tables)[:, None, None]
-    embedding_slices = tables_local[local_table_ids, owned_ids]
+    flat_ids = local_table_ids * rows_per_table + owned_ids
+    embedding_slices = _embedding_lookup_with_sorted_gradient(flat_tables, flat_ids)
     local_embedding_slices = jax.lax.all_to_all(
         embedding_slices,
         axis_name,
@@ -199,6 +202,43 @@ def _tablewise_embedding_lookup_local(
         tiled=True,
     )
     return jnp.einsum("tbsd,tdh->bsh", local_embedding_slices, projections)
+
+
+@jax.custom_vjp
+def _embedding_lookup_with_sorted_gradient(
+    table: Float[Array, "V D"],
+    ids: Int[Array, "..."],
+) -> Float[Array, "... D"]:
+    """Gather rows while ordering the backward scatter by destination row."""
+    return table[ids]
+
+
+def _embedding_lookup_with_sorted_gradient_fwd(table, ids):
+    return table[ids], (ids, table.shape)
+
+
+def _embedding_lookup_with_sorted_gradient_bwd(residuals, output_grad):
+    ids, table_shape = residuals
+    flat_ids = ids.reshape((-1,))
+    flat_output_grad = output_grad.reshape((flat_ids.shape[0], table_shape[-1]))
+    order = jnp.argsort(flat_ids, stable=False)
+    sorted_ids = flat_ids[order]
+    sorted_output_grad = flat_output_grad[order]
+    table_grad = (
+        jnp.zeros(table_shape, dtype=output_grad.dtype)
+        .at[sorted_ids]
+        .add(
+            sorted_output_grad,
+            indices_are_sorted=True,
+        )
+    )
+    return table_grad, None
+
+
+_embedding_lookup_with_sorted_gradient.defvjp(
+    _embedding_lookup_with_sorted_gradient_fwd,
+    _embedding_lookup_with_sorted_gradient_bwd,
+)
 
 
 def _tablewise_embedding_lookup(
