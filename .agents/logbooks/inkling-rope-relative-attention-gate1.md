@@ -54,3 +54,11 @@ author: kaiyuew
 - Validation: all four relative-attention kernel value/gradient tests pass; targeted Ruff, Black, Pyrefly, and `git diff --check` pass. The repository-wide pre-commit wrapper reached only network timeouts while resolving already-known tool packages, not code findings.
 - Interpretation: this is a deterministic startup compatibility fault shared by both widths; no checkpoint or training metric was produced, so corrected runs must use fresh identities.
 - Next action: commit and push the compatibility fix, launch a fresh corrected parent with new Iris/W&B identities, and verify first finite metrics before returning to long-running babysitting.
+
+### 2026-07-18 23:23 - Submitted corrected fresh-identity Gate 1 parent
+- Hypothesis: removing the later-JAX-only output metadata access lets the otherwise unchanged July-baseline RoPE plus relative-attention cells compile under the real July TPU environment.
+- Commit Hash: `7473d0f07` (includes compatibility commit `e1303c0fd`)
+- Command: `WANDB_API_KEY=<set> /Users/kaiyuew/Downloads/Project/marin/.venv/bin/python scratch/20260718-2249_july_rope_relative_gate1_resubmit.py`
+- Config: parent `/kaiyuew/july-baseline-rope-relative-attention-v2-gate1-7208`; W&B group `MOE-JULY-ROPE-RPE-INKP2-gate1-issue-7208`; fresh d512/d768 run IDs with the `INKP2` prefix. Architecture, optimizer routing, budgets, and widths are unchanged.
+- Result: preflight found no Iris or W&B duplicates. The corrected parent is running with exactly the intended d512 and d768 children and no siblings. Both children are pending normal demand-routed v5p capacity with zero failures/preemptions.
+- Next action: wait through allocation and TPU compilation, then require fresh finite step/loss signals from both arms.
