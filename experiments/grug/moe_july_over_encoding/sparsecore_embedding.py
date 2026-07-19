@@ -73,7 +73,7 @@ def _sparsecore_embedding_scatter_add(
     )
 
     @pl.kernel(
-        out_type=(),
+        out_shape=(),
         mesh=mesh,
         name="over_encoding_embedding_scatter_add",
     )
