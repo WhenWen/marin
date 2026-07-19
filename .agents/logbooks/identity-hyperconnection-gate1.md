@@ -146,3 +146,10 @@
 - Checkpoints: complete temporary metadata exists at d512 step 5,615 (timestamp `2026-07-19T19:02:55.245413`) and d768 step 1,590 (timestamp `2026-07-19T19:03:35.825568`).
 - Interpretation: both arms have durable recovery points and scheduled evaluation evidence; no recovery action is indicated.
 - Next action: continue monitoring independently to terminal success, then verify finished W&B state, final permanent checkpoint metadata, and matched final Paloma comparisons.
+
+### 2026-07-19 12:52 - d512 completes successfully; d768 continues
+
+- Command: verify the d512 Iris summary and terminal logs, scan its complete W&B train history and final evaluation, and read the permanent step-10,980 checkpoint metadata; independently refresh d768 Iris, W&B, and temporary checkpoint evidence.
+- Result: d512 succeeded with exit code 0, zero failures, and zero preemptions. W&B finished after 10,979 logged train steps, all losses were finite, final train loss was 3.175577 at 326,877.26 tokens/s, and the terminal Paloma macro loss was 3.544176 (BPB 1.270561). Permanent metadata confirms step 10,980 at `gs://marin-us-east5/grug/MOE-JULY-IHC-G1-001-d512-39b35d/checkpoints/step-10980`, timestamp `2026-07-19T19:48:52.652431`. d768 remains running with zero failures/preemptions at step 3,809, finite loss 3.357501, 224,876.31 tokens/s, step-3,000 Paloma macro loss 3.777038 (BPB 1.353537), and a complete temporary checkpoint at step 3,500.
+- Interpretation: d512 meets every terminal criterion: successful Iris state, finished W&B state, finite full history, final scheduled evaluation, and exact permanent checkpoint metadata. No recovery action is indicated for d768.
+- Next action: continue monitoring d768 in place through its scheduled evaluations and permanent step-16,875 checkpoint, then make the matched final Paloma comparison and publish the combined result.

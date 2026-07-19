@@ -69,46 +69,46 @@
   "restart_count": 0,
   "max_restart_count": 2,
   "submitted_at": "2026-07-19T11:09:35-07:00",
-  "last_checked_at": "2026-07-19T12:06:12-07:00",
+  "last_checked_at": "2026-07-19T12:52:01-07:00",
   "launch_verified_at": "2026-07-19T11:28:45-07:00",
-  "status": "both_running_with_evals_and_temporary_checkpoints",
+  "status": "d512_succeeded_d768_running",
   "parent_state": "JOB_STATE_RUNNING",
   "child_summary": {
     "expected": 2,
     "observed": 2,
     "pending": 0,
-    "running": 2,
-    "succeeded": 0,
+    "running": 1,
+    "succeeded": 1,
     "failed": 0,
     "preempted": 0
   },
   "children": {
     "d512": {
-      "state": "JOB_STATE_RUNNING",
-      "task_state": "running",
+      "state": "JOB_STATE_SUCCEEDED",
+      "task_state": "succeeded",
       "failure_count": 0,
       "preemption_count": 0,
       "pending_reason": "",
-      "wandb_state": "running",
-      "wandb_heartbeat_at": "2026-07-19T19:06:12Z",
-      "global_step": 5999,
-      "train_loss": 3.433642864227295,
-      "tokens_per_second": 328645.54664796987,
+      "wandb_state": "finished",
+      "wandb_heartbeat_at": "2026-07-19T19:48:53Z",
+      "global_step": 10979,
+      "train_loss": 3.17557692527771,
+      "tokens_per_second": 326877.2556520829,
       "all_train_loss_finite": true,
       "finite_startup": true,
       "checkpoint_base_path": "gs://marin-us-east5/grug/MOE-JULY-IHC-G1-001-d512-39b35d/checkpoints",
       "latest_eval": {
-        "global_step": 5000,
-        "eval_loss": 3.7288761138916016,
-        "eval_macro_loss": 3.9097914695739746,
-        "paloma_macro_loss": 3.950007438659668,
-        "paloma_macro_bpb": 1.4145342111587524
+        "global_step": 10979,
+        "eval_loss": 3.2905118465423584,
+        "eval_macro_loss": 3.4600067138671875,
+        "paloma_macro_loss": 3.544175624847412,
+        "paloma_macro_bpb": 1.2705612182617188
       },
-      "latest_temporary_checkpoint": {
-        "path": "gs://marin-us-east5/tmp/ttl=14d/checkpoints-temp/marin-us-east5/grug/MOE-JULY-IHC-G1-001-d512-39b35d/checkpoints/step-5615",
-        "step": 5615,
-        "timestamp": "2026-07-19T19:02:55.245413",
-        "is_temporary": true
+      "final_checkpoint": {
+        "path": "gs://marin-us-east5/grug/MOE-JULY-IHC-G1-001-d512-39b35d/checkpoints/step-10980",
+        "step": 10980,
+        "timestamp": "2026-07-19T19:48:52.652431",
+        "is_temporary": false
       }
     },
     "d768": {
@@ -118,24 +118,24 @@
       "preemption_count": 0,
       "pending_reason": "",
       "wandb_state": "running",
-      "wandb_heartbeat_at": "2026-07-19T19:06:11Z",
-      "global_step": 1760,
-      "train_loss": 3.60221266746521,
-      "tokens_per_second": 225306.2592157757,
+      "wandb_heartbeat_at": "2026-07-19T19:51:56Z",
+      "global_step": 3809,
+      "train_loss": 3.357501268386841,
+      "tokens_per_second": 224876.30835814818,
       "all_train_loss_finite": true,
       "finite_startup": true,
       "checkpoint_base_path": "gs://marin-us-east5/grug/MOE-JULY-IHC-G1-002-d768-c9eb80/checkpoints",
       "latest_eval": {
-        "global_step": 1000,
-        "eval_loss": 3.966495990753174,
-        "eval_macro_loss": 4.156836032867432,
-        "paloma_macro_loss": 4.16952657699585,
-        "paloma_macro_bpb": 1.4922430515289307
+        "global_step": 3000,
+        "eval_loss": 3.5393893718719482,
+        "eval_macro_loss": 3.71614670753479,
+        "paloma_macro_loss": 3.777038097381592,
+        "paloma_macro_bpb": 1.3535372018814087
       },
       "latest_temporary_checkpoint": {
-        "path": "gs://marin-us-east5/tmp/ttl=14d/checkpoints-temp/marin-us-east5/grug/MOE-JULY-IHC-G1-002-d768-c9eb80/checkpoints/step-1590",
-        "step": 1590,
-        "timestamp": "2026-07-19T19:03:35.825568",
+        "path": "gs://marin-us-east5/tmp/ttl=14d/checkpoints-temp/marin-us-east5/grug/MOE-JULY-IHC-G1-002-d768-c9eb80/checkpoints/step-3500",
+        "step": 3500,
+        "timestamp": "2026-07-19T19:46:25.175247",
         "is_temporary": true
       }
     }
