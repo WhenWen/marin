@@ -39,13 +39,42 @@ def embedding_scatter_add_reference(
     return jnp.zeros((num_rows, updates.shape[-1]), dtype=updates.dtype).at[ids].add(updates)
 
 
+def _coalesce_embedding_updates(
+    ids: Int[Array, "n"],  # noqa: F821
+    updates: Float[Array, "n d"],
+    *,
+    num_rows: int,
+) -> tuple[Int[Array, "n"], Float[Array, "n d"]]:  # noqa: F821
+    """Sort and sum duplicate embedding updates for an overwrite scatter."""
+    order = jnp.argsort(ids)
+    sorted_ids = ids[order]
+    sorted_updates = updates[order]
+    starts = jnp.concatenate((jnp.ones((1,), dtype=jnp.bool_), sorted_ids[1:] != sorted_ids[:-1]))
+
+    def combine(left, right):
+        left_updates, left_has_start = left
+        right_updates, right_has_start = right
+        combined_updates = jnp.where(
+            right_has_start[..., None],
+            right_updates,
+            left_updates + right_updates,
+        )
+        return combined_updates, left_has_start | right_has_start
+
+    coalesced_updates, _ = jax.lax.associative_scan(combine, (sorted_updates, starts))
+    ends = jnp.concatenate((sorted_ids[:-1] != sorted_ids[1:], jnp.ones((1,), dtype=jnp.bool_)))
+    dummy_ids = num_rows + jnp.arange(ids.shape[0], dtype=ids.dtype)
+    scatter_ids = jnp.where(ends, sorted_ids, dummy_ids)
+    return scatter_ids, coalesced_updates
+
+
 def _sparsecore_embedding_scatter_add(
     ids: Int[Array, "n"],  # noqa: F821
     updates: Float[Array, "n d"],
     *,
     num_rows: int,
 ) -> Float[Array, "v d"]:
-    """Accumulate embedding updates with SparseCore indirect DMA adds."""
+    """Accumulate embedding updates with a coalesced SparseCore scatter."""
     if ids.ndim != 1:
         raise ValueError(f"embedding ids must be rank 1, got {ids.shape}")
     if updates.ndim != 2 or updates.shape[0] != ids.shape[0]:
@@ -59,13 +88,16 @@ def _sparsecore_embedding_scatter_add(
             f"{_SCATTER_WINDOW_SIZE * num_sparse_workers}"
         )
     grid_size = ids.shape[0] // _SCATTER_WINDOW_SIZE
-
-    ids = ids.astype(jnp.int32).reshape(1, -1)
     update_dtype = updates.dtype
-    updates = updates.astype(jnp.float32)
-    output = jnp.zeros((num_rows, updates.shape[-1]), dtype=jnp.float32)
-    ids_ref = jax.new_ref(ids, memory_space=pltpu.HBM)
-    updates_ref = jax.new_ref(updates, memory_space=pltpu.HBM)
+    scatter_ids, coalesced_updates = _coalesce_embedding_updates(
+        ids.astype(jnp.int32),
+        updates.astype(jnp.float32),
+        num_rows=num_rows,
+    )
+    scatter_ids = scatter_ids.reshape(1, -1)
+    output = jnp.zeros((num_rows + ids.shape[0], updates.shape[-1]), dtype=jnp.float32)
+    ids_ref = jax.new_ref(scatter_ids, memory_space=pltpu.HBM)
+    updates_ref = jax.new_ref(coalesced_updates, memory_space=pltpu.HBM)
     output_ref = jax.new_ref(output, memory_space=pltpu.HBM)
     mesh = plsc.VectorSubcoreMesh(
         core_axis_name="core",
@@ -77,23 +109,12 @@ def _sparsecore_embedding_scatter_add(
     @pl.core_map(
         mesh,
         name="over_encoding_embedding_scatter_add",
-        scratch_shapes=(
-            pltpu.VMEM_SHARED(
-                (sparse_core_info.num_subcores, _SCATTER_WINDOW_SIZE, updates.shape[-1]),
-                jnp.float32,
-            ),
-        ),
     )
-    def kernel(shared_updates_ref):
-        subcore_index = jax.lax.axis_index("subcore")
-
+    def kernel():
         def scatter_body(ids_vmem_ref, updates_vmem_ref):
-            shared_updates_slice = shared_updates_ref.at[subcore_index]
-            pltpu.sync_copy(updates_vmem_ref, shared_updates_slice)
             pltpu.sync_copy(
-                shared_updates_slice,
+                updates_vmem_ref,
                 output_ref.at[ids_vmem_ref.at[0]],
-                add=True,
             )
 
         pltpu.emit_pipeline(
@@ -114,7 +135,7 @@ def _sparsecore_embedding_scatter_add(
             dimension_semantics=(pltpu.PARALLEL,),
         )(ids_ref, updates_ref)
 
-    return jax.freeze(output_ref).astype(update_dtype)
+    return jax.freeze(output_ref)[:num_rows].astype(update_dtype)
 
 
 def embedding_scatter_add(

@@ -20,7 +20,11 @@ from experiments.grug.moe_july_over_encoding.model import (
     _causal_ngram_ids,
     _tablewise_embedding_lookup,
 )
-from experiments.grug.moe_july_over_encoding.sparsecore_embedding import embedding_lookup, embedding_scatter_add
+from experiments.grug.moe_july_over_encoding.sparsecore_embedding import (
+    _coalesce_embedding_updates,
+    embedding_lookup,
+    embedding_scatter_add,
+)
 
 
 def _single_device_grug_mesh() -> Mesh:
@@ -152,6 +156,17 @@ def test_embedding_scatter_add_auto_uses_reference_off_tpu():
     updates = jnp.arange(24, dtype=jnp.float32).reshape(6, 4)
 
     actual = embedding_scatter_add(ids, updates, num_rows=8)
+    expected = jnp.zeros((8, 4), dtype=jnp.float32).at[ids].add(updates)
+
+    np.testing.assert_array_equal(actual, expected)
+
+
+def test_coalesced_embedding_updates_preserve_duplicate_sums():
+    ids = jnp.array([5, 1, 5, 0, 1, 7], dtype=jnp.int32)
+    updates = jnp.arange(24, dtype=jnp.float32).reshape(6, 4)
+
+    scatter_ids, coalesced_updates = _coalesce_embedding_updates(ids, updates, num_rows=8)
+    actual = jnp.zeros((8 + ids.shape[0], 4), dtype=jnp.float32).at[scatter_ids].set(coalesced_updates)[:8]
     expected = jnp.zeros((8, 4), dtype=jnp.float32).at[ids].add(updates)
 
     np.testing.assert_array_equal(actual, expected)
