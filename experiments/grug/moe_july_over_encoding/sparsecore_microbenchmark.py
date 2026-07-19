@@ -50,7 +50,7 @@ microbenchmark = ExecutorStep(
     fn=run_sparsecore_microbenchmark,
     config=SparseCoreMicrobenchmarkConfig(
         num_rows=3_238_400,
-        num_indices=65_536,
+        num_indices=262_144,
         embedding_dim=64,
         repeats=10,
     ),

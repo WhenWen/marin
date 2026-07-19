@@ -34,7 +34,7 @@ def _timed_call(fn, ids, updates, *, repeats: int) -> tuple[jax.Array, float, fl
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--num-rows", type=int, default=3_238_400)
-    parser.add_argument("--num-indices", type=int, default=65_536)
+    parser.add_argument("--num-indices", type=int, default=262_144)
     parser.add_argument("--embedding-dim", type=int, default=64)
     parser.add_argument("--repeats", type=int, default=10)
     args = parser.parse_args()

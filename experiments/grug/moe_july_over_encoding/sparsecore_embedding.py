@@ -65,7 +65,11 @@ def _sparsecore_embedding_scatter_add(
     updates = updates.astype(jnp.float32)
     output = jnp.zeros((num_rows, updates.shape[-1]), dtype=jnp.float32)
     output_ref = jax.new_ref(output, memory_space=pltpu.HBM)
-    mesh = plsc.VectorSubcoreMesh(core_axis_name="core", subcore_axis_name="subcore")
+    mesh = plsc.VectorSubcoreMesh(
+        core_axis_name="core",
+        subcore_axis_name="subcore",
+        num_cores=sparse_core_info.num_cores,
+    )
     cost_estimate = pl.estimate_cost(
         lambda scatter_ids, scatter_updates, initial: initial.at[scatter_ids].add(scatter_updates),
         ids.reshape(-1),
