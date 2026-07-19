@@ -113,3 +113,11 @@
 - Evidence: terminal matched v1 measurements are 8.1501% slower at d512 and 10.4926% slower at d768. Both candidates completed with finite loss, zero failures/preemptions, and profile artifacts. The larger d768 cell compiled and completed with two-layer rematerialization and no HBM/OOM signature.
 - Interpretation: both widths pass the revised throughput gate, and the d768 completion provides the requested activation-memory viability evidence. PERF2 remains useful diagnostics but no longer blocks launch.
 - Next action: snapshot the accepted four-stream implementation and submit exactly the d512 and d768 Gate 1 cells from `us-east5-a`; verify child identity, compile, finite startup, checkpoint paths, and scheduled Paloma evaluations.
+
+### 2026-07-19 11:10 - Gate 1 exact children materialized
+
+- Command: submit the CPU-only parent `/kaiyuew/july-baseline-identity-hc-gate1-7409` from `us-east5-a` at snapshot `identity-hc-gate1-launch` / `3e9e72353`, then query the Iris prefix after submission.
+- Config: W&B group `MOE-JULY-IHC-gate1-issue-7409`; sole children `MOE-JULY-IHC-G1-001-d512` and `MOE-JULY-IHC-G1-002-d768`; accepted four-stream Identity-HC implementation with alpha 0.01 and two-layer rematerialization.
+- Result: exactly the two intended children materialized with no siblings. d512 is running in worker build; d768 is capacity-pending. Both have zero failures and zero preemptions.
+- Interpretation: launch identity and fan-out are correct. The d768 capacity wait is normal and is not a training failure.
+- Next action: monitor each child in place through compilation and require fresh W&B progress with finite startup loss before declaring the Gate 1 launch healthy.

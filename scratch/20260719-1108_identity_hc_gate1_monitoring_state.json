@@ -64,17 +64,33 @@
   "sanitized_resubmit_command": "/Users/kaiyuew/Downloads/Project/marin/.venv/bin/iris --config <(sed -e '1s/^/name: marin\\n/' -e 's/mode: GCP_SLICE_MODE_VM/mode: vm/' -e '/^log_server_config:/d' lib/iris/config/marin.yaml) job run --no-wait --zone us-east5-a --cpu=1 --memory=2G --extra=cpu --job-name july-baseline-identity-hc-gate1-7409 -e WANDB_API_KEY \"${WANDB_API_KEY}\" -- python -m experiments.grug.moe_identity_hyperconnection.gate1",
   "restart_count": 0,
   "max_restart_count": 2,
-  "submitted_at": null,
-  "last_checked_at": "2026-07-19T11:08:00-07:00",
-  "status": "ready_to_submit",
-  "parent_state": null,
+  "submitted_at": "2026-07-19T11:09:35-07:00",
+  "last_checked_at": "2026-07-19T11:10:51-07:00",
+  "status": "exact_children_materialized_waiting_for_finite_startup",
+  "parent_state": "JOB_STATE_RUNNING",
   "child_summary": {
     "expected": 2,
-    "observed": 0,
-    "pending": 0,
-    "running": 0,
+    "observed": 2,
+    "pending": 1,
+    "running": 1,
     "succeeded": 0,
     "failed": 0,
     "preempted": 0
+  },
+  "children": {
+    "d512": {
+      "state": "JOB_STATE_RUNNING",
+      "task_state": "building",
+      "failure_count": 0,
+      "preemption_count": 0,
+      "pending_reason": ""
+    },
+    "d768": {
+      "state": "JOB_STATE_PENDING",
+      "task_state": "pending",
+      "failure_count": 0,
+      "preemption_count": 0,
+      "pending_reason": "Insufficient v5p capacity"
+    }
   }
 }
