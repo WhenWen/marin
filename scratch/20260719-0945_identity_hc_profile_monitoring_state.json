@@ -45,17 +45,17 @@
   "restart_count": 1,
   "max_restart_count": 1,
   "submitted_at": "2026-07-19T09:49:02-07:00",
-  "status": "d512_v1_failed_throughput_gate_d768_candidate_compiling",
-  "last_checked_at": "2026-07-19T10:41:03-07:00",
+  "status": "v1_profiles_terminal_both_widths_fail_throughput_gate_v2_pending",
+  "last_checked_at": "2026-07-19T10:53:44-07:00",
   "parent_state": "JOB_STATE_RUNNING",
   "child_state_summary": {
     "count": 4,
     "pending": 0,
-    "running": 1,
-    "succeeded": 3,
+    "running": 0,
+    "succeeded": 4,
     "failed": 0,
     "preemptions": 0,
-    "pending_reason": "d768 candidate compiling"
+    "pending_reason": ""
   },
   "profile_results": {
     "d512_baseline": {
@@ -106,6 +106,24 @@
       "profile_uploaded": true,
       "failure_count": 0,
       "preemption_count": 0
+    },
+    "d768_candidate_v1": {
+      "iris_state": "JOB_STATE_SUCCEEDED",
+      "wandb_state": "finished",
+      "wandb_run": "marin-community/dial_moe/MOE-JULY-IHC-PERF-CAND-d768",
+      "trainer_steps_completed": 220,
+      "wandb_summary_global_step": 219,
+      "final_train_loss": 5.759084701538086,
+      "loss_finite": true,
+      "steady_state_window": "global_step >= 120; 100 rows",
+      "mean_tokens_per_second": 224838.4373726293,
+      "median_tokens_per_second": 225715.29276640766,
+      "profile_uploaded": true,
+      "hbm_or_oom_signature": false,
+      "failure_count": 0,
+      "preemption_count": 0,
+      "slowdown_vs_baseline": 0.10492625983155357,
+      "passes_8_percent": false
     }
   },
   "last_failure": {
@@ -116,5 +134,13 @@
     "children_created": 0,
     "error": "all four intended v5p-8 child submissions rejected because the unpinned CPU parent resolved europe-west4, where no v5p-8 group exists"
   },
-  "gate1_launched": false
+  "gate1_launched": false,
+  "decision": {
+    "decided_at": "2026-07-19T11:07:17-07:00",
+    "maximum_throughput_decrease": 0.11,
+    "d512_passes": true,
+    "d768_passes": true,
+    "activation_memory_viable": true,
+    "basis": "d768 compiled and completed 220 steps with remat group 2 and no HBM/OOM signature"
+  }
 }

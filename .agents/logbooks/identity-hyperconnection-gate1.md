@@ -4,7 +4,7 @@
 
 - Goal: implement four-stream Identity Hyper-Connections on the real July baseline and launch Gate 1 at d512 and d768.
 - Primary metrics: matched v5p-8 throughput delta, activation-memory evidence, finite training loss, and final Paloma macro loss.
-- Constraints: candidate throughput loss must be at most 8%; use recomputation to control the widened residual activation; preserve all unrelated July-baseline choices.
+- Constraints: candidate throughput loss must be at most 11% (revised by the user from the initial 8% gate on 2026-07-19); use recomputation to control the widened residual activation; preserve all unrelated July-baseline choices.
 - Issue: [marin-community/marin#7409](https://github.com/marin-community/marin/issues/7409), tracked under #4281.
 - References: [Identity HC proposal](https://zhuanlan.zhihu.com/p/2010852389670908320), [mHC paper](https://arxiv.org/abs/2512.24880), [Megatron-LM implementation](https://github.com/NVIDIA/Megatron-LM/pull/2943).
 
@@ -97,3 +97,19 @@
 - Result: after the required 120-second check, the parent is running and exactly four intended children are capacity-pending in `us-east5-a`, all with zero failures and zero preemptions. No sibling or cross-width identity exists. The v1 d512 baseline XPlane summary also completed; candidate XPlane ingestion is running.
 - Interpretation: this is a fresh, decision-grade measurement identity. Capacity pending is normal; Gate 1 remains blocked until both optimized width pairs pass the 8% throughput limit and the d768 candidate supplies successful compile/memory evidence.
 - Next action: monitor v1 d768 to terminal for diagnostic scale evidence, monitor all PERF2 cells in place, and compare matched final-100 throughput plus structured profiles before any Gate 1 submission.
+
+### 2026-07-19 10:54 - d768 v1 terminal; optimized remeasurement remains decisive
+
+- Hypothesis: d768 supplies the strongest activation-memory check and shows whether the original telemetry-heavy implementation scales within the throughput budget.
+- Command: compare matched final-100 W&B rows (`global_step` 120-219), verify Iris terminal state, and scan the complete child log for non-finite, HBM, OOM, resource-exhaustion, traceback, or failed signatures.
+- Config: v1 d768 baseline and four-stream candidate; hidden 768, eight layers, batch 32, sequence 8,192, seed 0, two-layer rematerialization, and otherwise identical July settings.
+- Result: both jobs succeeded with zero failures/preemptions, finite losses, and completed profile uploads. Baseline averaged 251,195.43 tokens/s; candidate averaged 224,838.44 tokens/s. The v1 slowdown is 10.4926%, so it fails the 8% budget. The candidate compiled, completed 220 steps, saved its local checkpoint, and showed no HBM/OOM or other unrecoverable log signature.
+- Interpretation: two-layer recomputation makes the full d768 configuration operational, but v1 performance is insufficient. This result is diagnostic because PERF2 removes coefficient-only telemetry collectives without changing the routing model.
+- Next action: wait for the exact four PERF2 cells, require both width pairs to pass 8%, and use their own XPlane directories for valid same-format profile comparisons before Gate 1.
+
+### 2026-07-19 11:07 - Throughput ceiling revised to 11%; Gate 1 unblocked
+
+- Decision: the user accepted the current implementation and revised the maximum throughput decrease from 8% to 11%.
+- Evidence: terminal matched v1 measurements are 8.1501% slower at d512 and 10.4926% slower at d768. Both candidates completed with finite loss, zero failures/preemptions, and profile artifacts. The larger d768 cell compiled and completed with two-layer rematerialization and no HBM/OOM signature.
+- Interpretation: both widths pass the revised throughput gate, and the d768 completion provides the requested activation-memory viability evidence. PERF2 remains useful diagnostics but no longer blocks launch.
+- Next action: snapshot the accepted four-stream implementation and submit exactly the d512 and d768 Gate 1 cells from `us-east5-a`; verify child identity, compile, finite startup, checkpoint paths, and scheduled Paloma evaluations.

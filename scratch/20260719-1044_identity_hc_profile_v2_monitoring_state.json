@@ -48,17 +48,62 @@
   "restart_count": 0,
   "max_restart_count": 1,
   "submitted_at": "2026-07-19T10:42:23-07:00",
-  "last_checked_at": "2026-07-19T10:44:37-07:00",
-  "status": "exact_four_children_capacity_pending",
+  "last_checked_at": "2026-07-19T11:03:28-07:00",
+  "status": "d512_baseline_succeeded_candidate_finite_d768_baseline_finite",
   "parent_state": "running",
   "child_summary": {
     "expected": 4,
     "observed": 4,
-    "pending": 4,
-    "running": 0,
-    "succeeded": 0,
+    "pending": 1,
+    "running": 2,
+    "succeeded": 1,
     "failed": 0,
     "preempted": 0
   },
-  "gate1_launched": false
+  "live_results": {
+    "d512_baseline": {
+      "iris_state": "JOB_STATE_SUCCEEDED",
+      "failure_count": 0,
+      "preemption_count": 0,
+      "wandb_state": "finished",
+      "wandb_global_step": 219,
+      "train_loss": 6.069026470184326,
+      "loss_finite": true,
+      "steady_state_window": "global_step >= 120; 100 rows",
+      "mean_tokens_per_second": 354247.4786427945,
+      "median_tokens_per_second": 357233.76836762077,
+      "config_identity_verified": true
+    },
+    "d512_candidate": {
+      "iris_state": "JOB_STATE_RUNNING",
+      "failure_count": 0,
+      "preemption_count": 0,
+      "wandb_state": "running",
+      "wandb_global_step": 61,
+      "train_loss": 7.691329479217529,
+      "tokens_per_second": 327467.11281248304,
+      "loss_finite": true,
+      "config_identity_verified": true,
+      "compile_pending": false
+    },
+    "d768_baseline": {
+      "iris_state": "JOB_STATE_RUNNING",
+      "failure_count": 0,
+      "preemption_count": 0,
+      "wandb_state": "running",
+      "wandb_global_step": 59,
+      "train_loss": 7.53804874420166,
+      "tokens_per_second": 250745.59567881547,
+      "loss_finite": true,
+      "config_identity_verified": true,
+      "compile_pending": false
+    }
+  },
+  "gate1_launched": false,
+  "launch_gate_override": {
+    "decided_at": "2026-07-19T11:07:17-07:00",
+    "maximum_throughput_decrease": 0.11,
+    "perf2_no_longer_blocks_gate1": true,
+    "reason": "user accepted terminal v1 results under revised 11 percent ceiling"
+  }
 }
