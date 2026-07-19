@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "experiment": "Real July baseline plus four-stream Identity Hyper-Connections Gate 1",
+  "issue": "https://github.com/marin-community/marin/issues/7409",
+  "snapshot": {
+    "branch": "codex/july-baseline-identity-hc",
+    "code_commit": "f51a83fdd",
+    "launch_head": "bf57507cf",
+    "tag": "identity-hc-gate1-launch",
+    "base": "52d8a9eb8d9434cf1dcaaee060edeadc60dfff9d"
+  },
+  "parent": "/kaiyuew/july-baseline-identity-hc-gate1-7409",
+  "expected_children": [
+    "/kaiyuew/july-baseline-identity-hc-gate1-7409/grug-train-MOE-JULY-IHC-G1-001-d512",
+    "/kaiyuew/july-baseline-identity-hc-gate1-7409/grug-train-MOE-JULY-IHC-G1-002-d768"
+  ],
+  "cluster": "marin",
+  "parent_resources": "cpu=1,memory=2G,extra=cpu,zone=us-east5-a",
+  "child_resources": "v5p-8",
+  "wandb_project": "marin-community/dial_moe",
+  "wandb_group": "MOE-JULY-IHC-gate1-issue-7409",
+  "wandb_runs": [
+    "MOE-JULY-IHC-G1-001-d512",
+    "MOE-JULY-IHC-G1-002-d768"
+  ],
+  "expected_config": {
+    "sequence_length": 8192,
+    "num_residual_streams": 4,
+    "hyperconnection_alpha_init": 0.01,
+    "hyperconnection_remat_layers": 2,
+    "h_res": "identity",
+    "d512": {
+      "hidden_dim": 512,
+      "num_layers": 6,
+      "num_heads": 4,
+      "num_kv_heads": 1,
+      "batch_size": 16,
+      "num_steps": 10980
+    },
+    "d768": {
+      "hidden_dim": 768,
+      "num_layers": 8,
+      "num_heads": 6,
+      "num_kv_heads": 1,
+      "batch_size": 32,
+      "num_steps": 16875
+    }
+  },
+  "launch_gate_evidence": {
+    "maximum_throughput_decrease": 0.11,
+    "d512_slowdown": 0.08150087889645297,
+    "d768_slowdown": 0.10492625983155357,
+    "activation_memory_viable": true,
+    "basis": "d768 profile candidate compiled and completed 220 steps with remat group 2 and no HBM/OOM signature"
+  },
+  "expected_final_steps": {
+    "d512": 10980,
+    "d768": 16875
+  },
+  "final_checkpoint_paths": {
+    "d512": null,
+    "d768": null
+  },
+  "sanitized_resubmit_command": "/Users/kaiyuew/Downloads/Project/marin/.venv/bin/iris --config <(sed -e '1s/^/name: marin\\n/' -e 's/mode: GCP_SLICE_MODE_VM/mode: vm/' -e '/^log_server_config:/d' lib/iris/config/marin.yaml) job run --no-wait --zone us-east5-a --cpu=1 --memory=2G --extra=cpu --job-name july-baseline-identity-hc-gate1-7409 -e WANDB_API_KEY \"${WANDB_API_KEY}\" -- python -m experiments.grug.moe_identity_hyperconnection.gate1",
+  "restart_count": 0,
+  "max_restart_count": 2,
+  "submitted_at": null,
+  "last_checked_at": "2026-07-19T11:08:00-07:00",
+  "status": "ready_to_submit",
+  "parent_state": null,
+  "child_summary": {
+    "expected": 2,
+    "observed": 0,
+    "pending": 0,
+    "running": 0,
+    "succeeded": 0,
+    "failed": 0,
+    "preempted": 0
+  }
+}
