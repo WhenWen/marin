@@ -58,6 +58,7 @@ _DEFAULT_EP_CAPACITY_FACTOR = 1.0
 _GATED_NORM_RANK = 128
 _ROUTING_RENORM_SUM = 2.5
 _OVER_ENCODING_TABLE_ROW_ALIGNMENT = 256
+_NORMALIZED_INPUT_STREAM_SCALE = math.sqrt(2.0)
 
 
 _BATCH_AXES: tuple[str, ...] = ("replica_dcn", "data", "expert")
@@ -912,6 +913,22 @@ class Transformer(eqx.Module):
             config=cfg,
         )
 
+    def input_embedding(
+        self,
+        token_ids: Int[Array, "B S"],
+        segment_ids: jax.Array | None,
+    ) -> Float[Array, "B S D"]:
+        """Combine token and Over-Encoding streams after independent RMS normalization."""
+        token_embedding = self.token_embed.at[token_ids].get(out_sharding=_batch_spec())
+        if self.over_encoding is None:
+            return self.embed_gated_norm(self.embed_norm(token_embedding))
+
+        over_encoding_embedding = self.over_encoding(token_ids, segment_ids)
+        hidden = (
+            self.embed_norm(token_embedding) + self.embed_norm(over_encoding_embedding)
+        ) / _NORMALIZED_INPUT_STREAM_SCALE
+        return self.embed_gated_norm(hidden)
+
     @named_call
     def __call__(
         self,
@@ -921,15 +938,11 @@ class Transformer(eqx.Module):
         if mask is None:
             mask = AttentionMask.causal()
 
-        batch_spec = _batch_spec()
         cfg = self.config
-        hidden = self.token_embed.at[token_ids].get(out_sharding=batch_spec)
-        if self.over_encoding is not None:
-            segment_ids = None
-            if isinstance(mask, AttentionMask) and mask.segment_ids is not None:
-                segment_ids = mask.segment_ids[0]
-            hidden = (hidden + self.over_encoding(token_ids, segment_ids)) / (1 + len(self.over_encoding.tables))
-        hidden = self.embed_gated_norm(self.embed_norm(hidden))
+        input_segment_ids = None
+        if isinstance(mask, AttentionMask) and mask.segment_ids is not None:
+            input_segment_ids = mask.segment_ids[0]
+        hidden = self.input_embedding(token_ids, input_segment_ids)
 
         # Short layers: sliding window. Long layers (every 4th + last): full causal.
         segment_ids = mask.segment_ids if isinstance(mask, AttentionMask) else None

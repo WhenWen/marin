@@ -18,6 +18,7 @@ from experiments.grug.moe_july_over_encoding.model import (
     GrugModelConfig,
     OverEncoding,
     Transformer,
+    _batch_spec,
     _causal_ngram_ids,
     _tablewise_embedding_lookup,
 )
@@ -138,6 +139,29 @@ def test_tablewise_over_encoding_matches_independent_lookup_values_and_gradients
         tablewise_grads,
         reference_grads,
     )
+
+
+def test_input_embedding_normalizes_token_and_over_encoding_before_combining():
+    config = GrugModelConfig(
+        **_tiny_model_fields(),
+        over_encoding_vocab_size=17,
+        over_encoding_splits=2,
+        over_encoding_num_grams=3,
+    )
+    token_ids = jnp.array([[1, 2, 3, 4]], dtype=jnp.int32)
+    segment_ids = jnp.array([[0, 0, 1, 1]], dtype=jnp.int32)
+
+    with jax.set_mesh(_single_device_grug_mesh()):
+        model = Transformer.init(config, key=jax.random.PRNGKey(42))
+        actual = model.input_embedding(token_ids, segment_ids)
+        token_embedding = model.token_embed.at[token_ids].get(out_sharding=_batch_spec())
+        assert model.over_encoding is not None
+        over_encoding_embedding = model.over_encoding(token_ids, segment_ids)
+        expected = model.embed_gated_norm(
+            (model.embed_norm(token_embedding) + model.embed_norm(over_encoding_embedding)) / jnp.sqrt(2.0)
+        )
+
+    np.testing.assert_allclose(actual, expected, rtol=1e-6, atol=1e-6)
 
 
 def test_embedding_lookup_xla_gradient_matches_indexed_add_with_duplicate_ids():
