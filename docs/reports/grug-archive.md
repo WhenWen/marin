@@ -46,3 +46,13 @@ This file is the paper trail for grug experiments.
 - Purpose: exact July Baseline fixed-C hierarchical Over-Encoding; tune the table LR at d512, then scale the selected 0.5x multiplier to d768.
 - Diff: [against `july_baseline`](https://github.com/marin-community/marin/compare/july_baseline...WhenWen:codex/july-baseline-oe-lr-sweep-7368)
 - Issue: [#7368](https://github.com/marin-community/marin/issues/7368)
+
+### moe-july-over-encoding-normsum-7368
+- Path: `experiments/grug/moe_july_over_encoding/`
+- Origin: `codex/july-baseline-oe-lr-sweep-7368` at `1e5b3465b3b60d6530f2833ef63da662be8b3564`
+- Introduced: `codex/july-baseline-oe-normsum-7368`
+- Last known-good: pending d512 Gate 1 result
+- Status: active
+- Purpose: compare equal-scale fusion of independently RMS-normalized token and OE streams at fixed C and the selected 0.5x OE-table LR.
+- Diff: [against the OE LR-sweep branch](https://github.com/marin-community/marin/compare/codex/july-baseline-oe-lr-sweep-7368...codex/july-baseline-oe-normsum-7368)
+- Issue: [#7368](https://github.com/marin-community/marin/issues/7368)
