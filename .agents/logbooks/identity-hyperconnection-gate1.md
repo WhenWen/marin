@@ -121,3 +121,11 @@
 - Result: exactly the two intended children materialized with no siblings. d512 is running in worker build; d768 is capacity-pending. Both have zero failures and zero preemptions.
 - Interpretation: launch identity and fan-out are correct. The d768 capacity wait is normal and is not a training failure.
 - Next action: monitor each child in place through compilation and require fresh W&B progress with finite startup loss before declaring the Gate 1 launch healthy.
+
+### 2026-07-19 11:17 - d512 Gate 1 passes startup
+
+- Command: inspect the live Iris child, W&B history, and W&B-resolved trainer/checkpointer config for `MOE-JULY-IHC-G1-001-d512`.
+- Result: d512 passed first-step compilation and advanced to step 55 with finite train loss 10.350956 at 329,969.97 tokens/s. Iris and W&B remain running with zero failures/preemptions and a fresh heartbeat. The permanent final checkpoint path resolves to `gs://marin-us-east5/grug/MOE-JULY-IHC-G1-001-d512-39b35d/checkpoints/step-10980`.
+- Config identity: hidden 512, six layers, four attention heads, one KV head, batch 16, sequence 8,192, four residual streams, alpha 0.01, two-layer rematerialization, and 10,980 steps.
+- Interpretation: d512 Gate 1 has healthy numerical, compile, throughput, identity, and checkpoint-path evidence.
+- Next action: keep d512 running; wait for d768 capacity, then require the same compile and finite-startup evidence independently.

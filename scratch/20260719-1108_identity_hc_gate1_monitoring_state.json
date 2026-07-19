@@ -58,15 +58,15 @@
     "d768": 16875
   },
   "final_checkpoint_paths": {
-    "d512": null,
+    "d512": "gs://marin-us-east5/grug/MOE-JULY-IHC-G1-001-d512-39b35d/checkpoints/step-10980",
     "d768": null
   },
   "sanitized_resubmit_command": "/Users/kaiyuew/Downloads/Project/marin/.venv/bin/iris --config <(sed -e '1s/^/name: marin\\n/' -e 's/mode: GCP_SLICE_MODE_VM/mode: vm/' -e '/^log_server_config:/d' lib/iris/config/marin.yaml) job run --no-wait --zone us-east5-a --cpu=1 --memory=2G --extra=cpu --job-name july-baseline-identity-hc-gate1-7409 -e WANDB_API_KEY \"${WANDB_API_KEY}\" -- python -m experiments.grug.moe_identity_hyperconnection.gate1",
   "restart_count": 0,
   "max_restart_count": 2,
   "submitted_at": "2026-07-19T11:09:35-07:00",
-  "last_checked_at": "2026-07-19T11:10:51-07:00",
-  "status": "exact_children_materialized_waiting_for_finite_startup",
+  "last_checked_at": "2026-07-19T11:17:03-07:00",
+  "status": "d512_finite_startup_waiting_for_d768_capacity",
   "parent_state": "JOB_STATE_RUNNING",
   "child_summary": {
     "expected": 2,
@@ -80,10 +80,17 @@
   "children": {
     "d512": {
       "state": "JOB_STATE_RUNNING",
-      "task_state": "building",
+      "task_state": "running",
       "failure_count": 0,
       "preemption_count": 0,
-      "pending_reason": ""
+      "pending_reason": "",
+      "wandb_state": "running",
+      "wandb_heartbeat_at": "2026-07-19T18:16:42Z",
+      "global_step": 55,
+      "train_loss": 10.350955963134766,
+      "tokens_per_second": 329969.96599097055,
+      "finite_startup": true,
+      "checkpoint_base_path": "gs://marin-us-east5/grug/MOE-JULY-IHC-G1-001-d512-39b35d/checkpoints"
     },
     "d768": {
       "state": "JOB_STATE_PENDING",
