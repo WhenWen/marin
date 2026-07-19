@@ -16,7 +16,7 @@ author: kaiyuew
 ## Current TL;DR
 - The architecture is based directly on upstream `marin/july_baseline` commit `52d8a9eb8d9434cf1dcaaee060edeadc60dfff9d`.
 - Local value/gradient, half-RoPE ordering, optimizer-routing, Gate 1 recipe, generic Grug contract, type, and lint checks pass at commit `8581074ae`.
-- Fresh d512 and d768 children exist under the two-cell parent and are pending normal v5p capacity with zero failures.
+- The first fresh d512/d768 launch reached TPU execution but failed before step 1 on a July-JAX compatibility error in the ported Pallas output-shape helper. The compatibility fix is locally validated and awaiting a corrected snapshot relaunch.
 
 ## Baseline
 - Date: 2026-07-18
@@ -45,3 +45,12 @@ author: kaiyuew
 - Result: parent is running; exactly two children were created. d512 and d768 are pending with zero failures/preemptions while the autoscaler brings up demand-routed `tpu_v5p-preemptible_8-us-east5-a` workers. Preflight Iris and W&B duplicate checks returned zero matches.
 - Interpretation: the launch graph and width isolation are correct; current pending state is capacity, not failure.
 - Next action: wait for allocation, verify first finite loss and W&B config for both children, then continue monitoring to terminal checkpoints and matched Paloma results.
+
+### 2026-07-18 23:05 - Diagnosed pre-step-1 kernel compatibility failure
+- Hypothesis: the failure is an API-version mismatch in the ported kernel rather than an architecture, data, or numerical-stability issue.
+- Commit Hash: pending
+- Evidence: both W&B `output.log` files end at the first compiled training step with `AttributeError: 'ShapedArray' object has no attribute 'manual_axis_type'` in `relative_position_attention/pallas_tpu.py::_output_shape`; neither run reported a global step or loss.
+- Fix: construct plain `jax.ShapeDtypeStruct(shape, dtype)` outputs, matching the real July baseline's JAX 0.9.2 API, instead of reading the later-JAX `manual_axis_type` attribute.
+- Validation: all four relative-attention kernel value/gradient tests pass; targeted Ruff, Black, Pyrefly, and `git diff --check` pass. The repository-wide pre-commit wrapper reached only network timeouts while resolving already-known tool packages, not code findings.
+- Interpretation: this is a deterministic startup compatibility fault shared by both widths; no checkpoint or training metric was produced, so corrected runs must use fresh identities.
+- Next action: commit and push the compatibility fix, launch a fresh corrected parent with new Iris/W&B identities, and verify first finite metrics before returning to long-running babysitting.

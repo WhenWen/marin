@@ -45,12 +45,8 @@ NUM_LANES = 128
 NUM_SUBLANES = 8
 
 
-def _output_shape(source: jax.Array, shape: tuple[int, ...], dtype) -> jax.ShapeDtypeStruct:
-    return jax.ShapeDtypeStruct(
-        shape,
-        dtype,
-        manual_axis_type=jax.typeof(source).manual_axis_type,
-    )
+def _output_shape(shape: tuple[int, ...], dtype) -> jax.ShapeDtypeStruct:
+    return jax.ShapeDtypeStruct(shape, dtype)
 
 
 class SegmentIds(NamedTuple):
@@ -876,7 +872,7 @@ def _flash_attention_impl(
         kv_program_count=kv_program_count,
         sparse_window=sparse_window,
     )
-    out_shape = _output_shape(q, q.shape, q.dtype)
+    out_shape = _output_shape(q.shape, q.dtype)
     out_shape = [out_shape]
     out_specs = [pl.BlockSpec((block_b, 1, block_q, head_dim), o_index_map)]
 
@@ -894,7 +890,6 @@ def _flash_attention_impl(
             pl.BlockSpec((pl.squeezed, pl.squeezed, NUM_SUBLANES, MIN_BLOCK_SIZE), lm_index_map),
         ]
         lm = _output_shape(
-            q,
             (batch_size, num_heads, pl.cdiv(q_seq_len, block_q) * NUM_SUBLANES, MIN_BLOCK_SIZE),
             jnp.float32,
         )
@@ -1307,8 +1302,8 @@ def _flash_attention_bwd_dkv(
     ]
 
     out_shapes = [
-        _output_shape(k, (batch_size, num_heads, kv_seq_len, head_dim), k.dtype),
-        _output_shape(v, (batch_size, num_heads, kv_seq_len, head_dim), v.dtype),
+        _output_shape((batch_size, num_heads, kv_seq_len, head_dim), k.dtype),
+        _output_shape((batch_size, num_heads, kv_seq_len, head_dim), v.dtype),
     ]
 
     def dkv_index_map(batch_index, head_index, kv_seq_index, _):
@@ -1735,10 +1730,9 @@ def _flash_attention_bwd_dq(
         math.ceil((relative_padding + relative_extent + relative_block_size) / MIN_BLOCK_SIZE) * MIN_BLOCK_SIZE
     )
     out_shapes = [
-        _output_shape(q, q.shape, q.dtype),
+        _output_shape(q.shape, q.dtype),
         (
             _output_shape(
-                relative_logits,
                 (*relative_logits.shape[:-1], drelative_width),
                 relative_logits.dtype,
             )
