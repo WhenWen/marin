@@ -70,3 +70,12 @@ author: kaiyuew
 - Validation: eight model/recipe tests and four kernel value/gradient tests pass; the TPU dispatch regression test verifies the configured tile reaches the kernel; `UV_OFFLINE=1 ./infra/pre-commit.py --all-files --fix` passes completely.
 - Interpretation: this is a compile-resource correction, not an architecture change. The final allowed recovery must use fresh Iris/W&B identities because the `INKP2` runs now exist.
 - Next action: commit and push the 128-token TPU tile fix, submit the `INKP3`/v3 fresh identities, and require finite metrics from both widths.
+
+### 2026-07-18 23:40 - Submitted final fresh-identity recovery
+- Hypothesis: explicit 128-token forward/backward tiles fit July JAX within v5p scoped VMEM while preserving the exact Gate 1 mathematics and parameterization.
+- Commit Hash: `2e1f5f9c3`
+- Command: `WANDB_API_KEY=<set> /Users/kaiyuew/Downloads/Project/marin/.venv/bin/python scratch/20260718-2249_july_rope_relative_gate1_resubmit.py`
+- Config: parent `/kaiyuew/july-baseline-rope-relative-attention-v3-gate1-7208`; W&B group `MOE-JULY-ROPE-RPE-INKP3-gate1-issue-7208`; output hashes d512 `e1a437` and d768 `b72fec`.
+- Result: preflight found no Iris/W&B duplicates and exactly the two intended children materialized. Both workers were then preempted once during startup; Iris retained both jobs as running/pending with zero failures while replacement demand-routed workers are acquired.
+- Interpretation: the current state is infrastructure preemption, not a code or numerical failure. This consumed the final configured recovery, so the identities must now be monitored in place rather than relaunched again.
+- Next action: wait for replacement allocation and require both arms to pass compilation and emit finite step/loss metrics.
