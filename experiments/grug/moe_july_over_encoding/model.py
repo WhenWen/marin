@@ -52,6 +52,8 @@ from levanter.grug.sharding import Pembed_vocab, Plm_head, unshard
 from levanter.tracker.histogram import Histogram, SummaryStats
 from levanter.utils.activation import ActivationFunctionEnum
 
+from experiments.grug.moe_july_over_encoding.sparsecore_embedding import embedding_lookup
+
 _DEFAULT_EP_CAPACITY_FACTOR = 1.0
 _GATED_NORM_RANK = 128
 _ROUTING_RENORM_SUM = 2.5
@@ -189,8 +191,11 @@ def _tablewise_embedding_lookup_local(
         tiled=True,
     )
 
+    rows_per_table = tables_local.shape[1]
+    flat_tables = tables_local.reshape((-1, tables_local.shape[-1]))
     local_table_ids = jnp.arange(num_local_tables)[:, None, None]
-    embedding_slices = tables_local[local_table_ids, owned_ids]
+    flat_ids = local_table_ids * rows_per_table + owned_ids
+    embedding_slices = embedding_lookup(flat_tables, flat_ids)
     local_embedding_slices = jax.lax.all_to_all(
         embedding_slices,
         axis_name,

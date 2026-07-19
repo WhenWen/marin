@@ -7,6 +7,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 from jax.sharding import AxisType, Mesh, reshard
 from jax.sharding import PartitionSpec as P
 
@@ -19,6 +20,7 @@ from experiments.grug.moe_july_over_encoding.model import (
     _causal_ngram_ids,
     _tablewise_embedding_lookup,
 )
+from experiments.grug.moe_july_over_encoding.sparsecore_embedding import embedding_lookup, embedding_scatter_add
 
 
 def _single_device_grug_mesh() -> Mesh:
@@ -129,6 +131,38 @@ def test_tablewise_over_encoding_matches_independent_lookup_values_and_gradients
         tablewise_grads,
         reference_grads,
     )
+
+
+def test_embedding_lookup_xla_gradient_matches_indexed_add_with_duplicate_ids():
+    table = jnp.arange(32, dtype=jnp.float32).reshape(8, 4)
+    ids = jnp.array([[1, 5, 1], [0, 5, 7]], dtype=jnp.int32)
+    output_gradient = jnp.arange(24, dtype=jnp.float32).reshape(2, 3, 4)
+
+    def loss(candidate):
+        return jnp.sum(embedding_lookup(candidate, ids, "xla") * output_gradient)
+
+    actual = jax.grad(loss)(table)
+    expected = jnp.zeros_like(table).at[ids].add(output_gradient)
+
+    np.testing.assert_array_equal(actual, expected)
+
+
+def test_embedding_scatter_add_auto_uses_reference_off_tpu():
+    ids = jnp.array([1, 5, 1, 0, 5, 7], dtype=jnp.int32)
+    updates = jnp.arange(24, dtype=jnp.float32).reshape(6, 4)
+
+    actual = embedding_scatter_add(ids, updates, num_rows=8)
+    expected = jnp.zeros((8, 4), dtype=jnp.float32).at[ids].add(updates)
+
+    np.testing.assert_array_equal(actual, expected)
+
+
+def test_embedding_scatter_add_rejects_sparsecore_off_tpu():
+    ids = jnp.array([1], dtype=jnp.int32)
+    updates = jnp.ones((1, 4), dtype=jnp.float32)
+
+    with pytest.raises(ValueError, match="require a TPU backend"):
+        embedding_scatter_add(ids, updates, num_rows=8, implementation="sparsecore")
 
 
 def test_disabling_over_encoding_preserves_canonical_july_initialization():
