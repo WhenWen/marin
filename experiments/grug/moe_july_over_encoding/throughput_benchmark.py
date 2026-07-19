@@ -1,7 +1,7 @@
 # Copyright The Marin Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Matched d512 throughput gate for ordered-scatter Over-Encoding.
+"""Matched d512 throughput gate for rank-16 Over-Encoding.
 
 Both cells use this branch, the same canonical July model/data/optimizer setup,
 and the same v5p-8 topology. The only model difference is whether hierarchical
@@ -35,9 +35,10 @@ _HIDDEN_DIM = 512
 _BATCH_SIZE = 16
 _NUM_STEPS = 700
 _OVER_ENCODING_LR_MULTIPLIER = 0.5
-_WANDB_GROUP = "MOE-OE-JULY-sorted-scatter-throughput-issue-7368"
-_BASELINE_RUN_ID = "MOE-JULY-SORTED-SCATTER-PERF-BASELINE-d512"
-_OVER_ENCODING_RUN_ID = "MOE-JULY-SORTED-SCATTER-PERF-OE-d512"
+_OVER_ENCODING_TABLE_DIM = 16
+_WANDB_GROUP = "MOE-OE-JULY-rank16-throughput-issue-7368"
+_BASELINE_RUN_ID = "MOE-JULY-RANK16-PERF-BASELINE-d512"
+_OVER_ENCODING_RUN_ID = "MOE-JULY-RANK16-PERF-OE-d512"
 
 
 def build_step(*, enable_over_encoding: bool) -> ExecutorStep:
@@ -52,6 +53,7 @@ def build_step(*, enable_over_encoding: bool) -> ExecutorStep:
         model = dataclasses.replace(
             model,
             over_encoding_vocab_size=over_encoding_vocab_size(_HIDDEN_DIM, model.vocab_size),
+            over_encoding_table_dim=_OVER_ENCODING_TABLE_DIM,
             over_encoding_splits=4,
             over_encoding_num_grams=3,
         )
@@ -71,7 +73,7 @@ def build_step(*, enable_over_encoding: bool) -> ExecutorStep:
     )
 
     run_id = _OVER_ENCODING_RUN_ID if enable_over_encoding else _BASELINE_RUN_ID
-    variant_tag = "sorted-scatter-oe" if enable_over_encoding else "no-oe"
+    variant_tag = "rank16-oe" if enable_over_encoding else "no-oe"
     return ExecutorStep(
         name=f"grug/{run_id}",
         fn=run_grug_moe_trial,
@@ -108,7 +110,7 @@ def build_step(*, enable_over_encoding: bool) -> ExecutorStep:
             grug_trainer=versioned(GrugTrainerConfig(z_loss_weight=0.0, ema_beta=None, log_every=1)),
             eval=None,
             checkpointer=CheckpointerConfig(
-                base_path="/tmp/moe-oe-sorted-scatter-throughput-7368",
+                base_path="/tmp/moe-oe-rank16-throughput-7368",
                 save_interval=None,
                 keep=None,
             ),
@@ -119,6 +121,6 @@ def build_step(*, enable_over_encoding: bool) -> ExecutorStep:
 if __name__ == "__main__":
     executor_main(
         steps=[build_step(enable_over_encoding=False), build_step(enable_over_encoding=True)],
-        description="Matched canonical July d512 baseline/OE throughput gate for ordered-scatter Over-Encoding.",
+        description="Matched canonical July d512 baseline/OE throughput gate for rank-16 Over-Encoding.",
         max_concurrent=2,
     )

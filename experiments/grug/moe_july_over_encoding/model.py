@@ -189,11 +189,8 @@ def _tablewise_embedding_lookup_local(
         tiled=True,
     )
 
-    rows_per_table = tables_local.shape[1]
-    flat_tables = tables_local.reshape((-1, tables_local.shape[-1]))
     local_table_ids = jnp.arange(num_local_tables)[:, None, None]
-    flat_ids = local_table_ids * rows_per_table + owned_ids
-    embedding_slices = _embedding_lookup_with_sorted_gradient(flat_tables, flat_ids)
+    embedding_slices = tables_local[local_table_ids, owned_ids]
     local_embedding_slices = jax.lax.all_to_all(
         embedding_slices,
         axis_name,
@@ -202,43 +199,6 @@ def _tablewise_embedding_lookup_local(
         tiled=True,
     )
     return jnp.einsum("tbsd,tdh->bsh", local_embedding_slices, projections)
-
-
-@jax.custom_vjp
-def _embedding_lookup_with_sorted_gradient(
-    table: Float[Array, "V D"],
-    ids: Int[Array, "..."],
-) -> Float[Array, "... D"]:
-    """Gather rows while ordering the backward scatter by destination row."""
-    return table[ids]
-
-
-def _embedding_lookup_with_sorted_gradient_fwd(table, ids):
-    return table[ids], (ids, table.shape)
-
-
-def _embedding_lookup_with_sorted_gradient_bwd(residuals, output_grad):
-    ids, table_shape = residuals
-    flat_ids = ids.reshape((-1,))
-    flat_output_grad = output_grad.reshape((flat_ids.shape[0], table_shape[-1]))
-    order = jnp.argsort(flat_ids, stable=False)
-    sorted_ids = flat_ids[order]
-    sorted_output_grad = flat_output_grad[order]
-    table_grad = (
-        jnp.zeros(table_shape, dtype=output_grad.dtype)
-        .at[sorted_ids]
-        .add(
-            sorted_output_grad,
-            indices_are_sorted=True,
-        )
-    )
-    return table_grad, None
-
-
-_embedding_lookup_with_sorted_gradient.defvjp(
-    _embedding_lookup_with_sorted_gradient_fwd,
-    _embedding_lookup_with_sorted_gradient_bwd,
-)
 
 
 def _tablewise_embedding_lookup(
@@ -309,6 +269,7 @@ class GrugModelConfig:
     initializer_std: float = 0.02
     qk_mult: float = 1.3
     over_encoding_vocab_size: int = 0
+    over_encoding_table_dim: int = 0
     over_encoding_splits: int = 4
     over_encoding_num_grams: int = 3
     router_z_loss_coef: float = 0.0
@@ -347,15 +308,14 @@ class GrugModelConfig:
         if self.over_encoding_vocab_size < 0:
             raise ValueError("over_encoding_vocab_size must be non-negative")
         if self.over_encoding_vocab_size > 0:
+            if self.over_encoding_table_dim <= 0:
+                raise ValueError("over_encoding_table_dim must be positive when Over-Encoding is enabled")
             if self.over_encoding_splits <= 0:
                 raise ValueError("over_encoding_splits must be positive")
             if self.over_encoding_num_grams < 2:
                 raise ValueError("over_encoding_num_grams must be at least 2")
-            num_tables = self.over_encoding_splits * (self.over_encoding_num_grams - 1)
-            if self.hidden_dim % num_tables != 0:
-                raise ValueError(
-                    f"hidden_dim={self.hidden_dim} must be divisible by the {num_tables} Over-Encoding tables"
-                )
+        elif self.over_encoding_table_dim != 0:
+            raise ValueError("over_encoding_table_dim must be zero when Over-Encoding is disabled")
         resolve_moe_implementation(self.moe_implementation)
 
     @property
@@ -831,7 +791,7 @@ class OverEncoding(eqx.Module):
         if cfg.over_encoding_vocab_size <= 0:
             raise ValueError("OverEncoding requires a positive over_encoding_vocab_size")
         num_tables = cfg.over_encoding_splits * (cfg.over_encoding_num_grams - 1)
-        slice_dim = cfg.hidden_dim // num_tables
+        slice_dim = cfg.over_encoding_table_dim
         table_keys = random.split(key, num_tables * 2)
         logical_vocab_sizes = tuple(cfg.over_encoding_vocab_size + 2 * index for index in range(num_tables))
         physical_rows = max(_over_encoding_table_rows(logical_rows) for logical_rows in logical_vocab_sizes)

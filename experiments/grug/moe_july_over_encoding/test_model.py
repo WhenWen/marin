@@ -60,6 +60,7 @@ def test_over_encoding_single_rank_uses_all_hierarchical_slices():
     config = GrugModelConfig(
         **_tiny_model_fields(),
         over_encoding_vocab_size=17,
+        over_encoding_table_dim=2,
         over_encoding_splits=2,
         over_encoding_num_grams=3,
     )
@@ -80,6 +81,7 @@ def test_tablewise_over_encoding_matches_independent_lookup_values_and_gradients
     config = GrugModelConfig(
         **_tiny_model_fields(),
         over_encoding_vocab_size=17,
+        over_encoding_table_dim=2,
         over_encoding_splits=2,
         over_encoding_num_grams=3,
     )

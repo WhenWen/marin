@@ -81,6 +81,7 @@ def _build_step(point: LrSweepPoint) -> ExecutorStep:
     model = dataclasses.replace(
         july_model,
         over_encoding_vocab_size=over_encoding_vocab_size(_HIDDEN_DIM, july_model.vocab_size),
+        over_encoding_table_dim=64,
         over_encoding_splits=4,
         over_encoding_num_grams=3,
     )

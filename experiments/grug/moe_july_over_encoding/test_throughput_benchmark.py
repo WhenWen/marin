@@ -18,9 +18,11 @@ def test_throughput_cells_differ_only_by_over_encoding_model_fields():
         if getattr(baseline_model, field.name) != getattr(over_encoding_model, field.name)
     }
 
-    assert differing_model_fields == {"over_encoding_vocab_size"}
+    assert differing_model_fields == {"over_encoding_table_dim", "over_encoding_vocab_size"}
     assert baseline_model.over_encoding_vocab_size == 0
     assert over_encoding_model.over_encoding_vocab_size == 1_619_087
+    assert baseline_model.over_encoding_table_dim == 0
+    assert over_encoding_model.over_encoding_table_dim == 16
     assert baseline.optimizer.value == over_encoding.optimizer.value
     assert baseline.data == over_encoding.data
     assert baseline.resources.value == over_encoding.resources.value
@@ -34,6 +36,6 @@ def test_throughput_cells_differ_only_by_over_encoding_model_fields():
     assert baseline.profiler.enabled
     assert baseline.profiler.start_step == 100
     assert baseline.profiler.num_steps == 50
-    assert baseline.run_id == "MOE-JULY-SORTED-SCATTER-PERF-BASELINE-d512"
-    assert over_encoding.run_id == "MOE-JULY-SORTED-SCATTER-PERF-OE-d512"
-    assert baseline.tracker.group == over_encoding.tracker.group == ("MOE-OE-JULY-sorted-scatter-throughput-issue-7368")
+    assert baseline.run_id == "MOE-JULY-RANK16-PERF-BASELINE-d512"
+    assert over_encoding.run_id == "MOE-JULY-RANK16-PERF-OE-d512"
+    assert baseline.tracker.group == over_encoding.tracker.group == ("MOE-OE-JULY-rank16-throughput-issue-7368")

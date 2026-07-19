@@ -29,6 +29,7 @@ def test_lr050_d768_matches_canonical_july_outside_oe_fields():
 
     assert candidate.run_id == "MOE-OE-JULY-SCALE-LR050-d768"
     assert model.over_encoding_vocab_size == 2_974_451
+    assert model.over_encoding_table_dim == 96
     assert abs(model.over_encoding_vocab_size - scaled_m) <= 2
     assert math.gcd(model.over_encoding_vocab_size, model.vocab_size) == 1
     assert model.over_encoding_splits == 4

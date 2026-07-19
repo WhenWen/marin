@@ -27,6 +27,7 @@ def test_sweep_is_fixed_c_and_changes_only_over_encoding_table_lr():
     assert [point.over_encoding_lr_multiplier for point in LR_SWEEP_POINTS] == expected_multipliers
     assert len({step.config.run_id for step in steps}) == len(steps)
     assert {step.config.model.value.over_encoding_vocab_size for step in steps} == {1_619_087}
+    assert {step.config.model.value.over_encoding_table_dim for step in steps} == {64}
     assert {step.config.optimizer.value.over_encoding_lr_multiplier for step in steps} == set(expected_multipliers)
     assert all(step.config.batch_size.value == 16 for step in steps)
     assert all(step.config.steps.value == 10_980 for step in steps)
@@ -54,6 +55,7 @@ def test_sweep_cell_matches_canonical_july_baseline_outside_oe_fields():
     }
 
     assert candidate_model.over_encoding_vocab_size == 1_619_087
+    assert candidate_model.over_encoding_table_dim == 64
     assert candidate_model.over_encoding_splits == 4
     assert candidate_model.over_encoding_num_grams == 3
     assert candidate_optimizer.over_encoding_lr_multiplier == 1.0
