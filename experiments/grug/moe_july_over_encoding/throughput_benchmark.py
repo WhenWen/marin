@@ -40,7 +40,7 @@ _BASELINE_RUN_ID = "MOE-JULY-COALESCED-SC-PERF-BASELINE-d512"
 _OVER_ENCODING_RUN_ID = "MOE-JULY-COALESCED-SC-PERF-OE-d512"
 
 
-def build_step(*, enable_over_encoding: bool) -> ExecutorStep:
+def build_step(*, enable_over_encoding: bool, run_id: str | None = None) -> ExecutorStep:
     """Build one side of the matched baseline/OE throughput benchmark."""
     heuristic = MoeHeuristic()
     model = dataclasses.replace(
@@ -70,7 +70,8 @@ def build_step(*, enable_over_encoding: bool) -> ExecutorStep:
         over_encoding_lr_multiplier=_OVER_ENCODING_LR_MULTIPLIER,
     )
 
-    run_id = _OVER_ENCODING_RUN_ID if enable_over_encoding else _BASELINE_RUN_ID
+    if run_id is None:
+        run_id = _OVER_ENCODING_RUN_ID if enable_over_encoding else _BASELINE_RUN_ID
     variant_tag = "coalesced-sc-oe" if enable_over_encoding else "no-oe"
     return ExecutorStep(
         name=f"grug/{run_id}",
