@@ -69,16 +69,16 @@
   "restart_count": 0,
   "max_restart_count": 2,
   "submitted_at": "2026-07-19T11:09:35-07:00",
-  "last_checked_at": "2026-07-19T17:19:23-07:00",
+  "last_checked_at": "2026-07-19T17:54:43-07:00",
   "launch_verified_at": "2026-07-19T11:28:45-07:00",
-  "status": "d512_succeeded_d768_running",
-  "parent_state": "JOB_STATE_RUNNING",
+  "status": "succeeded",
+  "parent_state": "JOB_STATE_SUCCEEDED",
   "child_summary": {
     "expected": 2,
     "observed": 2,
     "pending": 0,
-    "running": 1,
-    "succeeded": 1,
+    "running": 0,
+    "succeeded": 2,
     "failed": 0,
     "preempted": 0
   },
@@ -86,6 +86,7 @@
     "d512": {
       "state": "JOB_STATE_SUCCEEDED",
       "task_state": "succeeded",
+      "duration": "1 hour, 38 minutes and 34.58 seconds",
       "failure_count": 0,
       "preemption_count": 0,
       "pending_reason": "",
@@ -112,32 +113,60 @@
       }
     },
     "d768": {
-      "state": "JOB_STATE_RUNNING",
-      "task_state": "running",
+      "state": "JOB_STATE_SUCCEEDED",
+      "task_state": "succeeded",
+      "duration": "6 hours, 28 minutes and 35.09 seconds",
       "failure_count": 0,
       "preemption_count": 0,
       "pending_reason": "",
-      "wandb_state": "running",
-      "wandb_heartbeat_at": "2026-07-20T00:18:56Z",
-      "global_step": 15655,
-      "train_loss": 3.052022933959961,
-      "tokens_per_second": 225611.76469076247,
+      "wandb_state": "finished",
+      "wandb_heartbeat_at": "2026-07-20T00:48:32Z",
+      "global_step": 16874,
+      "train_loss": 2.9671247005462646,
+      "tokens_per_second": 225272.8694803229,
       "all_train_loss_finite": true,
       "finite_startup": true,
       "checkpoint_base_path": "gs://marin-us-east5/grug/MOE-JULY-IHC-G1-002-d768-c9eb80/checkpoints",
       "latest_eval": {
-        "global_step": 15000,
-        "eval_loss": 3.004479169845581,
-        "eval_macro_loss": 3.1617627143859863,
-        "paloma_macro_loss": 3.2676384449005127,
-        "paloma_macro_bpb": 1.1738712787628174
+        "global_step": 16874,
+        "eval_loss": 2.946363925933838,
+        "eval_macro_loss": 3.099208354949951,
+        "paloma_macro_loss": 3.2089805603027344,
+        "paloma_macro_bpb": 1.1529436111450195
       },
-      "latest_temporary_checkpoint": {
-        "path": "gs://marin-us-east5/tmp/ttl=14d/checkpoints-temp/marin-us-east5/grug/MOE-JULY-IHC-G1-002-d768-c9eb80/checkpoints/step-15500",
-        "step": 15500,
-        "timestamp": "2026-07-20T00:16:29.479352",
-        "is_temporary": true
+      "final_checkpoint": {
+        "path": "gs://marin-us-east5/grug/MOE-JULY-IHC-G1-002-d768-c9eb80/checkpoints/step-16875",
+        "step": 16875,
+        "timestamp": "2026-07-20T00:48:31.189927",
+        "is_temporary": false
       }
+    }
+  },
+  "matched_paloma_comparisons": {
+    "lower_is_better": true,
+    "d512": {
+      "global_step": 10979,
+      "baseline_run": "moe_may_july_baseline_d512",
+      "candidate_run": "MOE-JULY-IHC-G1-001-d512",
+      "baseline_macro_loss": 3.5666627883911133,
+      "candidate_macro_loss": 3.544175624847412,
+      "macro_loss_delta": -0.022487163543701172,
+      "macro_loss_relative_percent": -0.6304819064166397,
+      "baseline_macro_bpb": 1.2783821821212769,
+      "candidate_macro_bpb": 1.2705612182617188,
+      "macro_bpb_delta": -0.007820963859558105
+    },
+    "d768": {
+      "global_step": 16874,
+      "baseline_run": "moe_may_july_baseline_d768",
+      "candidate_run": "MOE-JULY-IHC-G1-002-d768",
+      "baseline_macro_loss": 3.2272396087646484,
+      "candidate_macro_loss": 3.2089805603027344,
+      "macro_loss_delta": -0.018259048461914062,
+      "macro_loss_relative_percent": -0.5657791386894704,
+      "baseline_macro_bpb": 1.159092903137207,
+      "candidate_macro_bpb": 1.1529436111450195,
+      "macro_bpb_delta": -0.0061492919921875
     }
   }
 }
