@@ -58,8 +58,12 @@ effective speedup greater than one.
   exact recipe/optimizer equality apart from the new routing field, and an
   observable split between query and K/V inputs. A full six-layer backward
   pass is finite and reaches both the cached source layer and a reuse layer.
+  The focused, optimizer, and repository Grug contract suites pass together
+  (25 tests), and the required lint/format checks pass.
+- Dry run: the d512 selector resolves only the d512 training step and its 36
+  data dependencies; it does not select d768.
 - Interpretation: the variant changes computation while retaining the July
   parameter count, shapes, values, optimizer scalars, and compute-optimal cell
   definitions.
-- Next action: complete repository contract checks, lint, dry-run resolution,
-  snapshot the branch, then submit only d512.
+- Snapshot: `acfb060db` on `codex/moe-yoco-kv-reuse-8196`.
+- Next action: push the snapshot and submit only d512.

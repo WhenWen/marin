@@ -41,8 +41,8 @@ This file is the paper trail for grug experiments.
 ### moe-yoco-kv-reuse-8196
 - Path: `experiments/grug/moe_yoco_kv_reuse/`
 - Origin: `experiments/grug/moe/` at July commit `52d8a9eb8d9434cf1dcaaee060edeadc60dfff9d`.
-- Introduced: pending experiment snapshot
-- Last known-good: pending validation
+- Introduced: `acfb060db`
+- Last known-good: `acfb060db`
 - Status: active
 - Purpose: parameter-preserving midpoint activation reuse for second-half K/V projections.
 - Issue: https://github.com/marin-community/marin/issues/8196
