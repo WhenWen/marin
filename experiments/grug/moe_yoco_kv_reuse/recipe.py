@@ -27,6 +27,7 @@ class ExperimentPoint:
 POINTS: tuple[ExperimentPoint, ...] = (
     ExperimentPoint(hidden_dim=512, batch_size=16, num_steps=10_980, compute_budget=3.82e17),
     ExperimentPoint(hidden_dim=768, batch_size=32, num_steps=16_875, compute_budget=2.81e18),
+    ExperimentPoint(hidden_dim=1024, batch_size=64, num_steps=16_080, compute_budget=1.16e19),
 )
 
 
@@ -39,9 +40,10 @@ def point_for_hidden_dim(hidden_dim: int) -> ExperimentPoint:
 
 def with_midpoint_kv_reuse(model: GrugModelConfig) -> GrugModelConfig:
     """Reuse the last first-half layer output for K/V throughout the second half."""
-    if model.num_layers % 2 != 0:
-        raise ValueError(f"Midpoint K/V reuse requires an even layer count, got {model.num_layers}")
-    return dataclasses.replace(model, kv_reuse_start_layer=model.num_layers // 2)
+    if model.num_layers < 2:
+        raise ValueError(f"Midpoint K/V reuse requires at least two layers, got {model.num_layers}")
+    reuse_start_layer = (model.num_layers + 1) // 2
+    return dataclasses.replace(model, kv_reuse_start_layer=reuse_start_layer)
 
 
 def variant_recipe(point: ExperimentPoint) -> tuple[GrugModelConfig, GrugMoeMuonHConfig]:

@@ -43,7 +43,7 @@ def _tiny_config_kwargs(num_layers: int) -> dict[str, int]:
 
 @pytest.mark.parametrize(
     ("hidden_dim", "expected_layers", "expected_start", "expected_source"),
-    [(512, 6, 3, 2), (768, 8, 4, 3)],
+    [(512, 6, 3, 2), (768, 8, 4, 3), (1024, 11, 6, 5)],
 )
 def test_recipe_derives_midpoint_from_model_depth(
     hidden_dim: int,
@@ -65,7 +65,7 @@ def test_recipe_derives_midpoint_from_model_depth(
     assert dataclasses.asdict(variant_optimizer) == dataclasses.asdict(baseline_optimizer)
 
 
-@pytest.mark.parametrize("num_layers", [6, 8])
+@pytest.mark.parametrize("num_layers", [6, 8, 11])
 def test_midpoint_variant_preserves_every_july_parameter_at_initialization(num_layers: int):
     config_kwargs = _tiny_config_kwargs(num_layers)
     key = jax.random.key(0)
@@ -73,7 +73,7 @@ def test_midpoint_variant_preserves_every_july_parameter_at_initialization(num_l
     with jax.set_mesh(_single_device_mesh()):
         baseline = baseline_model.Transformer.init(baseline_model.GrugModelConfig(**config_kwargs), key=key)
         variant = model.Transformer.init(
-            model.GrugModelConfig(**config_kwargs, kv_reuse_start_layer=num_layers // 2),
+            model.GrugModelConfig(**config_kwargs, kv_reuse_start_layer=(num_layers + 1) // 2),
             key=key,
         )
 
@@ -109,7 +109,7 @@ def test_attention_can_take_kv_from_a_different_activation():
     assert not np.allclose(np.asarray(reused_kv_attention), np.asarray(explicit_self_attention))
 
 
-@pytest.mark.parametrize("num_layers", [6, 8])
+@pytest.mark.parametrize("num_layers", [6, 8, 11])
 def test_midpoint_reuse_changes_computation_without_changing_parameters(num_layers: int):
     config_kwargs = _tiny_config_kwargs(num_layers)
     token_ids = jnp.asarray([[1, 2, 3, 4]], dtype=jnp.int32)
@@ -118,7 +118,7 @@ def test_midpoint_reuse_changes_computation_without_changing_parameters(num_laye
     with jax.set_mesh(_single_device_mesh()):
         baseline = baseline_model.Transformer.init(baseline_model.GrugModelConfig(**config_kwargs), key=key)
         variant = model.Transformer.init(
-            model.GrugModelConfig(**config_kwargs, kv_reuse_start_layer=num_layers // 2),
+            model.GrugModelConfig(**config_kwargs, kv_reuse_start_layer=(num_layers + 1) // 2),
             key=key,
         )
         baseline_logits = baseline.logits(token_ids)

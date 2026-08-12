@@ -1,11 +1,10 @@
 # Copyright The Marin Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Exact-July d512/d768 midpoint K/V reuse experiments.
+"""Exact-July d512/d768/d1024 midpoint K/V reuse experiments.
 
 Use ``--run_only '["grug/moe_yoco_kv_reuse_july_d512"]'`` for the first gate cell.
-The d768 cell is defined by the same depth-derived recipe and can be selected
-after d512 passes.
+The larger cells are defined by the same depth-derived recipe.
 """
 
 from fray.cluster import ResourceConfig
@@ -67,7 +66,7 @@ if __name__ == "__main__":
     executor_main(
         steps=[build_step(point) for point in POINTS],
         description=(
-            "Parameter-preserving midpoint K/V reuse on the exact July d512/d768 MoE recipes. "
+            "Parameter-preserving midpoint K/V reuse on the exact July d512/d768/d1024 MoE recipes. "
             "Select one gate cell with --run_only '[\"<step-regex>\"]'."
         ),
     )

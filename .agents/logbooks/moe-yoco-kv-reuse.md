@@ -10,12 +10,13 @@ author: kaiyuew
 
 ## Current TL;DR
 
-Implementation and validation are in progress on the exact July baseline commit
-`52d8a9eb8d9434cf1dcaaee060edeadc60dfff9d`. The design derives its reuse
-boundary from model depth: d512 caches layer 2 for layers 3--5, and d768 caches
-layer 3 for layers 4--7. Every target layer retains its own Q/K/V/O and norm
-parameters. The d512 cell is the first gate; d768 will only launch if d512 has
-effective speedup greater than one.
+The d512 gate completed successfully on the exact July baseline commit
+`52d8a9eb8d9434cf1dcaaee060edeadc60dfff9d`: terminal Paloma macro loss improved
+from 3.57940 to 3.55697 while final-100-step throughput decreased 0.66%, for an
+estimated 1.121x effective speedup. The generalized d768 cell is now running.
+The design derives its reuse boundary from model depth: d512 caches layer 2 for
+layers 3--5, and d768 caches layer 3 for layers 4--7. Every target layer retains
+its own Q/K/V/O and norm parameters.
 
 ## Scope
 
@@ -67,3 +68,44 @@ effective speedup greater than one.
   definitions.
 - Snapshot: `acfb060db` on `codex/moe-yoco-kv-reuse-8196`.
 - Next action: push the snapshot and submit only d512.
+
+### 2026-08-12 - d512 gate result and d768 launch
+
+- Iris: `/kaiyuew/moe-yoco-kv-july-d512-8196` and its single training child
+  succeeded with zero failures after 10,980 steps. The run took 1:31:44,
+  including evaluation and checkpointing.
+- W&B: https://wandb.ai/marin-community/dial_moe/runs/MOE-YOCO-KV-JULY-001-d512
+- Quality: terminal `eval/paloma/macro_loss` was 3.5569701 versus 3.5793972 for
+  the exact-code July control, a reduction of 0.0224271.
+- Performance: final-100-step throughput was 353,336.6 tokens/s versus
+  355,680.4 tokens/s for the control, a 0.659% reduction. Using the experiment
+  scaling-law gate (`alpha=0.0941`, `L_inf=1.6`) gives 1.1287x compute reduction
+  at matched loss and 1.1213x effective speedup after throughput.
+- Artifact: the durable final checkpoint exists at
+  `gs://marin-us-central1/grug/moe_yoco_kv_reuse_july_d512-362057/checkpoints/step-10980`.
+- Decision: the d512 result clears the greater-than-one gate, so d768 was
+  submitted as `/kaiyuew/moe-yoco-kv-july-d768-8196` from the same snapshot.
+  Exactly one child was created. Its live W&B configuration confirms hidden
+  size 768, eight layers, `kv_reuse_start_layer=4`, 256 experts with top-4
+  routing, batch 32, and 16,875 steps.
+- W&B: https://wandb.ai/marin-community/dial_moe/runs/MOE-YOCO-KV-JULY-001-d768
+- Next action: monitor d768 through finite training metrics and terminal state,
+  then compare it with the exact July d768 control.
+
+### 2026-08-12 - Generalize to the odd-depth d1024 cell
+
+- User decision: run d1024 alongside the active d768 experiment.
+- Design: use `ceil(num_layers / 2)` as the first reuse layer. This is unchanged
+  for the even-depth cells. At d1024's 11-layer exact July configuration, layers
+  0--5 remain standard, the output of layer 5 is cached, and layers 6--10 use it
+  for their K/V projections.
+- Exact cell: hidden size 1024, 11 layers, batch 64, 16,080 steps, 8,192-token
+  context, 256 experts with top-4 routing, and v5p-8.
+- Validation: all 12 focused recipe, initialization, forward, backward, and
+  optimizer tests pass. The 11-layer model retains exact initialized parameter
+  equality with the July baseline. The required full lint/type/format pass also
+  succeeds.
+- Dry run: the d1024 selector resolves only the d1024 training step and its 36
+  data dependencies; it does not select d512 or d768.
+- Next action: push a snapshot containing the d1024 cell, submit exactly one
+  d1024 Iris job, and monitor it alongside d768.
