@@ -107,5 +107,13 @@ its own Q/K/V/O and norm parameters.
   succeeds.
 - Dry run: the d1024 selector resolves only the d1024 training step and its 36
   data dependencies; it does not select d512 or d768.
-- Next action: push a snapshot containing the d1024 cell, submit exactly one
-  d1024 Iris job, and monitor it alongside d768.
+- Snapshot: `c7a57ba7a` on `codex/moe-yoco-kv-reuse-8196`.
+- Launch: submitted `/kaiyuew/moe-yoco-kv-july-d1024-8196`; exactly one training
+  child was created. The live W&B config matches 1024 hidden size, 11 layers,
+  `kv_reuse_start_layer=6`, 256 experts with top-4 routing, batch 64, and 16,080
+  steps. After a 3:20 XLA compile, the run produced finite loss and throughput
+  and saved its initial recovery checkpoint with zero failures.
+- W&B: https://wandb.ai/marin-community/dial_moe/runs/MOE-YOCO-KV-JULY-001-d1024
+- Next action: monitor d768 and d1024 to terminal state, verify their final
+  checkpoints, and compare terminal Paloma and final-100-step throughput with
+  their exact July controls.
