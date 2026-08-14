@@ -13,6 +13,8 @@ from levanter.grug.attention import AttentionMask
 
 from experiments.grug.moe import model as baseline_model
 from experiments.grug.moe_yoco_kv_reuse import model
+from experiments.grug.moe_yoco_kv_reuse.experiment import build_step as build_scale_step
+from experiments.grug.moe_yoco_kv_reuse.experiment_overtrain import build_step as build_overtrain_step
 from experiments.grug.moe_yoco_kv_reuse.recipe import (
     OVERTRAIN_D512_750_TPP,
     OVERTRAIN_D512_ACTIVE_PARAMETERS,
@@ -78,6 +80,17 @@ def test_overtrain_recipe_matches_750_tokens_per_active_parameter():
     target_tokens = OVERTRAIN_D512_ACTIVE_PARAMETERS * OVERTRAIN_TOKENS_PER_ACTIVE_PARAMETER
 
     assert abs(trained_tokens - target_tokens) < point.batch_size * 8192
+
+
+def test_new_runs_pin_resources_to_us_central1():
+    d1280 = next(point for point in POINTS if point.hidden_dim == 1280)
+    resources = [
+        build_scale_step(d1280).config.resources.value,
+        build_overtrain_step(fixed_yoco=False).config.resources.value,
+        build_overtrain_step(fixed_yoco=True).config.resources.value,
+    ]
+
+    assert all(resource.regions == ("us-central1",) for resource in resources)
 
 
 @pytest.mark.parametrize("num_layers", [6, 8, 11, 13])

@@ -29,7 +29,8 @@ uv run python -m experiments.grug.moe_yoco_kv_reuse.experiment \
 The d768, d1024, and d1280 cells are defined by the same depth-derived recipe.
 For odd depths, the middle layer remains standard and its output becomes the
 K/V source for the later `floor(num_layers / 2)` layers. The d1280 cell uses a
-v5p-16; the smaller cells use v5p-8.
+v5p-16; the smaller cells use v5p-8. These resources are pinned to us-central1,
+where both requested TPU topology groups are configured.
 
 The overtraining benchmark uses Marin's 750-token-per-active-parameter setting.
 For exact-July d512 this is 15.55B tokens (batch 16, 118,620 steps). It defines

@@ -21,6 +21,7 @@ from experiments.grug.moe_yoco_kv_reuse.recipe import POINTS, ExperimentPoint, v
 from experiments.grug.moe_yoco_kv_reuse.train import GrugEvalConfig, GrugTrainerConfig
 
 _WANDB_GROUP: str = "MOE-YOCO-KV-july-issue-8196"
+_TPU_REGIONS: tuple[str, ...] = ("us-central1",)
 
 
 def _tpu_for_point(point: ExperimentPoint) -> str:
@@ -38,7 +39,7 @@ def build_step(point: ExperimentPoint) -> ExecutorStep:
             data=NEMOTRON_MIX_WITH_DEFAULT_VALIDATION,
             output_path=this_output_path(),
             run_id=run_id,
-            resources=versioned(ResourceConfig.with_tpu(_tpu_for_point(point))),
+            resources=versioned(ResourceConfig.with_tpu(_tpu_for_point(point), regions=_TPU_REGIONS)),
             steps=versioned(point.num_steps),
             batch_size=versioned(point.batch_size),
             seed=versioned(0),

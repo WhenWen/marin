@@ -19,6 +19,7 @@ from experiments.grug.moe_yoco_kv_reuse.recipe import OVERTRAIN_D512_750_TPP, va
 from experiments.grug.moe_yoco_kv_reuse.train import GrugEvalConfig, GrugTrainerConfig
 
 _TPU: str = "v5p-8"
+_TPU_REGIONS: tuple[str, ...] = ("us-central1",)
 _WANDB_GROUP: str = "MOE-YOCO-KV-overtrain-750tpp-issue-8196"
 
 
@@ -37,7 +38,7 @@ def build_step(*, fixed_yoco: bool) -> ExecutorStep:
             data=NEMOTRON_MIX_WITH_DEFAULT_VALIDATION,
             output_path=this_output_path(),
             run_id=run_id,
-            resources=versioned(ResourceConfig.with_tpu(_TPU)),
+            resources=versioned(ResourceConfig.with_tpu(_TPU, regions=_TPU_REGIONS)),
             steps=versioned(point.num_steps),
             batch_size=versioned(point.batch_size),
             seed=versioned(0),

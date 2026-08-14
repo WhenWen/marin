@@ -147,3 +147,14 @@ its own Q/K/V/O and norm parameters.
 - Next action: dry-run all three new selectors, perform Iris and W&B duplicate
   checks, snapshot the branch, and submit the d1280 cell plus the matched
   overtraining pair.
+
+### 2026-08-13 - Correct new-run placement
+
+- Initial submissions inherited the CPU parent's `europe-west4` placement.
+  Their Fray children therefore requested v5p-16 or v5p-8 in a region with no
+  matching Iris group and failed before any TPU allocation, checkpoint, or W&B
+  run was created.
+- Resolution: explicitly pin all three new TPU children to `us-central1`, where
+  both topology groups are configured, and place their lightweight parents in
+  the same region. This also keeps checkpoints and input data in the existing
+  us-central1 experiment bucket.
