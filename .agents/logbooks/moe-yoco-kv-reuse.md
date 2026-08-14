@@ -117,3 +117,33 @@ its own Q/K/V/O and norm parameters.
 - Next action: monitor d768 and d1024 to terminal state, verify their final
   checkpoints, and compare terminal Paloma and final-100-step throughput with
   their exact July controls.
+
+### 2026-08-13 - d1280 scale cell and overtrained benchmark design
+
+- User decision: extend fixed YOCO to d1280 on v5p-16 and benchmark it in an
+  overtrained regime.
+- d1280 config: exact July hidden size 1280, 13 layers, batch 128, 14,325 steps,
+  8,192-token context, 256 experts with top-4 routing, and about 8.64B total
+  parameters. Layers 0--6 remain standard; layers 7--12 take K/V input from the
+  output of layer 6. Every layer retains its own parameters.
+- Compute search: Iris supports v5p-16 in both configured v5p regions. The
+  us-east5 pool is in provisioning backoff, while us-central1 has no active
+  backoff signal. The job requests the topology generically so Iris can route
+  it to available capacity.
+- Overtraining source: issue #8062 defines the current MoE comparison regime as
+  750 tokens per active parameter. Exact-July d512 has 20,730,368 active
+  parameters excluding embedding and LM head, yielding a 15,547,776,000-token
+  target. Rounding to complete batches gives 118,620 steps and 15,547,760,640
+  realized tokens, about 10.8x the compute-optimal d512 token schedule.
+- Comparison: launch a fresh unchanged d512 control and fixed-YOCO arm with the
+  same batch, steps, data, seed, optimizer law, eval cadence, and v5p-8
+  resources. This avoids comparing against a control with a different training
+  horizon or code snapshot.
+- Validation: all 16 focused recipe, initialization, forward, backward, and
+  optimizer tests pass, including the 13-layer d1280 boundary and the 750-TPP
+  rounding contract. Required lint/format checks pass. A broader untouched base
+  CPU integration test still fails on this branch from an automatic-vs-explicit
+  mesh mismatch; it is unrelated to the experiment files.
+- Next action: dry-run all three new selectors, perform Iris and W&B duplicate
+  checks, snapshot the branch, and submit the d1280 cell plus the matched
+  overtraining pair.

@@ -28,6 +28,19 @@ POINTS: tuple[ExperimentPoint, ...] = (
     ExperimentPoint(hidden_dim=512, batch_size=16, num_steps=10_980, compute_budget=3.82e17),
     ExperimentPoint(hidden_dim=768, batch_size=32, num_steps=16_875, compute_budget=2.81e18),
     ExperimentPoint(hidden_dim=1024, batch_size=64, num_steps=16_080, compute_budget=1.16e19),
+    ExperimentPoint(hidden_dim=1280, batch_size=128, num_steps=14_325, compute_budget=3.46e19),
+)
+
+# The current MoE overtraining baseline uses 750 tokens per active parameter
+# (issue #8062). The exact-July d512 model has 20,730,368 active parameters
+# excluding the embedding and LM head, so this rounds to 118,620 full batches.
+OVERTRAIN_TOKENS_PER_ACTIVE_PARAMETER: int = 750
+OVERTRAIN_D512_ACTIVE_PARAMETERS: int = 20_730_368
+OVERTRAIN_D512_750_TPP = ExperimentPoint(
+    hidden_dim=512,
+    batch_size=16,
+    num_steps=118_620,
+    compute_budget=6.48e18,
 )
 
 

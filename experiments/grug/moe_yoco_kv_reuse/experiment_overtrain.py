@@ -1,11 +1,9 @@
 # Copyright The Marin Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Exact-July d512/d768/d1024/d1280 midpoint K/V reuse experiments.
+"""Matched d512 control and midpoint K/V reuse runs at 750 tokens per active parameter."""
 
-Use ``--run_only '["grug/moe_yoco_kv_reuse_july_d512"]'`` for the first gate cell.
-The larger cells are defined by the same depth-derived recipe.
-"""
+import dataclasses
 
 from fray.cluster import ResourceConfig
 from levanter.tracker.wandb import WandbConfig
@@ -17,28 +15,29 @@ from experiments.grug.moe_yoco_kv_reuse.launch import (
     GrugMoeLaunchConfig,
     run_grug_moe_trial,
 )
-from experiments.grug.moe_yoco_kv_reuse.recipe import POINTS, ExperimentPoint, variant_recipe
+from experiments.grug.moe_yoco_kv_reuse.recipe import OVERTRAIN_D512_750_TPP, variant_recipe
 from experiments.grug.moe_yoco_kv_reuse.train import GrugEvalConfig, GrugTrainerConfig
 
-_WANDB_GROUP: str = "MOE-YOCO-KV-july-issue-8196"
+_TPU: str = "v5p-8"
+_WANDB_GROUP: str = "MOE-YOCO-KV-overtrain-750tpp-issue-8196"
 
 
-def _tpu_for_point(point: ExperimentPoint) -> str:
-    return "v5p-16" if point.hidden_dim == 1280 else "v5p-8"
-
-
-def build_step(point: ExperimentPoint) -> ExecutorStep:
+def build_step(*, fixed_yoco: bool) -> ExecutorStep:
+    point = OVERTRAIN_D512_750_TPP
     model, optimizer = variant_recipe(point)
-    run_id = f"MOE-YOCO-KV-JULY-001-d{point.hidden_dim}"
+    variant_name = "fixed-yoco" if fixed_yoco else "control"
+    if not fixed_yoco:
+        model = dataclasses.replace(model, kv_reuse_start_layer=None)
+    run_id = f"MOE-YOCO-KV-OVERTRAIN-750TPP-001-{variant_name}-d512"
     return ExecutorStep(
-        name=f"grug/moe_yoco_kv_reuse_july_d{point.hidden_dim}",
+        name=f"grug/moe_yoco_kv_reuse_overtrain_750tpp_{variant_name}_d512",
         fn=run_grug_moe_trial,
         config=GrugMoeLaunchConfig(
             model=versioned(model),
             data=NEMOTRON_MIX_WITH_DEFAULT_VALIDATION,
             output_path=this_output_path(),
             run_id=run_id,
-            resources=versioned(ResourceConfig.with_tpu(_tpu_for_point(point))),
+            resources=versioned(ResourceConfig.with_tpu(_TPU)),
             steps=versioned(point.num_steps),
             batch_size=versioned(point.batch_size),
             seed=versioned(0),
@@ -46,7 +45,14 @@ def build_step(point: ExperimentPoint) -> ExecutorStep:
             tracker=WandbConfig(
                 entity="marin-community",
                 project="dial_moe",
-                tags=["MOE-YOCO-KV", "issue-8196", "july-baseline", f"d{point.hidden_dim}"],
+                tags=[
+                    "MOE-YOCO-KV",
+                    "issue-8196",
+                    "july-baseline",
+                    "overtrain-750tpp",
+                    variant_name,
+                    "d512",
+                ],
                 group=_WANDB_GROUP,
                 name=None,
             ),
@@ -67,9 +73,9 @@ def build_step(point: ExperimentPoint) -> ExecutorStep:
 
 if __name__ == "__main__":
     executor_main(
-        steps=[build_step(point) for point in POINTS],
+        steps=[build_step(fixed_yoco=False), build_step(fixed_yoco=True)],
         description=(
-            "Parameter-preserving midpoint K/V reuse on the exact July d512/d768/d1024/d1280 MoE recipes. "
-            "Select one gate cell with --run_only '[\"<step-regex>\"]'."
+            "Matched exact-July d512 control and fixed-YOCO runs at the Marin overtraining baseline of "
+            "750 tokens per active parameter."
         ),
     )
