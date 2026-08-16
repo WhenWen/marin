@@ -110,3 +110,24 @@ Does classical YOCO, which projects one global K/V pair from the midpoint repres
 The three runs keep the exact d512 July data order, seed, batch size, token horizon, optimizer schedule, and evaluation cadence. Relative to the exact-July baseline, bare classical YOCO has 262,144 fewer parameters, the added width-171 shared expert has 512 more parameters, and the two localized query heads have 1,024 more parameters.
 
 Launch verification at 2026-08-16 21:04 UTC found the parent running and exactly the three requested v5p-8 children pending with zero failures. Iris reported ordinary us-central1 capacity pressure (`Insufficient TPUs`); no cross-region routing or duplicate submission was made.
+
+## 2026-08-16 Regular d512/d768 Extension
+
+The regular matrix uses the exact July compute-optimal cells rather than the 750-TPP extension:
+
+- d512: batch size 16, 10,980 steps, sequence length 8192.
+- d768: batch size 32, 16,875 steps, sequence length 8192.
+
+Each width keeps seed 0, the July data order, optimizer schedule, and evaluation cadence. The matrix contains bare classical YOCO plus the same two localized parameter-reinvestment strategies. At d768, classical YOCO removes 589,824 parameters. A width-256 localized shared expert restores that count exactly; three localized query-only heads leave a 2,304-parameter surplus from their per-head normalization weights.
+
+Validation commands:
+
+```bash
+uv run pytest experiments/grug/moe_yoco_kv_reuse/test_midpoint_kv_reuse.py \
+  tests/test_grug_variant_contracts.py -q
+./infra/pre-commit.py --changed-files --fix
+uv run python -m experiments.grug.moe_yoco_kv_reuse.experiment_classical_yoco_july \
+  --dry_run true --max_concurrent 6
+```
+
+The focused and contract suites passed 45 tests. The launcher dry-run materialized exactly six requested training cells.

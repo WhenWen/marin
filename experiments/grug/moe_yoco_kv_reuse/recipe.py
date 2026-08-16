@@ -14,7 +14,6 @@ from experiments.grug.moe_yoco_kv_reuse.model import GrugModelConfig
 from experiments.grug.moe_yoco_kv_reuse.optimizer import GrugMoeMuonHConfig
 
 SEQ_LEN: int = 8192
-CLASSICAL_YOCO_EXPERT_MATCH_DIM: int = 171
 
 
 @dataclass(frozen=True)
@@ -88,18 +87,22 @@ def classical_yoco_recipe(
     )
     start_layer = model.shared_projected_kv_start_layer
     assert start_layer is not None
+    removed_projection_layers = model.num_layers - start_layer - 1
     if parameter_match == "expert":
-        if point.hidden_dim != 512:
-            raise ValueError("The localized expert parameter match is currently calibrated only for d512")
+        head_dim = point.hidden_dim // model.num_heads
+        removed_parameters = removed_projection_layers * 2 * point.hidden_dim * model.num_kv_heads * head_dim
+        shared_expert_parameters_per_dim = 3 * point.hidden_dim
+        expert_intermediate_dim = round(removed_parameters / shared_expert_parameters_per_dim)
         model = dataclasses.replace(
             model,
             additional_shared_expert_layer=start_layer,
-            additional_shared_expert_intermediate_dim=CLASSICAL_YOCO_EXPERT_MATCH_DIM,
+            additional_shared_expert_intermediate_dim=expert_intermediate_dim,
         )
     elif parameter_match == "heads":
-        if start_layer + 1 >= model.num_layers:
-            raise ValueError("The query-head parameter match requires at least two cross-decoder layers")
-        model = dataclasses.replace(model, additional_query_head_layers=(start_layer, start_layer + 1))
+        model = dataclasses.replace(
+            model,
+            additional_query_head_layers=tuple(range(start_layer, model.num_layers - 1)),
+        )
     elif parameter_match is not None:
         raise ValueError(f"Unknown parameter_match={parameter_match!r}")
 

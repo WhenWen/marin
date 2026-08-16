@@ -15,12 +15,16 @@ from experiments.grug.moe import model as baseline_model
 from experiments.grug.moe_yoco_kv_reuse import model
 from experiments.grug.moe_yoco_kv_reuse.experiment import build_step as build_scale_step
 from experiments.grug.moe_yoco_kv_reuse.experiment_classical_yoco import build_step as build_classical_step
+from experiments.grug.moe_yoco_kv_reuse.experiment_classical_yoco_july import (
+    build_step as build_classical_july_step,
+)
 from experiments.grug.moe_yoco_kv_reuse.experiment_overtrain import build_step as build_overtrain_step
 from experiments.grug.moe_yoco_kv_reuse.recipe import (
     OVERTRAIN_D512_750_TPP,
     OVERTRAIN_D512_ACTIVE_PARAMETERS,
     OVERTRAIN_TOKENS_PER_ACTIVE_PARAMETER,
     POINTS,
+    ExperimentPoint,
     baseline_recipe,
     classical_yoco_recipe,
     variant_recipe,
@@ -204,8 +208,19 @@ def test_classical_yoco_reuses_one_projected_kv_pair():
     assert np.all(np.isfinite(np.asarray(logits)))
 
 
-def test_d512_classical_yoco_parameter_reinvestment_is_close_to_baseline():
-    point = OVERTRAIN_D512_750_TPP
+@pytest.mark.parametrize(
+    ("point", "bare_deficit", "expert_delta", "head_delta"),
+    [
+        (POINTS[0], 262_144, 512, 1_024),
+        (POINTS[1], 589_824, 0, 2_304),
+    ],
+)
+def test_classical_yoco_parameter_reinvestment_is_close_to_baseline(
+    point: ExperimentPoint,
+    bare_deficit: int,
+    expert_delta: int,
+    head_delta: int,
+):
     classical_cfg, _ = classical_yoco_recipe(point)
     expert_cfg, _ = classical_yoco_recipe(point, parameter_match="expert")
     head_cfg, _ = classical_yoco_recipe(point, parameter_match="heads")
@@ -218,9 +233,9 @@ def test_d512_classical_yoco_parameter_reinvestment_is_close_to_baseline():
         heads = jax.eval_shape(lambda: model.Transformer.init(head_cfg, key=jax.random.key(7)))
 
     baseline_parameters = _parameter_count(baseline)
-    assert baseline_parameters - _parameter_count(classical) == 262_144
-    assert _parameter_count(expert) - baseline_parameters == 512
-    assert _parameter_count(heads) - baseline_parameters == 1_024
+    assert baseline_parameters - _parameter_count(classical) == bare_deficit
+    assert _parameter_count(expert) - baseline_parameters == expert_delta
+    assert _parameter_count(heads) - baseline_parameters == head_delta
 
 
 @pytest.mark.parametrize(
@@ -249,6 +264,40 @@ def test_classical_yoco_launch_matrix(
     assert model_config.additional_shared_expert_intermediate_dim == extra_expert_dim
     assert model_config.additional_query_head_layers == extra_head_layers
     assert launch.run_id.endswith(f"-{variant_name}-d512")
+
+
+@pytest.mark.parametrize(
+    ("point", "expected_steps", "expected_batch_size", "expected_start_layer", "expert_dim", "head_layers"),
+    [
+        (POINTS[0], 10_980, 16, 3, 171, (3, 4)),
+        (POINTS[1], 16_875, 32, 4, 256, (4, 5, 6)),
+    ],
+)
+@pytest.mark.parametrize(
+    ("variant_name", "parameter_match"),
+    [("classical", None), ("classical-expert-match", "expert"), ("classical-head-match", "heads")],
+)
+def test_classical_yoco_july_launch_matrix(
+    point: ExperimentPoint,
+    expected_steps: int,
+    expected_batch_size: int,
+    expected_start_layer: int,
+    expert_dim: int,
+    head_layers: tuple[int, ...],
+    variant_name: str,
+    parameter_match: str | None,
+):
+    step = build_classical_july_step(point, variant_name, parameter_match)
+    launch = step.config
+    model_config = launch.model.value
+
+    assert launch.resources.value.regions == ("us-central1",)
+    assert launch.steps.value == expected_steps
+    assert launch.batch_size.value == expected_batch_size
+    assert model_config.shared_projected_kv_start_layer == expected_start_layer
+    assert model_config.additional_shared_expert_intermediate_dim == (expert_dim if parameter_match == "expert" else 0)
+    assert model_config.additional_query_head_layers == (head_layers if parameter_match == "heads" else ())
+    assert launch.run_id.endswith(f"-{variant_name}-d{point.hidden_dim}")
 
 
 def test_classical_yoco_backpropagates_through_shared_projected_kv():
