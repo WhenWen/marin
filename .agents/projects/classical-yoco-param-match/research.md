@@ -89,3 +89,24 @@ Does classical YOCO, which projects one global K/V pair from the midpoint repres
 - Suggested logbook entry: launch three d512 runs—classical, expert-capacity, and query-head-capacity—using the exact existing 750-TPP recipe.
 - Open questions: whether localized added capacity should be spread across cross layers or concentrated at the first cross layer; parameter-count tests will choose the closest simple configuration and record the residual mismatch.
 - Stop reason: the primary mechanism and experiment matrix are determined; implementation measurements are now more informative than additional literature search.
+
+## 2026-08-16 Launch
+
+- Snapshot: `29056c870`
+- Parent: `/kaiyuew/moe-classical-yoco-overtrain-750tpp-8196`
+- Monitoring state: `scratch/20260816-1402_classical_yoco_param_match_monitoring_state.json`
+- Command:
+
+```bash
+/tmp/marin-iris-current-venv/bin/iris --config /tmp/marin-iris-compat.yaml job run \
+  --no-wait --preemptible --region us-central1 \
+  --job-name moe-classical-yoco-overtrain-750tpp-8196 \
+  --cpu=1 --memory=2G --extra=cpu \
+  -e WANDB_API_KEY "${WANDB_API_KEY}" \
+  -- python -m experiments.grug.moe_yoco_kv_reuse.experiment_classical_yoco \
+  --max_concurrent 3
+```
+
+The three runs keep the exact d512 July data order, seed, batch size, token horizon, optimizer schedule, and evaluation cadence. Relative to the exact-July baseline, bare classical YOCO has 262,144 fewer parameters, the added width-171 shared expert has 512 more parameters, and the two localized query heads have 1,024 more parameters.
+
+Launch verification at 2026-08-16 21:04 UTC found the parent running and exactly the three requested v5p-8 children pending with zero failures. Iris reported ordinary us-central1 capacity pressure (`Insufficient TPUs`); no cross-region routing or duplicate submission was made.
