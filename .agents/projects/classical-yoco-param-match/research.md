@@ -131,3 +131,19 @@ uv run python -m experiments.grug.moe_yoco_kv_reuse.experiment_classical_yoco_ju
 ```
 
 The focused and contract suites passed 45 tests. The launcher dry-run materialized exactly six requested training cells.
+
+Launch snapshot: `ec2eb83e6`
+
+```bash
+/tmp/marin-iris-current-venv/bin/iris --config /tmp/marin-iris-compat.yaml job run \
+  --no-wait --preemptible --region us-central1 \
+  --job-name moe-classical-yoco-july-d512-d768-8196 \
+  --cpu=1 --memory=2G --extra=cpu \
+  -e WANDB_API_KEY "${WANDB_API_KEY}" \
+  -- python -m experiments.grug.moe_yoco_kv_reuse.experiment_classical_yoco_july \
+  --max_concurrent 6
+```
+
+Parent: `/kaiyuew/moe-classical-yoco-july-d512-d768-8196`
+
+At initial verification, all and only the six requested children materialized. Bare d512 and expert-match d512 acquired v5p-8 slices; the other four children were pending with zero failures under ordinary us-central1 capacity pressure. No duplicate submission or cross-region routing was made.
