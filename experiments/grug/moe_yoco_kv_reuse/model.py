@@ -120,6 +120,13 @@ class GrugModelConfig:
     half. Q always consumes the current layer input, and every layer keeps its
     own parameters.
     """
+    shared_projected_kv_start_layer: int | None = None
+    """First cross-decoder layer for classical YOCO projected K/V sharing."""
+    additional_shared_expert_layer: int | None = None
+    """Layer receiving one additional always-on shared expert for parameter matching."""
+    additional_shared_expert_intermediate_dim: int = 0
+    additional_query_head_layers: tuple[int, ...] = ()
+    """Layers receiving one additional query-only head at fixed head dimension."""
     attention_implementation: GrugAttentionImplementation | None = None
     moe_implementation: MoeImplementation | None = None
     remat_mode: RematMode = "recompute_all"
@@ -146,6 +153,27 @@ class GrugModelConfig:
             raise ValueError("shared_expert_intermediate_dim must be non-negative")
         if self.kv_reuse_start_layer is not None and not 0 < self.kv_reuse_start_layer < self.num_layers:
             raise ValueError("kv_reuse_start_layer must be between 1 and num_layers - 1")
+        if self.shared_projected_kv_start_layer is not None:
+            if not 0 < self.shared_projected_kv_start_layer < self.num_layers:
+                raise ValueError("shared_projected_kv_start_layer must be between 1 and num_layers - 1")
+            if self.kv_reuse_start_layer is not None:
+                raise ValueError("kv_reuse_start_layer and shared_projected_kv_start_layer are mutually exclusive")
+        if self.additional_shared_expert_intermediate_dim < 0:
+            raise ValueError("additional_shared_expert_intermediate_dim must be non-negative")
+        if (self.additional_shared_expert_layer is None) != (self.additional_shared_expert_intermediate_dim == 0):
+            raise ValueError(
+                "additional_shared_expert_layer and a positive additional_shared_expert_intermediate_dim "
+                "must be set together"
+            )
+        if (
+            self.additional_shared_expert_layer is not None
+            and not 0 <= self.additional_shared_expert_layer < self.num_layers
+        ):
+            raise ValueError("additional_shared_expert_layer must identify a model layer")
+        if len(set(self.additional_query_head_layers)) != len(self.additional_query_head_layers):
+            raise ValueError("additional_query_head_layers must not contain duplicates")
+        if any(not 0 <= layer < self.num_layers for layer in self.additional_query_head_layers):
+            raise ValueError("additional_query_head_layers must identify model layers")
         resolve_moe_implementation(self.moe_implementation)
 
     @property
@@ -167,24 +195,48 @@ def rms_norm(x: jax.Array, eps: float = 1e-6) -> jax.Array:
 
 class CausalSelfAttention(eqx.Module):
     w_q: Float[Array, "D NH"]
-    w_k: Float[Array, "D MH"]
-    w_v: Float[Array, "D MH"]
+    w_k: Float[Array, "D MH"] | None
+    w_v: Float[Array, "D MH"] | None
     w_o: Float[Array, "NH D"]
     attn_gate: Float[Array, "D N"]
+    num_heads: int = eqx.field(static=True)
     cfg: GrugModelConfig = eqx.field(static=True)
 
     @staticmethod
-    def init(cfg: GrugModelConfig, *, key: PRNGKeyArray) -> "CausalSelfAttention":
+    def init(
+        cfg: GrugModelConfig,
+        *,
+        key: PRNGKeyArray,
+        num_heads: int | None = None,
+        owns_kv_projection: bool = True,
+    ) -> "CausalSelfAttention":
         k_q, k_k, k_v, k_o = random.split(key, 4)
-        d, n, m, h = cfg.hidden_dim, cfg.num_heads, cfg.num_kv_heads, cfg.inferred_head_dim
+        d, n, m, h = cfg.hidden_dim, num_heads or cfg.num_heads, cfg.num_kv_heads, cfg.inferred_head_dim
         return CausalSelfAttention(
             w_q=reshard(_init_weight(k_q, (d, n * h), cfg.initializer_std), P("data", "model")),
-            w_k=reshard(_init_weight(k_k, (d, m * h), cfg.initializer_std), P("data", "model")),
-            w_v=reshard(_init_weight(k_v, (d, m * h), cfg.initializer_std), P("data", "model")),
+            w_k=(
+                reshard(_init_weight(k_k, (d, m * h), cfg.initializer_std), P("data", "model"))
+                if owns_kv_projection
+                else None
+            ),
+            w_v=(
+                reshard(_init_weight(k_v, (d, m * h), cfg.initializer_std), P("data", "model"))
+                if owns_kv_projection
+                else None
+            ),
             w_o=reshard(_init_weight(k_o, (n * h, d), cfg.initializer_std), P("model", "data")),
             attn_gate=reshard(jnp.zeros((d, n)), P(None, None)),
+            num_heads=n,
             cfg=cfg,
         )
+
+    def project_kv(self, kv_input: Float[Array, "B S D"]) -> tuple[jax.Array, jax.Array]:
+        if self.w_k is None or self.w_v is None:
+            raise ValueError("This attention layer does not own K/V projection matrices")
+        head_dim = self.cfg.inferred_head_dim
+        k = rearrange(jnp.einsum("bsh,hd->bsd", kv_input, self.w_k), "... (m d) -> ... m d", d=head_dim)
+        v = rearrange(jnp.einsum("bsh,hd->bsd", kv_input, self.w_v), "... (m d) -> ... m d", d=head_dim)
+        return k, v
 
     @named_call
     def __call__(
@@ -194,15 +246,19 @@ class CausalSelfAttention(eqx.Module):
         use_pko: bool = False,
         disable_rope: bool = False,
         kv_input: Float[Array, "B S D"] | None = None,
+        projected_kv: tuple[jax.Array, jax.Array] | None = None,
     ) -> Float[Array, "B S D"]:
         head_dim = self.cfg.inferred_head_dim
         seq_len = x.shape[1]
         batch_spec = _batch_spec()
-        kv_input = x if kv_input is None else kv_input
-
         q = rearrange(jnp.einsum("bsh,hd->bsd", x, self.w_q), "... (n d) -> ... n d", d=head_dim)
-        k = rearrange(jnp.einsum("bsh,hd->bsd", kv_input, self.w_k), "... (m d) -> ... m d", d=head_dim)
-        v = rearrange(jnp.einsum("bsh,hd->bsd", kv_input, self.w_v), "... (m d) -> ... m d", d=head_dim)
+        if projected_kv is None:
+            kv_input = x if kv_input is None else kv_input
+            k, v = self.project_kv(kv_input)
+        else:
+            if kv_input is not None:
+                raise ValueError("Pass either kv_input or projected_kv, not both")
+            k, v = projected_kv
 
         # Shift the second half of K's head_dim back by one position so the
         # query at position i sees K[i] on head_dim[:half] but K[i-1] on
@@ -535,23 +591,42 @@ class Block(eqx.Module):
     mlp_gated_norm: GatedNorm
     mlp: MoEMLP
     shared: DenseMLP | None
+    additional_shared_expert: DenseMLP | None
 
     @staticmethod
-    def init(cfg: GrugModelConfig, *, key: PRNGKeyArray) -> "Block":
+    def init(cfg: GrugModelConfig, layer_index: int, *, key: PRNGKeyArray) -> "Block":
         attn_key, mlp_key, shared_key, gn_attn_key, gn_mlp_key = random.split(key, 5)
+        additional_shared_key = random.fold_in(key, 1)
         shared = None
         if cfg.shared_expert_intermediate_dim > 0:
             shared = DenseMLP.init(
                 cfg.hidden_dim, cfg.shared_expert_intermediate_dim, cfg.initializer_std, key=shared_key
             )
+        additional_shared_expert = None
+        if cfg.additional_shared_expert_layer == layer_index:
+            additional_shared_expert = DenseMLP.init(
+                cfg.hidden_dim,
+                cfg.additional_shared_expert_intermediate_dim,
+                cfg.initializer_std,
+                key=additional_shared_key,
+            )
+        shared_kv_start = cfg.shared_projected_kv_start_layer
+        owns_kv_projection = shared_kv_start is None or layer_index <= shared_kv_start
+        num_heads = cfg.num_heads + (layer_index in cfg.additional_query_head_layers)
         return Block(
             rms_attn=RMSNorm.init(cfg.hidden_dim, cfg.layer_norm_eps),
             attn_gated_norm=GatedNorm.init(cfg.hidden_dim, cfg.initializer_std, key=gn_attn_key),
-            attn=CausalSelfAttention.init(cfg, key=attn_key),
+            attn=CausalSelfAttention.init(
+                cfg,
+                key=attn_key,
+                num_heads=num_heads,
+                owns_kv_projection=owns_kv_projection,
+            ),
             rms_mlp=RMSNorm.init(cfg.hidden_dim, cfg.layer_norm_eps),
             mlp_gated_norm=GatedNorm.init(cfg.hidden_dim, cfg.initializer_std, key=gn_mlp_key),
             mlp=MoEMLP.init(cfg, key=mlp_key),
             shared=shared,
+            additional_shared_expert=additional_shared_expert,
         )
 
     @named_call
@@ -562,20 +637,26 @@ class Block(eqx.Module):
         use_pko: bool = False,
         disable_rope: bool = False,
         kv_source: Float[Array, "B S D"] | None = None,
+        projected_kv: tuple[jax.Array, jax.Array] | None = None,
     ) -> tuple[Float[Array, "B S D"], dict[str, jax.Array]]:
         attn_in = self.attn_gated_norm(self.rms_attn(x))
-        kv_input = attn_in if kv_source is None else self.attn_gated_norm(self.rms_attn(kv_source))
+        kv_input = None if projected_kv is not None else attn_in
+        if kv_source is not None:
+            kv_input = self.attn_gated_norm(self.rms_attn(kv_source))
         x = x + self.attn(
             attn_in,
             mask,
             use_pko=use_pko,
             disable_rope=disable_rope,
             kv_input=kv_input,
+            projected_kv=projected_kv,
         )
         mlp_in = self.mlp_gated_norm(self.rms_mlp(x))
         mlp_out, router_stats = self.mlp(mlp_in)
         if self.shared is not None:
             mlp_out = mlp_out + self.shared(mlp_in, activation=ActivationFunctionEnum.silu)
+        if self.additional_shared_expert is not None:
+            mlp_out = mlp_out + self.additional_shared_expert(mlp_in, activation=ActivationFunctionEnum.silu)
         x = x + mlp_out
         return x, router_stats
 
@@ -597,7 +678,7 @@ class Transformer(eqx.Module):
             _init_weight(embed_key, (cfg.vocab_size, cfg.hidden_dim), cfg.initializer_std), Pembed_vocab
         )
         output_proj = reshard(_init_weight(out_key, (cfg.hidden_dim, cfg.vocab_size), cfg.initializer_std), Plm_head)
-        blocks = tuple(Block.init(cfg, key=block_keys[i]) for i in range(cfg.num_layers))
+        blocks = tuple(Block.init(cfg, i, key=block_keys[i]) for i in range(cfg.num_layers))
         return Transformer(
             token_embed=token_embed,
             embed_norm=RMSNorm.init(cfg.hidden_dim, cfg.layer_norm_eps),
@@ -635,12 +716,17 @@ class Transformer(eqx.Module):
 
         num_blocks = len(self.blocks)
         kv_reuse_start_layer = cfg.kv_reuse_start_layer
+        shared_projected_kv_start_layer = cfg.shared_projected_kv_start_layer
         kv_source: jax.Array | None = None
+        projected_kv: tuple[jax.Array, jax.Array] | None = None
         moe_router_stats: list[dict[str, jax.Array]] = []
         for i, block in enumerate(self.blocks):
             is_last = i == num_blocks - 1
             is_long = i % 4 == 3 or is_last
-            layer_mask = long_mask if is_long else short_mask
+            is_shared_kv_cross_layer = (
+                shared_projected_kv_start_layer is not None and i >= shared_projected_kv_start_layer
+            )
+            layer_mask = long_mask if is_long or is_shared_kv_cross_layer else short_mask
             use_pko = is_long and not cfg.disable_pko
             disable_rope = is_long and cfg.disable_long_rope
             if kv_reuse_start_layer is None or i < kv_reuse_start_layer:
@@ -648,8 +734,12 @@ class Transformer(eqx.Module):
             else:
                 assert kv_source is not None
                 block_kv_source = kv_source
+            if shared_projected_kv_start_layer is not None and i == shared_projected_kv_start_layer:
+                shared_kv_input = block.attn_gated_norm(block.rms_attn(hidden))
+                projected_kv = block.attn.project_kv(shared_kv_input)
+            block_projected_kv = projected_kv if shared_projected_kv_start_layer is not None else None
             hidden, router_stats = eqx.filter_checkpoint(block, policy=remat_policy)(
-                hidden, layer_mask, use_pko, disable_rope, block_kv_source
+                hidden, layer_mask, use_pko, disable_rope, block_kv_source, block_projected_kv
             )
             if kv_reuse_start_layer is not None and i == kv_reuse_start_layer - 1:
                 kv_source = hidden

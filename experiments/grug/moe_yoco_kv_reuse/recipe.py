@@ -14,6 +14,7 @@ from experiments.grug.moe_yoco_kv_reuse.model import GrugModelConfig
 from experiments.grug.moe_yoco_kv_reuse.optimizer import GrugMoeMuonHConfig
 
 SEQ_LEN: int = 8192
+CLASSICAL_YOCO_EXPERT_MATCH_DIM: int = 171
 
 
 @dataclass(frozen=True)
@@ -57,6 +58,59 @@ def with_midpoint_kv_reuse(model: GrugModelConfig) -> GrugModelConfig:
         raise ValueError(f"Midpoint K/V reuse requires at least two layers, got {model.num_layers}")
     reuse_start_layer = (model.num_layers + 1) // 2
     return dataclasses.replace(model, kv_reuse_start_layer=reuse_start_layer)
+
+
+def with_classical_yoco(model: GrugModelConfig) -> GrugModelConfig:
+    """Share one projected midpoint K/V pair across all second-half layers."""
+    if model.num_layers < 2:
+        raise ValueError(f"Classical YOCO requires at least two layers, got {model.num_layers}")
+    reuse_start_layer = (model.num_layers + 1) // 2
+    return dataclasses.replace(
+        model,
+        kv_reuse_start_layer=None,
+        shared_projected_kv_start_layer=reuse_start_layer,
+    )
+
+
+def classical_yoco_recipe(
+    point: ExperimentPoint,
+    *,
+    parameter_match: str | None = None,
+) -> tuple[GrugModelConfig, GrugMoeMuonHConfig]:
+    """Return classical YOCO with optional localized parameter reinvestment."""
+    heuristic = MoeHeuristic()
+    model = with_classical_yoco(
+        dataclasses.replace(
+            heuristic.build_model_config(point.hidden_dim, seq_len=SEQ_LEN),
+            disable_pko=True,
+            disable_long_rope=True,
+        )
+    )
+    start_layer = model.shared_projected_kv_start_layer
+    assert start_layer is not None
+    if parameter_match == "expert":
+        if point.hidden_dim != 512:
+            raise ValueError("The localized expert parameter match is currently calibrated only for d512")
+        model = dataclasses.replace(
+            model,
+            additional_shared_expert_layer=start_layer,
+            additional_shared_expert_intermediate_dim=CLASSICAL_YOCO_EXPERT_MATCH_DIM,
+        )
+    elif parameter_match == "heads":
+        if start_layer + 1 >= model.num_layers:
+            raise ValueError("The query-head parameter match requires at least two cross-decoder layers")
+        model = dataclasses.replace(model, additional_query_head_layers=(start_layer, start_layer + 1))
+    elif parameter_match is not None:
+        raise ValueError(f"Unknown parameter_match={parameter_match!r}")
+
+    tokens = float(point.num_steps * point.batch_size * SEQ_LEN)
+    optimizer = heuristic.build_optimizer_config(
+        point.batch_size,
+        tokens,
+        point.hidden_dim,
+        seq_len=SEQ_LEN,
+    )
+    return model, optimizer
 
 
 def variant_recipe(point: ExperimentPoint) -> tuple[GrugModelConfig, GrugMoeMuonHConfig]:

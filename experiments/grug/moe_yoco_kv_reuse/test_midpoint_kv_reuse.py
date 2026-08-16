@@ -14,6 +14,7 @@ from levanter.grug.attention import AttentionMask
 from experiments.grug.moe import model as baseline_model
 from experiments.grug.moe_yoco_kv_reuse import model
 from experiments.grug.moe_yoco_kv_reuse.experiment import build_step as build_scale_step
+from experiments.grug.moe_yoco_kv_reuse.experiment_classical_yoco import build_step as build_classical_step
 from experiments.grug.moe_yoco_kv_reuse.experiment_overtrain import build_step as build_overtrain_step
 from experiments.grug.moe_yoco_kv_reuse.recipe import (
     OVERTRAIN_D512_750_TPP,
@@ -21,6 +22,7 @@ from experiments.grug.moe_yoco_kv_reuse.recipe import (
     OVERTRAIN_TOKENS_PER_ACTIVE_PARAMETER,
     POINTS,
     baseline_recipe,
+    classical_yoco_recipe,
     variant_recipe,
 )
 
@@ -70,7 +72,8 @@ def test_recipe_derives_midpoint_from_model_depth(
 
     variant_model_fields = dataclasses.asdict(variant_config)
     del variant_model_fields["kv_reuse_start_layer"]
-    assert variant_model_fields == dataclasses.asdict(baseline_config)
+    for field_name, baseline_value in dataclasses.asdict(baseline_config).items():
+        assert variant_model_fields[field_name] == baseline_value
     assert dataclasses.asdict(variant_optimizer) == dataclasses.asdict(baseline_optimizer)
 
 
@@ -178,3 +181,89 @@ def test_midpoint_reuse_backpropagates_through_cached_source():
     assert all(np.all(np.isfinite(np.asarray(grad))) for grad in grad_arrays)
     assert np.linalg.norm(np.asarray(grads.blocks[2].attn.w_k)) > 0
     assert np.linalg.norm(np.asarray(grads.blocks[3].attn.w_k)) > 0
+
+
+def _parameter_count(tree: object) -> int:
+    return sum(int(np.prod(leaf.shape)) for leaf in jax.tree.leaves(tree) if hasattr(leaf, "shape"))
+
+
+def test_classical_yoco_reuses_one_projected_kv_pair():
+    cfg = model.GrugModelConfig(**_tiny_config_kwargs(num_layers=6), shared_projected_kv_start_layer=3)
+    token_ids = jnp.asarray([[1, 2, 3, 4]], dtype=jnp.int32)
+
+    with jax.set_mesh(_single_device_mesh()):
+        transformer = model.Transformer.init(cfg, key=jax.random.key(6))
+        logits = transformer.logits(token_ids)
+
+    assert transformer.blocks[3].attn.w_k is not None
+    assert transformer.blocks[3].attn.w_v is not None
+    assert transformer.blocks[4].attn.w_k is None
+    assert transformer.blocks[4].attn.w_v is None
+    assert transformer.blocks[5].attn.w_k is None
+    assert transformer.blocks[5].attn.w_v is None
+    assert np.all(np.isfinite(np.asarray(logits)))
+
+
+def test_d512_classical_yoco_parameter_reinvestment_is_close_to_baseline():
+    point = OVERTRAIN_D512_750_TPP
+    classical_cfg, _ = classical_yoco_recipe(point)
+    expert_cfg, _ = classical_yoco_recipe(point, parameter_match="expert")
+    head_cfg, _ = classical_yoco_recipe(point, parameter_match="heads")
+    baseline_cfg = dataclasses.replace(classical_cfg, shared_projected_kv_start_layer=None)
+
+    with jax.set_mesh(_single_device_mesh()):
+        baseline = jax.eval_shape(lambda: model.Transformer.init(baseline_cfg, key=jax.random.key(7)))
+        classical = jax.eval_shape(lambda: model.Transformer.init(classical_cfg, key=jax.random.key(7)))
+        expert = jax.eval_shape(lambda: model.Transformer.init(expert_cfg, key=jax.random.key(7)))
+        heads = jax.eval_shape(lambda: model.Transformer.init(head_cfg, key=jax.random.key(7)))
+
+    baseline_parameters = _parameter_count(baseline)
+    assert baseline_parameters - _parameter_count(classical) == 262_144
+    assert _parameter_count(expert) - baseline_parameters == 512
+    assert _parameter_count(heads) - baseline_parameters == 1_024
+
+
+@pytest.mark.parametrize(
+    ("variant_name", "parameter_match", "extra_expert_dim", "extra_head_layers"),
+    [
+        ("classical", None, 0, ()),
+        ("classical-expert-match", "expert", 171, ()),
+        ("classical-head-match", "heads", 0, (3, 4)),
+    ],
+)
+def test_classical_yoco_launch_matrix(
+    variant_name: str,
+    parameter_match: str | None,
+    extra_expert_dim: int,
+    extra_head_layers: tuple[int, ...],
+):
+    step = build_classical_step(variant_name, parameter_match)
+    launch = step.config
+    model_config = launch.model.value
+
+    assert launch.resources.value.regions == ("us-central1",)
+    assert launch.steps.value == 118_620
+    assert launch.batch_size.value == 16
+    assert model_config.kv_reuse_start_layer is None
+    assert model_config.shared_projected_kv_start_layer == 3
+    assert model_config.additional_shared_expert_intermediate_dim == extra_expert_dim
+    assert model_config.additional_query_head_layers == extra_head_layers
+    assert launch.run_id.endswith(f"-{variant_name}-d512")
+
+
+def test_classical_yoco_backpropagates_through_shared_projected_kv():
+    cfg = model.GrugModelConfig(**_tiny_config_kwargs(num_layers=6), shared_projected_kv_start_layer=3)
+    token_ids = jnp.asarray([[1, 2, 3, 4]], dtype=jnp.int32)
+
+    with jax.set_mesh(_single_device_mesh()):
+        transformer = model.Transformer.init(cfg, key=jax.random.key(8))
+
+        def squared_logits(candidate: model.Transformer) -> jax.Array:
+            return jnp.mean(jnp.square(candidate.logits(token_ids)))
+
+        loss, grads = eqx.filter_value_and_grad(squared_logits)(transformer)
+
+    assert np.isfinite(np.asarray(loss))
+    assert np.linalg.norm(np.asarray(grads.blocks[3].attn.w_k)) > 0
+    assert grads.blocks[4].attn.w_k is None
+    assert grads.blocks[5].attn.w_v is None
