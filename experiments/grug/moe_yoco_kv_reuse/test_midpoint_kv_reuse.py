@@ -213,6 +213,7 @@ def test_classical_yoco_reuses_one_projected_kv_pair():
     [
         (POINTS[0], 262_144, 512, 1_024),
         (POINTS[1], 589_824, 0, 2_304),
+        (POINTS[2], 2_097_152, 1_024, 8_192),
     ],
 )
 def test_classical_yoco_parameter_reinvestment_is_close_to_baseline(
@@ -239,18 +240,18 @@ def test_classical_yoco_parameter_reinvestment_is_close_to_baseline(
 
 
 @pytest.mark.parametrize(
-    ("variant_name", "parameter_match", "extra_expert_dim", "extra_head_layers"),
+    ("variant_name", "parameter_match", "extra_expert_dim", "extra_head_counts"),
     [
         ("classical", None, 0, ()),
         ("classical-expert-match", "expert", 171, ()),
-        ("classical-head-match", "heads", 0, (3, 4)),
+        ("classical-head-match", "heads", 0, (0, 0, 0, 1, 1, 0)),
     ],
 )
 def test_classical_yoco_launch_matrix(
     variant_name: str,
     parameter_match: str | None,
     extra_expert_dim: int,
-    extra_head_layers: tuple[int, ...],
+    extra_head_counts: tuple[int, ...],
 ):
     step = build_classical_step(variant_name, parameter_match)
     launch = step.config
@@ -262,15 +263,16 @@ def test_classical_yoco_launch_matrix(
     assert model_config.kv_reuse_start_layer is None
     assert model_config.shared_projected_kv_start_layer == 3
     assert model_config.additional_shared_expert_intermediate_dim == extra_expert_dim
-    assert model_config.additional_query_head_layers == extra_head_layers
+    assert model_config.additional_query_heads_per_layer == extra_head_counts
     assert launch.run_id.endswith(f"-{variant_name}-d512")
 
 
 @pytest.mark.parametrize(
-    ("point", "expected_steps", "expected_batch_size", "expected_start_layer", "expert_dim", "head_layers"),
+    ("point", "expected_steps", "expected_batch_size", "expected_start_layer", "expert_dim", "head_counts"),
     [
-        (POINTS[0], 10_980, 16, 3, 171, (3, 4)),
-        (POINTS[1], 16_875, 32, 4, 256, (4, 5, 6)),
+        (POINTS[0], 10_980, 16, 3, 171, (0, 0, 0, 1, 1, 0)),
+        (POINTS[1], 16_875, 32, 4, 256, (0, 0, 0, 0, 1, 1, 1, 0)),
+        (POINTS[2], 16_080, 64, 6, 683, (0, 0, 0, 0, 0, 0, 2, 2, 2, 2, 0)),
     ],
 )
 @pytest.mark.parametrize(
@@ -283,7 +285,7 @@ def test_classical_yoco_july_launch_matrix(
     expected_batch_size: int,
     expected_start_layer: int,
     expert_dim: int,
-    head_layers: tuple[int, ...],
+    head_counts: tuple[int, ...],
     variant_name: str,
     parameter_match: str | None,
 ):
@@ -296,7 +298,7 @@ def test_classical_yoco_july_launch_matrix(
     assert launch.batch_size.value == expected_batch_size
     assert model_config.shared_projected_kv_start_layer == expected_start_layer
     assert model_config.additional_shared_expert_intermediate_dim == (expert_dim if parameter_match == "expert" else 0)
-    assert model_config.additional_query_head_layers == (head_layers if parameter_match == "heads" else ())
+    assert model_config.additional_query_heads_per_layer == (head_counts if parameter_match == "heads" else ())
     assert launch.run_id.endswith(f"-{variant_name}-d{point.hidden_dim}")
 
 

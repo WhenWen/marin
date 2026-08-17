@@ -99,9 +99,17 @@ def classical_yoco_recipe(
             additional_shared_expert_intermediate_dim=expert_intermediate_dim,
         )
     elif parameter_match == "heads":
+        head_dim = point.hidden_dim // model.num_heads
+        parameters_per_query_head = 2 * point.hidden_dim * head_dim + point.hidden_dim
+        removed_parameters = removed_projection_layers * 2 * point.hidden_dim * model.num_kv_heads * head_dim
+        additional_query_heads = round(removed_parameters / parameters_per_query_head)
+        head_counts = [0] * model.num_layers
+        candidate_layers = tuple(range(start_layer, model.num_layers - 1))
+        for index in range(additional_query_heads):
+            head_counts[candidate_layers[index % len(candidate_layers)]] += 1
         model = dataclasses.replace(
             model,
-            additional_query_head_layers=tuple(range(start_layer, model.num_layers - 1)),
+            additional_query_heads_per_layer=tuple(head_counts),
         )
     elif parameter_match is not None:
         raise ValueError(f"Unknown parameter_match={parameter_match!r}")

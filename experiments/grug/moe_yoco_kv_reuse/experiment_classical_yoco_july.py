@@ -1,7 +1,7 @@
 # Copyright The Marin Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Classical shared-projected-K/V YOCO on the regular July d512/d768 cells."""
+"""Classical shared-projected-K/V YOCO on regular July cells."""
 
 from fray.cluster import ResourceConfig
 from levanter.tracker.wandb import WandbConfig
@@ -19,7 +19,11 @@ from experiments.grug.moe_yoco_kv_reuse.train import GrugEvalConfig, GrugTrainer
 _TPU: str = "v5p-8"
 _TPU_REGIONS: tuple[str, ...] = ("us-central1",)
 _WANDB_GROUP: str = "MOE-CLASSICAL-YOCO-july-issue-8196"
-_POINTS: tuple[ExperimentPoint, ...] = (point_for_hidden_dim(512), point_for_hidden_dim(768))
+_POINTS: tuple[ExperimentPoint, ...] = (
+    point_for_hidden_dim(512),
+    point_for_hidden_dim(768),
+    point_for_hidden_dim(1024),
+)
 _VARIANTS: tuple[tuple[str, str | None], ...] = (
     ("classical", None),
     ("classical-expert-match", "expert"),
@@ -79,7 +83,7 @@ if __name__ == "__main__":
             for variant_name, parameter_match in _VARIANTS
         ],
         description=(
-            "Classical YOCO shared projected K/V on the regular July d512/d768 cells, with bare, "
+            "Classical YOCO shared projected K/V on regular July cells, with bare, "
             "localized shared-expert, and localized query-head parameter-reinvestment variants."
         ),
     )

@@ -125,8 +125,8 @@ class GrugModelConfig:
     additional_shared_expert_layer: int | None = None
     """Layer receiving one additional always-on shared expert for parameter matching."""
     additional_shared_expert_intermediate_dim: int = 0
-    additional_query_head_layers: tuple[int, ...] = ()
-    """Layers receiving one additional query-only head at fixed head dimension."""
+    additional_query_heads_per_layer: tuple[int, ...] = ()
+    """Number of additional query-only heads at fixed head dimension for each layer."""
     attention_implementation: GrugAttentionImplementation | None = None
     moe_implementation: MoeImplementation | None = None
     remat_mode: RematMode = "recompute_all"
@@ -170,10 +170,10 @@ class GrugModelConfig:
             and not 0 <= self.additional_shared_expert_layer < self.num_layers
         ):
             raise ValueError("additional_shared_expert_layer must identify a model layer")
-        if len(set(self.additional_query_head_layers)) != len(self.additional_query_head_layers):
-            raise ValueError("additional_query_head_layers must not contain duplicates")
-        if any(not 0 <= layer < self.num_layers for layer in self.additional_query_head_layers):
-            raise ValueError("additional_query_head_layers must identify model layers")
+        if self.additional_query_heads_per_layer and len(self.additional_query_heads_per_layer) != self.num_layers:
+            raise ValueError("additional_query_heads_per_layer must contain one count per model layer")
+        if any(count < 0 for count in self.additional_query_heads_per_layer):
+            raise ValueError("additional_query_heads_per_layer must contain non-negative counts")
         resolve_moe_implementation(self.moe_implementation)
 
     @property
@@ -612,7 +612,10 @@ class Block(eqx.Module):
             )
         shared_kv_start = cfg.shared_projected_kv_start_layer
         owns_kv_projection = shared_kv_start is None or layer_index <= shared_kv_start
-        num_heads = cfg.num_heads + (layer_index in cfg.additional_query_head_layers)
+        additional_query_heads = (
+            cfg.additional_query_heads_per_layer[layer_index] if cfg.additional_query_heads_per_layer else 0
+        )
+        num_heads = cfg.num_heads + additional_query_heads
         return Block(
             rms_attn=RMSNorm.init(cfg.hidden_dim, cfg.layer_norm_eps),
             attn_gated_norm=GatedNorm.init(cfg.hidden_dim, cfg.initializer_std, key=gn_attn_key),
