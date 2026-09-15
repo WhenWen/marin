@@ -1,11 +1,7 @@
 # Copyright The Marin Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Exact-July d512/d768/d1024/d1280 cross-encoder-decoder experiments.
-
-Use ``--run_only '["grug/moe_ced_july_d512"]'`` for the first gate cell.
-The larger cells are defined by the same depth-derived recipe.
-"""
+"""Exact-July CED experiments with learned pause-embedding decoder input."""
 
 from fray.cluster import ResourceConfig
 from levanter.tracker.wandb import WandbConfig
@@ -17,10 +13,11 @@ from experiments.grug.moe_yoco_kv_reuse.launch import (
     GrugMoeLaunchConfig,
     run_grug_moe_trial,
 )
+from experiments.grug.moe_yoco_kv_reuse.model import CedDecoderInput
 from experiments.grug.moe_yoco_kv_reuse.recipe import POINTS, ExperimentPoint, ced_recipe
 from experiments.grug.moe_yoco_kv_reuse.train import GrugEvalConfig, GrugTrainerConfig
 
-_WANDB_GROUP: str = "MOE-CED-july-issue-8196"
+_WANDB_GROUP: str = "MOE-CED-PAUSE-july-issue-8196"
 _TPU_REGIONS: tuple[str, ...] = ("us-central1",)
 
 
@@ -29,10 +26,10 @@ def _tpu_for_point(point: ExperimentPoint) -> str:
 
 
 def build_step(point: ExperimentPoint) -> ExecutorStep:
-    model, optimizer = ced_recipe(point)
-    run_id = f"MOE-CED-JULY-001-d{point.hidden_dim}"
+    model, optimizer = ced_recipe(point, decoder_input=CedDecoderInput.PAUSE_EMBEDDING)
+    run_id = f"MOE-CED-PAUSE-JULY-001-d{point.hidden_dim}"
     return ExecutorStep(
-        name=f"grug/moe_ced_july_d{point.hidden_dim}",
+        name=f"grug/moe_ced_pause_july_d{point.hidden_dim}",
         fn=run_grug_moe_trial,
         config=GrugMoeLaunchConfig(
             model=versioned(model),
@@ -47,7 +44,7 @@ def build_step(point: ExperimentPoint) -> ExecutorStep:
             tracker=WandbConfig(
                 entity="marin-community",
                 project="dial_moe",
-                tags=["MOE-CED", "issue-8196", "july-baseline", f"d{point.hidden_dim}"],
+                tags=["MOE-CED", "pause-embedding", "issue-8196", "july-baseline", f"d{point.hidden_dim}"],
                 group=_WANDB_GROUP,
                 name=None,
             ),
@@ -70,7 +67,7 @@ if __name__ == "__main__":
     executor_main(
         steps=[build_step(point) for point in POINTS],
         description=(
-            "Cross-encoder-decoder on the exact July d512/d768/d1024/d1280 MoE recipes. "
-            "Select one gate cell with --run_only '[\"<step-regex>\"]'."
+            "CED with a learned shared pause embedding as decoder residual input on exact-July "
+            "d512/d768/d1024/d1280 MoE recipes."
         ),
     )

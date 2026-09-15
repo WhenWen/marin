@@ -1,7 +1,7 @@
 # Copyright The Marin Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Matched d512 control and midpoint K/V reuse runs at 750 tokens per active parameter."""
+"""Matched d512 control and CED runs at 750 tokens per active parameter."""
 
 import dataclasses
 
@@ -15,23 +15,23 @@ from experiments.grug.moe_yoco_kv_reuse.launch import (
     GrugMoeLaunchConfig,
     run_grug_moe_trial,
 )
-from experiments.grug.moe_yoco_kv_reuse.recipe import OVERTRAIN_D512_750_TPP, variant_recipe
+from experiments.grug.moe_yoco_kv_reuse.recipe import OVERTRAIN_D512_750_TPP, ced_recipe
 from experiments.grug.moe_yoco_kv_reuse.train import GrugEvalConfig, GrugTrainerConfig
 
 _TPU: str = "v5p-8"
 _TPU_REGIONS: tuple[str, ...] = ("us-central1",)
-_WANDB_GROUP: str = "MOE-YOCO-KV-overtrain-750tpp-issue-8196"
+_WANDB_GROUP: str = "MOE-CED-overtrain-750tpp-issue-8196"
 
 
-def build_step(*, fixed_yoco: bool) -> ExecutorStep:
+def build_step(*, ced: bool) -> ExecutorStep:
     point = OVERTRAIN_D512_750_TPP
-    model, optimizer = variant_recipe(point)
-    variant_name = "fixed-yoco" if fixed_yoco else "control"
-    if not fixed_yoco:
-        model = dataclasses.replace(model, kv_reuse_start_layer=None)
-    run_id = f"MOE-YOCO-KV-OVERTRAIN-750TPP-001-{variant_name}-d512"
+    model, optimizer = ced_recipe(point)
+    variant_name = "ced" if ced else "control"
+    if not ced:
+        model = dataclasses.replace(model, ced_start_layer=None)
+    run_id = f"MOE-CED-OVERTRAIN-750TPP-001-{variant_name}-d512"
     return ExecutorStep(
-        name=f"grug/moe_yoco_kv_reuse_overtrain_750tpp_{variant_name}_d512",
+        name=f"grug/moe_ced_overtrain_750tpp_{variant_name}_d512",
         fn=run_grug_moe_trial,
         config=GrugMoeLaunchConfig(
             model=versioned(model),
@@ -47,7 +47,7 @@ def build_step(*, fixed_yoco: bool) -> ExecutorStep:
                 entity="marin-community",
                 project="dial_moe",
                 tags=[
-                    "MOE-YOCO-KV",
+                    "MOE-CED",
                     "issue-8196",
                     "july-baseline",
                     "overtrain-750tpp",
@@ -74,9 +74,9 @@ def build_step(*, fixed_yoco: bool) -> ExecutorStep:
 
 if __name__ == "__main__":
     executor_main(
-        steps=[build_step(fixed_yoco=False), build_step(fixed_yoco=True)],
+        steps=[build_step(ced=False), build_step(ced=True)],
         description=(
-            "Matched exact-July d512 control and fixed-YOCO runs at the Marin overtraining baseline of "
+            "Matched exact-July d512 control and CED runs at the Marin overtraining baseline of "
             "750 tokens per active parameter."
         ),
     )

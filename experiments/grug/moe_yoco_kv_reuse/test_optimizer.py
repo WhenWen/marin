@@ -3,7 +3,7 @@
 
 import jax.numpy as jnp
 
-from experiments.grug.moe_yoco_kv_reuse.optimizer import GrugMoeAdamHConfig
+from experiments.grug.moe_yoco_kv_reuse.optimizer import GrugMoeAdamHConfig, GrugMoeMuonHConfig
 
 
 def test_grug_moe_adamh_mask_routes_expert_mlp_weights_to_expert_group():
@@ -35,3 +35,17 @@ def test_grug_moe_adamh_mask_routes_expert_mlp_weights_to_expert_group():
     assert block_mask["mlp"]["expert_mlp"]["w_down"] == "adamh_expert"
     assert block_mask["shared"]["w_gate"] == "adamh_expert"
     assert mask["token_embed"] == "adam"
+
+
+def test_grug_moe_muonh_mask_routes_pause_embedding_to_adam():
+    params = {
+        "e_pause": jnp.ones((8,), dtype=jnp.float32),
+        "output_proj": jnp.ones((8, 32), dtype=jnp.float32),
+        "blocks": {"0": {"attn": {"w_q": jnp.ones((8, 8), dtype=jnp.float32)}}},
+    }
+
+    mask = GrugMoeMuonHConfig().create_mask(params)
+
+    assert mask["e_pause"] == "adam"
+    assert mask["output_proj"] == "adamh"
+    assert mask["blocks"]["0"]["attn"]["w_q"] == "muonh"

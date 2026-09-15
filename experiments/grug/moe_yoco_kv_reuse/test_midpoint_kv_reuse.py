@@ -19,6 +19,8 @@ from experiments.grug.moe_yoco_kv_reuse.experiment_classical_yoco_july import (
     build_step as build_classical_july_step,
 )
 from experiments.grug.moe_yoco_kv_reuse.experiment_overtrain import build_step as build_overtrain_step
+from experiments.grug.moe_yoco_kv_reuse.experiment_pause import build_step as build_pause_step
+from experiments.grug.moe_yoco_kv_reuse.model import CedDecoderInput
 from experiments.grug.moe_yoco_kv_reuse.recipe import (
     OVERTRAIN_D512_750_TPP,
     OVERTRAIN_D512_ACTIVE_PARAMETERS,
@@ -26,8 +28,8 @@ from experiments.grug.moe_yoco_kv_reuse.recipe import (
     POINTS,
     ExperimentPoint,
     baseline_recipe,
+    ced_recipe,
     classical_yoco_recipe,
-    variant_recipe,
 )
 
 
@@ -68,14 +70,15 @@ def test_recipe_derives_midpoint_from_model_depth(
 ):
     point = next(point for point in POINTS if point.hidden_dim == hidden_dim)
     baseline_config, baseline_optimizer = baseline_recipe(point)
-    variant_config, variant_optimizer = variant_recipe(point)
+    variant_config, variant_optimizer = ced_recipe(point)
 
     assert variant_config.num_layers == expected_layers
-    assert variant_config.kv_reuse_start_layer == expected_start
-    assert variant_config.kv_reuse_start_layer - 1 == expected_source
+    assert variant_config.ced_start_layer == expected_start
+    assert variant_config.ced_start_layer - 1 == expected_source
 
     variant_model_fields = dataclasses.asdict(variant_config)
-    del variant_model_fields["kv_reuse_start_layer"]
+    del variant_model_fields["ced_start_layer"]
+    del variant_model_fields["ced_decoder_input"]
     for field_name, baseline_value in dataclasses.asdict(baseline_config).items():
         assert variant_model_fields[field_name] == baseline_value
     assert dataclasses.asdict(variant_optimizer) == dataclasses.asdict(baseline_optimizer)
@@ -93,22 +96,22 @@ def test_new_runs_pin_resources_to_us_central1():
     d1280 = next(point for point in POINTS if point.hidden_dim == 1280)
     resources = [
         build_scale_step(d1280).config.resources.value,
-        build_overtrain_step(fixed_yoco=False).config.resources.value,
-        build_overtrain_step(fixed_yoco=True).config.resources.value,
+        build_overtrain_step(ced=False).config.resources.value,
+        build_overtrain_step(ced=True).config.resources.value,
     ]
 
     assert all(resource.regions == ("us-central1",) for resource in resources)
 
 
 @pytest.mark.parametrize("num_layers", [6, 8, 11, 13])
-def test_midpoint_variant_preserves_every_july_parameter_at_initialization(num_layers: int):
+def test_ced_preserves_every_july_parameter_at_initialization(num_layers: int):
     config_kwargs = _tiny_config_kwargs(num_layers)
     key = jax.random.key(0)
 
     with jax.set_mesh(_single_device_mesh()):
         baseline = baseline_model.Transformer.init(baseline_model.GrugModelConfig(**config_kwargs), key=key)
         variant = model.Transformer.init(
-            model.GrugModelConfig(**config_kwargs, kv_reuse_start_layer=(num_layers + 1) // 2),
+            model.GrugModelConfig(**config_kwargs, ced_start_layer=(num_layers + 1) // 2),
             key=key,
         )
 
@@ -120,7 +123,7 @@ def test_midpoint_variant_preserves_every_july_parameter_at_initialization(num_l
 
 
 def test_attention_can_take_kv_from_a_different_activation():
-    cfg = model.GrugModelConfig(**_tiny_config_kwargs(num_layers=6), kv_reuse_start_layer=3)
+    cfg = model.GrugModelConfig(**_tiny_config_kwargs(num_layers=6), ced_start_layer=3)
     query_input = jax.random.normal(jax.random.key(1), (1, 4, cfg.hidden_dim))
     other_kv_input = jax.random.normal(jax.random.key(2), query_input.shape)
 
@@ -145,7 +148,7 @@ def test_attention_can_take_kv_from_a_different_activation():
 
 
 @pytest.mark.parametrize("num_layers", [6, 8, 11, 13])
-def test_midpoint_reuse_changes_computation_without_changing_parameters(num_layers: int):
+def test_ced_changes_computation_without_changing_parameters(num_layers: int):
     config_kwargs = _tiny_config_kwargs(num_layers)
     token_ids = jnp.asarray([[1, 2, 3, 4]], dtype=jnp.int32)
     key = jax.random.key(4)
@@ -153,7 +156,7 @@ def test_midpoint_reuse_changes_computation_without_changing_parameters(num_laye
     with jax.set_mesh(_single_device_mesh()):
         baseline = baseline_model.Transformer.init(baseline_model.GrugModelConfig(**config_kwargs), key=key)
         variant = model.Transformer.init(
-            model.GrugModelConfig(**config_kwargs, kv_reuse_start_layer=(num_layers + 1) // 2),
+            model.GrugModelConfig(**config_kwargs, ced_start_layer=(num_layers + 1) // 2),
             key=key,
         )
         baseline_logits = baseline.logits(token_ids)
@@ -164,13 +167,13 @@ def test_midpoint_reuse_changes_computation_without_changing_parameters(num_laye
     assert not np.allclose(np.asarray(variant_logits), np.asarray(baseline_logits))
 
 
-def test_midpoint_reuse_backpropagates_through_cached_source():
+def test_ced_backpropagates_through_encoder_memory():
     config_kwargs = _tiny_config_kwargs(num_layers=6)
     token_ids = jnp.asarray([[1, 2, 3, 4]], dtype=jnp.int32)
 
     with jax.set_mesh(_single_device_mesh()):
         variant = model.Transformer.init(
-            model.GrugModelConfig(**config_kwargs, kv_reuse_start_layer=3),
+            model.GrugModelConfig(**config_kwargs, ced_start_layer=3),
             key=jax.random.key(5),
         )
 
@@ -185,6 +188,42 @@ def test_midpoint_reuse_backpropagates_through_cached_source():
     assert all(np.all(np.isfinite(np.asarray(grad))) for grad in grad_arrays)
     assert np.linalg.norm(np.asarray(grads.blocks[2].attn.w_k)) > 0
     assert np.linalg.norm(np.asarray(grads.blocks[3].attn.w_k)) > 0
+
+
+def test_pause_ced_adds_only_one_hidden_vector_and_uses_it():
+    config_kwargs = _tiny_config_kwargs(num_layers=6)
+    token_ids = jnp.asarray([[1, 2, 3, 4]], dtype=jnp.int32)
+    standard_cfg = model.GrugModelConfig(**config_kwargs, ced_start_layer=3)
+    pause_cfg = dataclasses.replace(standard_cfg, ced_decoder_input=CedDecoderInput.PAUSE_EMBEDDING)
+
+    with jax.set_mesh(_single_device_mesh()):
+        standard = model.Transformer.init(standard_cfg, key=jax.random.key(9))
+        pause = model.Transformer.init(pause_cfg, key=jax.random.key(9))
+
+        def squared_logits(candidate: model.Transformer) -> jax.Array:
+            return jnp.mean(jnp.square(candidate.logits(token_ids)))
+
+        loss, grads = eqx.filter_value_and_grad(squared_logits)(pause)
+
+    assert standard.e_pause is None
+    assert pause.e_pause is not None
+    assert _parameter_count(pause) - _parameter_count(standard) == pause_cfg.hidden_dim
+    assert np.isfinite(np.asarray(loss))
+    assert np.linalg.norm(np.asarray(grads.e_pause)) > 0
+
+
+def test_pause_launch_matches_ced_cell_except_for_decoder_input():
+    point = POINTS[0]
+    ced_launch = build_scale_step(point).config
+    pause_launch = build_pause_step(point).config
+    ced_model = ced_launch.model.value
+    pause_model = pause_launch.model.value
+
+    assert pause_launch.steps.value == ced_launch.steps.value
+    assert pause_launch.batch_size.value == ced_launch.batch_size.value
+    assert pause_launch.resources.value == ced_launch.resources.value
+    assert pause_model.ced_decoder_input == CedDecoderInput.PAUSE_EMBEDDING
+    assert dataclasses.replace(pause_model, ced_decoder_input=CedDecoderInput.ENCODER_OUTPUT) == ced_model
 
 
 def _parameter_count(tree: object) -> int:
@@ -260,7 +299,7 @@ def test_classical_yoco_launch_matrix(
     assert launch.resources.value.regions == ("us-central1",)
     assert launch.steps.value == 118_620
     assert launch.batch_size.value == 16
-    assert model_config.kv_reuse_start_layer is None
+    assert model_config.ced_start_layer is None
     assert model_config.shared_projected_kv_start_layer == 3
     assert model_config.additional_shared_expert_intermediate_dim == extra_expert_dim
     assert model_config.additional_query_heads_per_layer == extra_head_counts

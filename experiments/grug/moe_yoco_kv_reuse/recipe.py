@@ -1,7 +1,7 @@
 # Copyright The Marin Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Exact-July recipes for the parameter-preserving midpoint K/V reuse experiment."""
+"""Exact-July recipes for cross-encoder-decoder (CED) experiments."""
 
 import dataclasses
 from dataclasses import dataclass
@@ -10,7 +10,7 @@ from experiments.grug.moe.heuristic import MoeHeuristic as BaselineMoeHeuristic
 from experiments.grug.moe.model import GrugModelConfig as BaselineModelConfig
 from experiments.grug.moe.optimizer import GrugMoeMuonHConfig as BaselineOptimizerConfig
 from experiments.grug.moe_yoco_kv_reuse.heuristic import MoeHeuristic
-from experiments.grug.moe_yoco_kv_reuse.model import GrugModelConfig
+from experiments.grug.moe_yoco_kv_reuse.model import CedDecoderInput, GrugModelConfig
 from experiments.grug.moe_yoco_kv_reuse.optimizer import GrugMoeMuonHConfig
 
 SEQ_LEN: int = 8192
@@ -51,12 +51,20 @@ def point_for_hidden_dim(hidden_dim: int) -> ExperimentPoint:
     return matches[0]
 
 
-def with_midpoint_kv_reuse(model: GrugModelConfig) -> GrugModelConfig:
-    """Reuse the last first-half layer output for K/V throughout the second half."""
+def with_ced(
+    model: GrugModelConfig,
+    *,
+    decoder_input: CedDecoderInput = CedDecoderInput.ENCODER_OUTPUT,
+) -> GrugModelConfig:
+    """Turn the first half into an encoder and the second half into a cross-decoder."""
     if model.num_layers < 2:
-        raise ValueError(f"Midpoint K/V reuse requires at least two layers, got {model.num_layers}")
-    reuse_start_layer = (model.num_layers + 1) // 2
-    return dataclasses.replace(model, kv_reuse_start_layer=reuse_start_layer)
+        raise ValueError(f"CED requires at least two layers, got {model.num_layers}")
+    ced_start_layer = (model.num_layers + 1) // 2
+    return dataclasses.replace(
+        model,
+        ced_start_layer=ced_start_layer,
+        ced_decoder_input=decoder_input,
+    )
 
 
 def with_classical_yoco(model: GrugModelConfig) -> GrugModelConfig:
@@ -66,7 +74,7 @@ def with_classical_yoco(model: GrugModelConfig) -> GrugModelConfig:
     reuse_start_layer = (model.num_layers + 1) // 2
     return dataclasses.replace(
         model,
-        kv_reuse_start_layer=None,
+        ced_start_layer=None,
         shared_projected_kv_start_layer=reuse_start_layer,
     )
 
@@ -124,15 +132,20 @@ def classical_yoco_recipe(
     return model, optimizer
 
 
-def variant_recipe(point: ExperimentPoint) -> tuple[GrugModelConfig, GrugMoeMuonHConfig]:
-    """Return a midpoint K/V reuse recipe at an exact July compute-optimal cell."""
+def ced_recipe(
+    point: ExperimentPoint,
+    *,
+    decoder_input: CedDecoderInput = CedDecoderInput.ENCODER_OUTPUT,
+) -> tuple[GrugModelConfig, GrugMoeMuonHConfig]:
+    """Return a CED recipe at an exact July compute-optimal cell."""
     heuristic = MoeHeuristic()
-    model = with_midpoint_kv_reuse(
+    model = with_ced(
         dataclasses.replace(
             heuristic.build_model_config(point.hidden_dim, seq_len=SEQ_LEN),
             disable_pko=True,
             disable_long_rope=True,
-        )
+        ),
+        decoder_input=decoder_input,
     )
     tokens = float(point.num_steps * point.batch_size * SEQ_LEN)
     optimizer = heuristic.build_optimizer_config(

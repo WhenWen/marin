@@ -9,6 +9,7 @@ No load-balancing loss; router z-loss only. All layers are MoE (no dense layers)
 
 import dataclasses
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Literal
 
 import equinox as eqx
@@ -67,6 +68,13 @@ def _mesh_axis_size(mesh: jax.sharding.AbstractMesh | None, axis_name: str) -> i
 RematMode = Literal["recompute_all", "save_moe"]
 
 
+class CedDecoderInput(StrEnum):
+    """Residual-stream initialization for the CED decoder."""
+
+    ENCODER_OUTPUT = "encoder_output"
+    PAUSE_EMBEDDING = "pause_embedding"
+
+
 def _batch_spec() -> P:
     return P(_BATCH_AXES)
 
@@ -111,15 +119,17 @@ class GrugModelConfig:
     """When True (default), the every-4th + last 'long' layers skip rotary
     embedding entirely (Q and K go into attention un-rotated). Short layers
     still apply half-RoPE. Set to False to keep RoPE on long layers."""
-    kv_reuse_start_layer: int | None = None
-    """First layer whose K/V projections consume the cached midpoint output.
+    ced_start_layer: int | None = None
+    """First layer in the cross-encoder-decoder (CED) decoder.
 
-    ``None`` keeps standard self-attention. Setting this to the midpoint makes
-    the first half standard self-attention, caches the output of the layer just
-    before this boundary, and reuses it as the K/V source throughout the second
-    half. Q always consumes the current layer input, and every layer keeps its
+    ``None`` keeps standard self-attention. Setting this to the midpoint makes the
+    first half the encoder and caches its final output as decoder memory. In the
+    second half, Q consumes the evolving decoder residual while each layer's K/V
+    projections consume the fixed encoder memory. Every decoder layer keeps its
     own parameters.
     """
+    ced_decoder_input: CedDecoderInput = CedDecoderInput.ENCODER_OUTPUT
+    """Initial decoder residual: encoder output or one learned pause embedding."""
     shared_projected_kv_start_layer: int | None = None
     """First cross-decoder layer for classical YOCO projected K/V sharing."""
     additional_shared_expert_layer: int | None = None
@@ -151,13 +161,15 @@ class GrugModelConfig:
             raise ValueError("num_experts_per_token must be <= num_experts")
         if self.shared_expert_intermediate_dim < 0:
             raise ValueError("shared_expert_intermediate_dim must be non-negative")
-        if self.kv_reuse_start_layer is not None and not 0 < self.kv_reuse_start_layer < self.num_layers:
-            raise ValueError("kv_reuse_start_layer must be between 1 and num_layers - 1")
+        if self.ced_start_layer is not None and not 0 < self.ced_start_layer < self.num_layers:
+            raise ValueError("ced_start_layer must be between 1 and num_layers - 1")
+        if self.ced_decoder_input == CedDecoderInput.PAUSE_EMBEDDING and self.ced_start_layer is None:
+            raise ValueError("pause_embedding decoder input requires ced_start_layer")
         if self.shared_projected_kv_start_layer is not None:
             if not 0 < self.shared_projected_kv_start_layer < self.num_layers:
                 raise ValueError("shared_projected_kv_start_layer must be between 1 and num_layers - 1")
-            if self.kv_reuse_start_layer is not None:
-                raise ValueError("kv_reuse_start_layer and shared_projected_kv_start_layer are mutually exclusive")
+            if self.ced_start_layer is not None:
+                raise ValueError("ced_start_layer and shared_projected_kv_start_layer are mutually exclusive")
         if self.additional_shared_expert_intermediate_dim < 0:
             raise ValueError("additional_shared_expert_intermediate_dim must be non-negative")
         if (self.additional_shared_expert_layer is None) != (self.additional_shared_expert_intermediate_dim == 0):
@@ -668,6 +680,7 @@ class Transformer(eqx.Module):
     token_embed: jax.Array
     embed_norm: RMSNorm
     embed_gated_norm: GatedNorm
+    e_pause: jax.Array | None
     output_proj: jax.Array
     blocks: tuple[Block, ...]
     final_norm: RMSNorm
@@ -681,11 +694,16 @@ class Transformer(eqx.Module):
             _init_weight(embed_key, (cfg.vocab_size, cfg.hidden_dim), cfg.initializer_std), Pembed_vocab
         )
         output_proj = reshard(_init_weight(out_key, (cfg.hidden_dim, cfg.vocab_size), cfg.initializer_std), Plm_head)
+        e_pause = None
+        if cfg.ced_decoder_input == CedDecoderInput.PAUSE_EMBEDDING:
+            pause_key = random.fold_in(key, 0xCED)
+            e_pause = reshard(_init_weight(pause_key, (cfg.hidden_dim,), cfg.initializer_std), P(None))
         blocks = tuple(Block.init(cfg, i, key=block_keys[i]) for i in range(cfg.num_layers))
         return Transformer(
             token_embed=token_embed,
             embed_norm=RMSNorm.init(cfg.hidden_dim, cfg.layer_norm_eps),
             embed_gated_norm=GatedNorm.init(cfg.hidden_dim, cfg.initializer_std, key=embed_gn_key),
+            e_pause=e_pause,
             output_proj=output_proj,
             blocks=blocks,
             final_norm=RMSNorm.init(cfg.hidden_dim, cfg.layer_norm_eps),
@@ -718,9 +736,9 @@ class Transformer(eqx.Module):
             remat_policy = None
 
         num_blocks = len(self.blocks)
-        kv_reuse_start_layer = cfg.kv_reuse_start_layer
+        ced_start_layer = cfg.ced_start_layer
         shared_projected_kv_start_layer = cfg.shared_projected_kv_start_layer
-        kv_source: jax.Array | None = None
+        ced_memory: jax.Array | None = None
         projected_kv: tuple[jax.Array, jax.Array] | None = None
         moe_router_stats: list[dict[str, jax.Array]] = []
         for i, block in enumerate(self.blocks):
@@ -732,11 +750,11 @@ class Transformer(eqx.Module):
             layer_mask = long_mask if is_long or is_shared_kv_cross_layer else short_mask
             use_pko = is_long and not cfg.disable_pko
             disable_rope = is_long and cfg.disable_long_rope
-            if kv_reuse_start_layer is None or i < kv_reuse_start_layer:
+            if ced_start_layer is None or i < ced_start_layer:
                 block_kv_source = None
             else:
-                assert kv_source is not None
-                block_kv_source = kv_source
+                assert ced_memory is not None
+                block_kv_source = ced_memory
             if shared_projected_kv_start_layer is not None and i == shared_projected_kv_start_layer:
                 shared_kv_input = block.attn_gated_norm(block.rms_attn(hidden))
                 projected_kv = block.attn.project_kv(shared_kv_input)
@@ -744,8 +762,11 @@ class Transformer(eqx.Module):
             hidden, router_stats = eqx.filter_checkpoint(block, policy=remat_policy)(
                 hidden, layer_mask, use_pko, disable_rope, block_kv_source, block_projected_kv
             )
-            if kv_reuse_start_layer is not None and i == kv_reuse_start_layer - 1:
-                kv_source = hidden
+            if ced_start_layer is not None and i == ced_start_layer - 1:
+                ced_memory = hidden
+                if cfg.ced_decoder_input == CedDecoderInput.PAUSE_EMBEDDING:
+                    assert self.e_pause is not None
+                    hidden = reshard(jnp.broadcast_to(self.e_pause, hidden.shape), batch_spec)
             moe_router_stats.append(router_stats)
 
         router_metrics = {
