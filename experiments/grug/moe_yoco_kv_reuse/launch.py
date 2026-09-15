@@ -1,10 +1,10 @@
 # Copyright The Marin Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Template: grug-moe trial run.
+"""CED grug-moe trial launcher.
 
-This keeps model, train loop, and launch wiring in `experiments/grug/moe` so
-the MoE variant can be iterated independently from the dense base template.
+The historical package path is retained so completed experiment artifacts keep
+their source provenance.
 """
 
 import dataclasses

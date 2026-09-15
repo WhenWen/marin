@@ -4,6 +4,7 @@
 """Matched d512 control and CED runs at 750 tokens per active parameter."""
 
 import dataclasses
+from enum import StrEnum
 
 from fray.cluster import ResourceConfig
 from levanter.tracker.wandb import WandbConfig
@@ -23,12 +24,17 @@ _TPU_REGIONS: tuple[str, ...] = ("us-central1",)
 _WANDB_GROUP: str = "MOE-CED-overtrain-750tpp-issue-8196"
 
 
-def build_step(*, ced: bool) -> ExecutorStep:
+class OvertrainVariant(StrEnum):
+    CONTROL = "control"
+    CED = "ced"
+
+
+def build_step(variant: OvertrainVariant) -> ExecutorStep:
     point = OVERTRAIN_D512_750_TPP
     model, optimizer = ced_recipe(point)
-    variant_name = "ced" if ced else "control"
-    if not ced:
+    if variant == OvertrainVariant.CONTROL:
         model = dataclasses.replace(model, ced_start_layer=None)
+    variant_name = variant.value
     run_id = f"MOE-CED-OVERTRAIN-750TPP-001-{variant_name}-d512"
     return ExecutorStep(
         name=f"grug/moe_ced_overtrain_750tpp_{variant_name}_d512",
@@ -74,7 +80,7 @@ def build_step(*, ced: bool) -> ExecutorStep:
 
 if __name__ == "__main__":
     executor_main(
-        steps=[build_step(ced=False), build_step(ced=True)],
+        steps=[build_step(variant) for variant in OvertrainVariant],
         description=(
             "Matched exact-July d512 control and CED runs at the Marin overtraining baseline of "
             "750 tokens per active parameter."

@@ -18,6 +18,7 @@ from experiments.grug.moe_yoco_kv_reuse.experiment_classical_yoco import build_s
 from experiments.grug.moe_yoco_kv_reuse.experiment_classical_yoco_july import (
     build_step as build_classical_july_step,
 )
+from experiments.grug.moe_yoco_kv_reuse.experiment_overtrain import OvertrainVariant
 from experiments.grug.moe_yoco_kv_reuse.experiment_overtrain import build_step as build_overtrain_step
 from experiments.grug.moe_yoco_kv_reuse.experiment_pause import build_step as build_pause_step
 from experiments.grug.moe_yoco_kv_reuse.model import CedDecoderInput
@@ -92,12 +93,12 @@ def test_overtrain_recipe_matches_750_tokens_per_active_parameter():
     assert abs(trained_tokens - target_tokens) < point.batch_size * 8192
 
 
-def test_new_runs_pin_resources_to_us_central1():
+def test_ced_runs_pin_resources_to_us_central1():
     d1280 = next(point for point in POINTS if point.hidden_dim == 1280)
     resources = [
         build_scale_step(d1280).config.resources.value,
-        build_overtrain_step(ced=False).config.resources.value,
-        build_overtrain_step(ced=True).config.resources.value,
+        build_overtrain_step(OvertrainVariant.CONTROL).config.resources.value,
+        build_overtrain_step(OvertrainVariant.CED).config.resources.value,
     ]
 
     assert all(resource.regions == ("us-central1",) for resource in resources)
