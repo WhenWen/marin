@@ -51,7 +51,9 @@ class StepMeasurement:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--steps", type=int, default=4, help="Timed steps after two warmup steps and one profiled step.")
-    parser.add_argument("--attention-remat", choices=("on", "off"), default="on", help="Diagnostic inner attention checkpoint.")
+    parser.add_argument(
+        "--attention-remat", choices=("on", "off"), default="on", help="Diagnostic inner attention checkpoint."
+    )
     parser.add_argument(
         "--ema-phase",
         choices=("early", "active"),
