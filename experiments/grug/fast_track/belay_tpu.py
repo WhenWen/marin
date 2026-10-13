@@ -14,7 +14,7 @@ import draccus
 import jax
 from fray.cluster import ResourceConfig
 from levanter.data.text.datasets import LmDataConfig
-from levanter.optim import OptimizerConfig
+from levanter.optim.config import OptimizerConfig
 
 from experiments.grug.fast_track.model import GrugModelConfig
 from experiments.grug.fast_track.train import GrugEvalConfig, GrugRunConfig, GrugTrainerConfig, _run_grug_local
