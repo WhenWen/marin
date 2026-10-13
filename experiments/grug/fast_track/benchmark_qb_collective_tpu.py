@@ -38,7 +38,7 @@ def distributed_quantile(counts, target_rank, *, axes, scatter, shards):
     reduced = jax.lax.psum_scatter(counts, axes, scatter_dimension=0, tiled=True)
     rank = jax.lax.dynamic_slice_in_dim(target_rank, jax.lax.axis_index(axes) * reduced.shape[0], reduced.shape[0])
     assert reduced.shape[0] * shards == target_rank.shape[0]
-    return jax.lax.all_gather(quantile(reduced, rank), axes, axis=0, tiled=True)
+    return jax.lax.all_gather(quantile(reduced, rank), axes, axis=0, tiled=True, to="invarying")
 
 
 def main():
