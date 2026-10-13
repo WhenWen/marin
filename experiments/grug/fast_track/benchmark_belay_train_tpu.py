@@ -14,6 +14,7 @@ import math
 import os
 import statistics
 import time
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import draccus
@@ -36,6 +37,14 @@ from experiments.grug.fast_track.train import _flat_train_step, _make_train_step
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+
+
+@dataclass(frozen=True)
+class StepMeasurement:
+    step: int
+    phase: str
+    loss: float
+    seconds: float
 
 
 def main() -> None:
@@ -63,6 +72,7 @@ def main() -> None:
     output = Path(os.environ.get("IRIS_OUTPUT_DIR", "outputs")) / f"native-rank-{rank}"
     output.mkdir(parents=True, exist_ok=True)
     fs, prefix = fsspec.core.url_to_fs(f"{args.artifact_prefix}/rank-{rank}")
+    rows: list[StepMeasurement] = []
     report = {
         "kernel": "base16_native_train_step",
         "implementation": "native_grug_tpu",
@@ -85,12 +95,11 @@ def main() -> None:
         "ema_start_step": trainer["num_train_steps"] - outer["ema_last_steps"],
         "status": "initializing",
         "error": None,
-        "steps": [],
     }
 
     def save_report():
         path = output / "report.json"
-        path.write_text(json.dumps(report, indent=2) + "\n")
+        path.write_text(json.dumps({**report, "steps": [asdict(row) for row in rows]}, indent=2) + "\n")
         fs.put_file(str(path), f"{prefix}/report.json")
 
     def save_curve():
@@ -99,8 +108,8 @@ def main() -> None:
         plt.rcParams.update({"font.family": "DejaVu Sans", "font.size": 11, "pdf.fonttype": 42})
         fig, ax = plt.subplots(figsize=(6.2, 3.0))
         ax.plot(
-            [r["step"] for r in report["steps"]],
-            [r["loss"] for r in report["steps"]],
+            [r.step for r in rows],
+            [r.loss for r in rows],
             color="#1F77B4",
             marker="o",
             linewidth=2,
@@ -173,9 +182,9 @@ def main() -> None:
             leaves, metrics, watch = jax.block_until_ready(compiled(leaves, batch))
             elapsed = time.monotonic() - start
             loss = float(metrics["train/loss"])
-            row = {"step": len(report["steps"]) + 1, "phase": phase, "loss": loss, "seconds": elapsed}
-            report["steps"].append(row)
-            print(json.dumps({"rank": rank, **row}), flush=True)
+            row = StepMeasurement(step=len(rows) + 1, phase=phase, loss=loss, seconds=elapsed)
+            rows.append(row)
+            print(json.dumps({"rank": rank, **asdict(row)}), flush=True)
             if not math.isfinite(loss):
                 save_report()
                 raise RuntimeError("Nonfinite loss in native train-step benchmark")
@@ -203,7 +212,7 @@ def main() -> None:
             step("timed")
             save_report()
             save_curve()
-        samples = [r["seconds"] for r in report["steps"] if r["phase"] == "timed"]
+        samples = [r.seconds for r in rows if r.phase == "timed"]
         report.update(status="completed", steady_state_time=statistics.median(samples))
         save_report()
         print(json.dumps(report), flush=True)
