@@ -294,13 +294,33 @@ neither was integrated. These isolated timings do not explain all gather
 costs inside the native graph. Reports and HLO are at
 `gs://marin-us-central2/kaiyue/belay-base16-tpu/row-gather-v1/`.
 
+The expanded grid at `8ee76334e`, `/kaiyue/belay-row-gather-width256-v1`,
+passed all 60 bit-exact cases. Ordinary indexing also won at width 256:
+0.833 ms for dispatch and 0.834 ms for permutation. Packed pairs took
+4.013 and 18.309 ms respectively; every chunked alternative was slower.
+This covers the latent MoE dispatch width observed in the native profile.
+Reports and width-qualified HLO files are under
+`gs://marin-us-central2/kaiyue/belay-base16-tpu/row-gather-width256-v1/`.
+
 The state-only KDA affine-scan diagnostic at `b97ec6384` retained exact
 forward states but failed the unchanged 1e-5 absolute/relative gradient gate:
 431 entries of the transition-matrix gradient differed, with maximum absolute
 error 0.474609375. The state-increment gradient was exact. A localization run
 at `63ac6ef25` found all failing entries in forced-reset chunks. These inputs
 treat transition matrices as free parameters; parity through KDA's actual
-document-masked parameterization remains a separate check. Production KDA
+document-masked parameterization requires a separate check. Production KDA
 continues to use the reference associative scan. Reports are under
 `gs://marin-us-central2/kaiyue/belay-base16-tpu/kda-scan-state-only-v1/` and
 `kda-scan-error-locations-v1/`.
+
+That separate KDA parameter check at `8ee76334e`,
+`/kaiyue/belay-kda-parameter-scan-v1`, passed all 36 rows with zero observed
+differences in outputs, final states, objectives and q/k/v/g/beta gradients.
+It covers three shapes, seed 0, and unpacked, 1024-token and 83-token documents,
+including resets inside chunks. At full shape `(8, 4, 4096, 128)`, the packed
+value-and-gradient time fell from 83.4 to 68.8 ms; compiler temporary storage
+fell from 6.85 to 6.18 GB. The native benchmark's `--kda-scan stacked` option
+tests this reconstruction without changing production selection. Native exact-loss
+parity, replicated step improvement and broader seeds remain unverified.
+Reports and HLO are under
+`gs://marin-us-central2/kaiyue/belay-base16-tpu/kda-parameter-scan-v1/`.
