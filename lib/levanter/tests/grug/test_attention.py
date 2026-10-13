@@ -22,6 +22,7 @@ from levanter.grug.attention._core import blocked_inkling_attention
 @pytest.mark.parametrize("dense_mask", [False, True])
 def test_blocked_inkling_matches_reference_values_and_gradients(dense_mask):
     q, k, v = _make_qkv(batch=1, q_len=256, k_len=256, q_heads=2, kv_heads=1)
+    v = jax.random.normal(jax.random.key(4), (*v.shape[:-1], 12))
     # A document boundary inside the second query tile catches tile-relative
     # causal indices and loss of packed-document masking.
     segments = jnp.asarray([[0] * 173 + [1] * 83])
@@ -31,7 +32,7 @@ def test_blocked_inkling_matches_reference_values_and_gradients(dense_mask):
     states = jax.random.normal(jax.random.key(1), (1, 2, 256, 4)) * 0.1
     bank = jax.random.normal(jax.random.key(2), (4, 128)) * 0.1
     band = inkling_rel_bias(states, bank)
-    weights = jax.random.normal(jax.random.key(3), q.shape)
+    weights = jax.random.normal(jax.random.key(3), (*q.shape[:-1], v.shape[-1]))
 
     def loss(q, k, v, band, *, blocked):
         output = (

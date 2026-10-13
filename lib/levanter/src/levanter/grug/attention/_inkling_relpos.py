@@ -100,7 +100,7 @@ def inkling_rel_bias(
 def dense_rel_bias(
     band: Float[Array, "B H Q W"], q_len: int, k_len: int, *, query_offset: int | jax.Array = 0
 ) -> Float[Array, "B H Q K"]:
-    """Expand a banded bias to the dense ``[B,H,Q,K]`` additive logit term (reference path)."""
+    """Expand a query slice's band to dense logits, starting at absolute ``query_offset``."""
     rel_extent = rel_extent_of_band(band)
     i_idx = (jnp.arange(q_len) + query_offset)[:, None]
     j_idx = jnp.arange(k_len)[None, :]
