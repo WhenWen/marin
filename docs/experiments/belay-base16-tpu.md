@@ -248,6 +248,14 @@ Neither option is a validated replacement for the default `on` setting.
 Raw losses, curves and profiles are at
 `gs://marin-us-central2/kaiyue/belay-base16-tpu/native-no-inner-remat-v1/`.
 
+The `save-all` variant at `52a93099d`,
+`/kaiyue/belay-base16-native-save-all-remat-v1`, also failed exact-loss parity:
+the largest loss difference was 5.00679e-5. All hosts completed with finite
+state and medians of 1.3826–1.3889 seconds, but compiler temporary storage
+rose to 11.77 GB/device. Keeping the checkpoint wrapper did not recover the
+baseline loss sequence. Reports, curves and profiles are at
+`gs://marin-us-central2/kaiyue/belay-base16-tpu/native-save-all-remat-v1/`.
+
 The row-gather microbenchmark at `b18b7fc91`, `/kaiyue/belay-row-gather-v1`,
 passed bit-exact parity in all 40 cases. Ordinary bf16 indexing was fastest
 at full shape: 0.838 ms for dispatch and 3.433 ms for permutation. Packing
