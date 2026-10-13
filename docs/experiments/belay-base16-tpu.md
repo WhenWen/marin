@@ -125,3 +125,21 @@ The entry point and numerical validation are implemented. Training is blocked
 until verified us-central2 mirrors of the original 16k-token caches are
 available. The remote execution host could not access the source S3 caches
 without AWS credentials; no replacement data was used.
+
+## Performance measurements
+
+`python -m experiments.grug.fast_track.validate_belay_tpu` can time repeated
+forward/backward calls and capture XPlane profiles with HLO metadata. Pass
+`--training-objective --benchmark-steps 8 --profile-steps 2 --revision COMMIT`
+and a unique `--artifact-prefix gs://marin-us-central2/USER/RUN`. It applies
+the JAX settings and z-loss from `belay_base15_d512.json` and enables the model's
+training loss terms. Reports record `jax_config` and `z_loss_weight`. It warms
+up twice, then times each combined forward/backward call, waiting for all its
+local outputs. Compare the slowest rank's timings separately from compilation. Each rank
+uploads its report and profile directly to GCS. No optimizer updates run.
+
+The first profiling attempt, `belay-base16-v4-32-profile-baseline-v1`, uses the
+numerical objective without z-loss and `jax_softmax_custom_jvp=false`. Preserve it as a
+diagnostic reference; it is not the training-objective performance baseline.
+Full native train-step timings must additionally include optimizer work, router
+bias updates, EMA and metrics before making training-throughput claims.
