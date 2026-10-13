@@ -227,3 +227,31 @@ quantile case passed. A grouped-scatter intermediate reached 1.862 seconds
 for the slowest host's median under the same protocol before the matrix-count
 implementation. These measurements use fixed random tokens and early EMA;
 real-data training and evaluation remain unverified.
+
+The matrix-count active-EMA run at `e8d111782`,
+`/kaiyue/belay-base16-native-qb-matmul-active-ema-v1`, also passed exact parity
+for all seven losses and complete-state finiteness on all four hosts. Host
+medians were 1.4724–1.4748 seconds. As with the earlier active-EMA diagnostic,
+this measures the blend operation from initial state, not late-training quality.
+
+## Unpromoted execution experiments
+
+Removing the inner attention checkpoint at `af0314a3f`,
+`/kaiyue/belay-base16-native-no-inner-remat-v1`, reduced host medians to
+1.3252–1.3344 seconds, with finite complete state. However, the seven losses
+differed from the matrix-count baseline by up to 2.1935e-5, failing the frozen
+exact-loss gate. Temporary compiler storage increased to 9.79 GB/device.
+The production configuration retains its inner checkpoint. The benchmark's
+`--attention-remat off` and `--attention-remat save-all` options are diagnostics;
+the latter retains the checkpoint wrapper while saving its intermediates.
+Neither option is a validated replacement for the default `on` setting.
+Raw losses, curves and profiles are at
+`gs://marin-us-central2/kaiyue/belay-base16-tpu/native-no-inner-remat-v1/`.
+
+The row-gather microbenchmark at `b18b7fc91`, `/kaiyue/belay-row-gather-v1`,
+passed bit-exact parity in all 40 cases. Ordinary bf16 indexing was fastest
+at full shape: 0.838 ms for dispatch and 3.433 ms for permutation. Packing
+pairs into uint32 or gathering output-row chunks slowed both operations;
+neither was integrated. These isolated timings do not explain all gather
+costs inside the native graph. Reports and HLO are at
+`gs://marin-us-central2/kaiyue/belay-base16-tpu/row-gather-v1/`.
