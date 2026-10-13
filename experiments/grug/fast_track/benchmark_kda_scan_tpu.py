@@ -39,11 +39,33 @@ def stacked_scan(elems):
     return tuple(result)
 
 
+def reference_scan(elems):
+    return jax.lax.associative_scan(compose, elems, axis=-3)
+
+
+@jax.custom_vjp
+def stacked_reference_vjp(elems):
+    return stacked_scan(elems)
+
+
+def _stacked_fwd(elems):
+    return stacked_scan(elems), elems
+
+
+def _reference_bwd(elems, cotangent):
+    _, pullback = jax.vjp(reference_scan, elems)
+    return pullback(cotangent)
+
+
+stacked_reference_vjp.defvjp(_stacked_fwd, _reference_bwd)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--revision", required=True)
     parser.add_argument("--artifact-prefix", required=True)
     parser.add_argument("--full-gradient-only", action="store_true", help="Diagnose the full-shape gradient mismatch.")
+    parser.add_argument("--reference-vjp", action="store_true", help="Test stack forward with the reference derivative.")
     args = parser.parse_args()
     device = jax.local_devices()[0]
     if device.device_kind != "TPU v4":
@@ -69,8 +91,8 @@ def main():
                     continue
                 reference = None
                 for name, scan in (
-                    ("jax_reference", lambda xs: jax.lax.associative_scan(compose, xs, axis=-3)),
-                    ("stacked", stacked_scan),
+                    ("jax_reference", reference_scan),
+                    ("stacked_reference_vjp", stacked_reference_vjp) if args.reference_vjp else ("stacked", stacked_scan),
                 ):
 
                     def run(xs, ct):
