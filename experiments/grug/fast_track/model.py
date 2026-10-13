@@ -883,12 +883,10 @@ class GrugModelConfig:
     """Initialize the LatentMoE projections semi-orthogonal (``_latent_proj_init``); pairs with the optimizer's
     ``latent_proj_update`` of ``frozen`` or ``stiefel``."""
     attn_res_remat_attention: bool = False
-    """Rematerialize the attention branch inside each AttnRes layer's backward, so its residuals (incl.
-    the ``[B, H, S, W]`` Inkling bias) are never alive during the MLP backward. Costs one extra
-    attention forward per layer; needed for memory at d1280."""
+    """Recompute attention in AttnRes backward to keep its residuals out of MLP backward.
+    Costs an extra forward; needed for d1280 memory."""
     attn_res_remat_attention_save_all: bool = False
-    """Diagnostic checkpoint policy: retain attention intermediates inside the checkpoint boundary.
-    Only applies when ``attn_res_remat_attention`` is enabled."""
+    """Save intermediates when attention checkpointing is enabled (diagnostic)."""
     value_embeds: "ValueEmbeds" = dataclasses.field(default_factory=lambda: ValueEmbeds.NONE)
     kda_value_embeds: "ValueEmbeds" = dataclasses.field(default_factory=lambda: ValueEmbeds.NONE)
     """``value_embeds`` for the KDA layers: each gets its own ``[V, N*h]`` table mixed into its delta-rule values,
