@@ -67,7 +67,7 @@ def main():
                     def run(xs, ct):
                         def objective(ys):
                             a, b = scan(ys)
-                            return jnp.mean(a * ct) + jnp.mean(b * ct)
+                            return jnp.sum(a * ct) + jnp.sum(b * ct)
 
                         return scan(xs) if mode == "forward" else jax.value_and_grad(objective)(xs)
 
