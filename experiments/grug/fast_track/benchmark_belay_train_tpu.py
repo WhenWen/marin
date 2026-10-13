@@ -50,6 +50,12 @@ class StepMeasurement:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--steps", type=int, default=4, help="Timed steps after two warmup steps and one profiled step.")
+    parser.add_argument(
+        "--ema-phase",
+        choices=("early", "active"),
+        default="early",
+        help="Active enables EMA from the first diagnostic update; it does not simulate a trained checkpoint.",
+    )
     parser.add_argument("--revision", required=True)
     parser.add_argument("--artifact-prefix", required=True)
     args = parser.parse_args()
@@ -93,7 +99,9 @@ def main() -> None:
         "backend_env": {"LIBTPU_INIT_ARGS": os.environ.get("LIBTPU_INIT_ARGS", "")},
         "jax_config": trainer["jax_config"],
         "watch": trainer["watch"],
-        "ema_start_step": trainer["num_train_steps"] - outer["ema_last_steps"],
+        "recipe_ema_start_step": trainer["num_train_steps"] - outer["ema_last_steps"],
+        "ema_start_step": 0 if args.ema_phase == "active" else trainer["num_train_steps"] - outer["ema_last_steps"],
+        "ema_phase": args.ema_phase,
         "status": "initializing",
         "error": None,
     }
@@ -115,7 +123,7 @@ def main() -> None:
             marker="o",
             linewidth=2,
             markersize=4,
-            label=f"base16, seed {trainer['seed']}",
+            label=f"base16, seed {trainer['seed']}, EMA {args.ema_phase}",
         )
         ax.set(xlabel="Optimizer update", ylabel="Random-token training loss")
         ax.grid(color="#B0B0B0", linestyle="--", alpha=0.65)
