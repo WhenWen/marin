@@ -63,6 +63,7 @@ from levanter.utils.activation import ActivationFunctionEnum
 
 from experiments.grug.fast_track import attention_rows_probe
 from experiments.grug.fast_track.activations import polynorm, polynorm_over_input
+from experiments.grug.fast_track.attn_res_backward import saved_attn_res_layer
 from experiments.grug.fast_track.expert_write_mask import expert_write_block_ids, expert_write_mask
 from experiments.grug.fast_track.gating import _load_error_grad, mixture_weights, switchhead_weights
 from experiments.grug.fast_track.head_loss import prototype_target_logits, reduce_token_loss
@@ -6882,47 +6883,6 @@ def _attn_res_layer_remat_bwd(
         return jax.lax.optimization_barrier((d_layer, d_blocks, d_block_logits, d_partial_in, d_queries, d_logit_bias))
 
 
-@eqx.filter_custom_vjp
-def _attn_res_layer_saved(diff_args, mask, token_ids, use_long, layer_index, eps, noise_key):
-    """Save a layer-local pullback while threading history cotangents through each layer."""
-    return _attn_res_layer_passthrough(diff_args, mask, token_ids, use_long, layer_index, eps, noise_key)
-
-
-@_attn_res_layer_saved.def_fwd
-def _attn_res_layer_saved_fwd(perturbed, diff_args, mask, token_ids, use_long, layer_index, eps, noise_key):
-    del perturbed
-    _, blocks, block_logits, _, _, _ = diff_args
-    partial, vjp_fn, stats = jax.vjp(
-        lambda args: _attn_res_layer(args, mask, token_ids, use_long, layer_index, eps, noise_key),
-        diff_args,
-        has_aux=True,
-    )
-    if any(key in stats for key in _DIFFERENTIABLE_STATS):
-        raise ValueError("SAVE_THREADED is a diagnostic for layers without differentiable statistics")
-    return (partial, blocks, block_logits, stats), vjp_fn
-
-
-@_attn_res_layer_saved.def_bwd
-def _attn_res_layer_saved_bwd(
-    vjp_fn, grad_out, perturbed, diff_args, mask, token_ids, use_long, layer_index, eps, noise_key
-):
-    del perturbed, mask, token_ids, use_long, eps, noise_key
-    d_partial, d_blocks, d_block_logits, _ = grad_out
-    _, blocks, block_logits, _, _, _ = diff_args
-    d_blocks = jax.tree.map(lambda d, x: jnp.zeros_like(x) if d is None else d, d_blocks, blocks, is_leaf=_is_none)
-    d_block_logits = jax.tree.map(
-        lambda d, x: jnp.zeros_like(x) if d is None else d, d_block_logits, block_logits, is_leaf=_is_none
-    )
-    with jax.named_scope(f"attn_res_bwd{layer_index}"):
-        vjp_fn, d_partial, d_blocks, d_block_logits = jax.lax.optimization_barrier(
-            (vjp_fn, d_partial, d_blocks, d_block_logits)
-        )
-        ((d_layer, d_blocks_own, d_block_logits_own, d_partial_in, d_queries, d_logit_bias),) = vjp_fn(d_partial)
-        d_blocks = tuple(a + b for a, b in zip(d_blocks, d_blocks_own, strict=True))
-        d_block_logits = jax.tree.map(jnp.add, d_block_logits, d_block_logits_own)
-        return jax.lax.optimization_barrier((d_layer, d_blocks, d_block_logits, d_partial_in, d_queries, d_logit_bias))
-
-
 def _is_none(x) -> bool:
     return x is None
 
@@ -8044,7 +8004,9 @@ class Transformer(eqx.Module):
         layer_fn = {
             AttnResLayerBackward.RECOMPUTE: _attn_res_layer_remat,
             AttnResLayerBackward.SAVE: _attn_res_layer_passthrough,
-            AttnResLayerBackward.SAVE_THREADED: _attn_res_layer_saved,
+            AttnResLayerBackward.SAVE_THREADED: functools.partial(
+                saved_attn_res_layer, layer_fn=_attn_res_layer, differentiable_stats=_DIFFERENTIABLE_STATS
+            ),
         }[cfg.attn_res_layer_backward]
 
         weight_logs: dict[int, tuple[jax.Array, bool]] = {}
