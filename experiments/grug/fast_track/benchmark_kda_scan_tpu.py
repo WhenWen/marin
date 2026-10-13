@@ -116,14 +116,16 @@ def main():
                         for a, b in pairs:
                             delta = jnp.abs(a - b)
                             pos = int(jnp.argmax(delta))
-                            errors.append({
-                                "shape": a.shape,
-                                "max_abs_error": float(jnp.max(delta)),
-                                "bad_count": int(jnp.sum(~jnp.isclose(a, b, atol=1e-5, rtol=1e-5))),
-                                "actual_at_max": float(a.reshape(-1)[pos]),
-                                "reference_at_max": float(b.reshape(-1)[pos]),
-                                "flat_index_at_max": pos,
-                            })
+                            errors.append(
+                                {
+                                    "shape": a.shape,
+                                    "max_abs_error": float(jnp.max(delta)),
+                                    "bad_count": int(jnp.sum(~jnp.isclose(a, b, atol=1e-5, rtol=1e-5))),
+                                    "actual_at_max": float(a.reshape(-1)[pos]),
+                                    "reference_at_max": float(b.reshape(-1)[pos]),
+                                    "flat_index_at_max": pos,
+                                }
+                            )
                         row["leaf_errors"] = errors
                         if not all(bool(jnp.allclose(a, b, atol=1e-5, rtol=1e-5)) for a, b in pairs):
                             raise AssertionError("Value or gradient differs from JAX associative_scan")
