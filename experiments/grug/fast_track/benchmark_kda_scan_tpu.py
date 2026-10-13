@@ -92,7 +92,11 @@ def main():
                 reference = None
                 for name, scan in (
                     ("jax_reference", reference_scan),
-                    ("stacked_reference_vjp", stacked_reference_vjp) if args.reference_vjp else ("stacked", stacked_scan),
+                    (
+                        ("stacked_reference_vjp", stacked_reference_vjp)
+                        if args.reference_vjp
+                        else ("stacked", stacked_scan)
+                    ),
                 ):
 
                     def run(xs, ct):
