@@ -16,7 +16,7 @@ from jax.experimental.pallas.ops.tpu.splash_attention import splash_attention_ke
 from jax.sharding import NamedSharding, auto_axes
 from jaxtyping import Array, Bool, Float, Int
 
-from levanter.grug.attention._inkling_relpos import dense_rel_bias
+from levanter.grug.attention._inkling_relpos import REL_BIAS_BLOCK, dense_rel_bias, rel_extent_of_band
 from levanter.kernels.pallas.autotune_utils import named_sharding_of
 from levanter.kernels.pallas.splash_attention import (
     DEFAULT_SPLASH_BLOCK_SIZE,
@@ -321,7 +321,14 @@ def _blocked_inkling_math(
         start = index * block_size
         queries = jax.lax.dynamic_slice_in_dim(q, start, block_size, axis=1)
         band = jax.lax.dynamic_slice_in_dim(rel_bias, start, block_size, axis=2)
-        bias = dense_rel_bias(band, block_size, k.shape[1], query_offset=start)
+        if block_size == REL_BIAS_BLOCK and length <= k.shape[1]:
+            # All rows in an aligned Inkling block share the same key window.
+            # A slice has the same transpose without the gather's scatter-add.
+            keys = k.shape[1]
+            padded = jnp.pad(band, ((0, 0), (0, 0), (0, 0), (keys, keys)))
+            bias = jax.lax.dynamic_slice_in_dim(padded, keys + rel_extent_of_band(band) - start, keys, axis=-1)
+        else:
+            bias = dense_rel_bias(band, block_size, k.shape[1], query_offset=start)
         tile_mask = (
             None
             if explicit is None

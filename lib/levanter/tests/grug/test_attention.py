@@ -20,7 +20,8 @@ from levanter.grug.attention._core import blocked_inkling_attention
 
 
 @pytest.mark.parametrize("dense_mask", [False, True])
-def test_blocked_inkling_matches_reference_values_and_gradients(dense_mask):
+@pytest.mark.parametrize("block_size", [64, 128, 256])
+def test_blocked_inkling_matches_reference_values_and_gradients(dense_mask, block_size):
     q, k, v = _make_qkv(batch=1, q_len=256, k_len=256, q_heads=2, kv_heads=1)
     v = jax.random.normal(jax.random.key(4), (*v.shape[:-1], 12))
     # A document boundary inside the second query tile catches tile-relative
@@ -36,7 +37,7 @@ def test_blocked_inkling_matches_reference_values_and_gradients(dense_mask):
 
     def loss(q, k, v, band, *, blocked):
         output = (
-            blocked_inkling_attention(q, k, v, mask, band)
+            blocked_inkling_attention(q, k, v, mask, band, block_size=block_size)
             if blocked
             else reference_attention(q, k, v, mask, logits_dtype=jnp.float32, rel_bias=band)
         )
