@@ -22,16 +22,20 @@ Sources:
 Use v4-32 (16 chips across four hosts) for the full model. The launcher uses
 one expert-parallel group spanning the chips. It recomputes attention
 intermediates and uses XLA chunked KDA and TPU grouped matmuls. The base16
-configuration selects `kda_xla_scan_impl="parallel_stacked"`; other model
-configurations retain the reference scan by default. TPU routing acceptance
-uses inverse permutation positions, sharing that permutation with combine.
-The combined native diagnostic passed at 1.2514 seconds/update and an
-independent run through the launcher defaults passed at 1.2460 seconds/update.
-The 35-update check with active EMA also passed at 1.2520 seconds/update.
+configuration selects `kda_xla_scan_impl="parallel_stacked_split"`, which uses
+stacked affine-scan reconstruction and independent stride-slice transposes.
+Other model configurations retain the reference scan by default. TPU routing
+acceptance uses inverse permutation positions, sharing that permutation with combine.
+The selected KDA implementation passed two seven-update native runs at 1.2095
+and 1.2112 seconds/update. Its 35-update check with active EMA passed at 1.2074
+seconds/update. All recorded losses matched the prior stacked-scan references
+exactly, and complete state was finite on every host. A seven-update run through
+the launcher defaults also passed at 1.2050 seconds/update.
 Inkling attention runs in rematerialized query blocks of 128 tokens, preserving
 the bias and packed-document masks. Structured masks are built for each query
 tile in global sequence coordinates; dense masks retain their slice path.
 CUDA-only launch flags are not applied.
+QB routing estimates quantile thresholds for expert bias updates.
 On TPU v4 at the measured local routing shape (32,768 tokens, 512 experts, 10,000 bins),
 QB histogram counts use binary matrix products with int32 accumulation,
 64 experts per group and radix 64. Other shapes and devices retain the flat
@@ -176,6 +180,9 @@ XLA_FLAGS=--xla_allow_excess_precision=false \
     --artifact-prefix gs://marin-us-central2/USER/RUN
 ```
 
+The native benchmark uses model seed 0 and data seed 1, with a fixed random
+batch of 128 sequences. Each 4096-token sequence contains four 1024-token
+documents, with segment boundaries at positions 1024, 2048 and 3072.
 The timed region includes the native optimizer, router bias updates and inline
 parameter/gradient statistics. All hosts synchronize before the timer, and all
 local outputs complete before it stops. Artifact uploads and plotting occur outside
@@ -423,3 +430,61 @@ checks. The same job passed all 36 KDA parameter-grid rows and 64 routing-mask
 rows with zero observed differences. JUnit, the attempt archive and
 microbenchmark reports are retained under
 `gs://marin-us-central2/kaiyue/belay-base16-tpu/integrated-kernels-v1/`.
+
+Further KDA backward experiments targeted the interior padding used to transpose
+strided slices. Two candidates at `b21db1bd3` and `783cfad37` combined the
+paired-even and paired-odd cotangents; each failed three full-shape
+parameter-gradient rows and was not advanced to native training. Their reports
+remain under `kda-split-vjp-v1/` and `kda-split-vjp-v2/` in the GCS artifact
+parent above.
+
+The separate-slice candidate at `aa64d324a` preserves each slice's gradient
+branch and inserts zeros through stack/reshape. It passed 54 parameter-grid
+rows per input seed (0, 1 and 2), 162 rows total, with zero maximum absolute
+output, final-state, objective or q/k/v/g/beta gradient differences against the
+original JAX associative scan. Each seed job also passed 15 sequential-oracle
+unit cases. At `(batch, heads, sequence, head_dim)=(8,4,4096,128)`, median
+value-and-gradient time for 1024-token and 83-token documents was 19.1–19.3%
+lower than the validated stacked scan in every seed. The seed-2 unpacked case,
+with no document resets, showed no improvement: 116.9 ms for the candidate
+versus 115.6 ms for the validated stacked scan. These are isolated-kernel results.
+
+For the seed-0 1024-token case, compiler temporary storage fell from 6.176 to
+6.046 GB; interior-pad HLO operations fell from 40 to zero, while total pad
+operations rose from 98 to 141. Reports, HLOs and unit-test archives use prefixes
+`kda-split-vjp-v3/`, `kda-stride-seed1-v1/` and `kda-stride-seed2-v1/`.
+At source `60aec58c0`, `native-stride-v1` and `native-stride-v2` tested the
+separate-slice implementation through normal model dispatch with
+`--kda-scan stacked-split`. Each matched all seven losses from
+`native-production-v2` exactly on all four hosts, with finite parameters,
+optimizer buffers and EMA state. Their slowest host medians were 1.2095 and
+1.2112 seconds/update, respectively 2.92% and 2.79% below the 1.2460-second
+reference. Both passed the frozen 2% gate.
+
+The same source passed `native-stride-active-35-v1`: all 35 losses matched
+`native-production-active-35-v1` exactly, and complete state was finite on
+every host. Both runs activate EMA blending from initial model/optimizer
+state. The slowest median over 32 timed updates was 1.2074 seconds, 3.56%
+below the 1.2520-second reference, or about 434,000 tokens/second. Final
+random-token loss was 2.1129331589. EMA buffer equality and trained-checkpoint
+quality were not tested.
+
+All three native candidate runs reported 9.138 GB/device of compiler temporary
+storage, 3.21% above the 8.854 GB reference. Their compilation times ranged
+from 41.8 to 347.7 seconds with uncontrolled cache conditions. The first run's
+profile attributed 339,253 core-microseconds to KDA padding, compared with
+783,569 for `native-production-v2`: 3.60% versus 8.03% of aggregate operation
+self-time across eight TPU cores. These shares do not measure wall-time savings.
+Exported profile tables are under `native-stride-v1/analysis/`.
+
+Commit `08fcbc4e4` selects this implementation in the base16 launcher.
+`native-stride-default-v1` passed the
+[frozen default-path check](https://github.com/WhenWen/astra-d8-research/issues/96#issuecomment-6156914446)
+without kernel-selection overrides: all seven losses matched
+`native-production-v2` exactly and complete state was finite on all four hosts.
+The slowest host median was 1.204977358 seconds/update, 3.29% below the
+1.245962153-second reference. Compiler temporary storage remained 9.138 GB/device. See the
+[three-seed replication result](https://github.com/WhenWen/astra-d8-research/issues/96#issuecomment-6156530045)
+and [native validation plan](https://github.com/WhenWen/astra-d8-research/issues/96#issuecomment-6156421544).
+Reports and loss curves retain each native run name under the GCS artifact
+parent above.
