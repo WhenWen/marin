@@ -26,6 +26,20 @@ BASE16_CHANGE = "https://github.com/marin-community/marin/issues/9451#issuecomme
 REGION_PREFIX = "gs://marin-us-central2/"
 
 
+def base16_model_config() -> GrugModelConfig:
+    """Recorded base15 plus the base16 gate removals and TPU rematerialization."""
+    model = json.loads(SOURCE_CONFIG.read_text())["model"]
+    model.update(kda_write_gate=False, kda_erase_gate=False, kda_onchip_erase_gate=False)
+    # Recompute intermediates to reduce HBM use; preserve mathematical settings.
+    model.update(
+        attn_res_layer_backward="RECOMPUTE",
+        kda_save_chunk_states=False,
+        attn_res_remat_attention=True,
+        kda_state_grads="XLA",
+    )
+    return draccus.decode(GrugModelConfig, model)
+
+
 def build_config(
     *,
     run_id: str,
@@ -42,16 +56,6 @@ def build_config(
     is the caller's responsibility: paths alone cannot prove token identity.
     """
     source = json.loads(SOURCE_CONFIG.read_text())
-    model = source["model"]
-    model.update(kda_write_gate=False, kda_erase_gate=False, kda_onchip_erase_gate=False)
-    # Recompute attention intermediates to fit v4 HBM. All mathematical settings
-    # (including expert capacity, router combine, and bigram table) are unchanged.
-    model.update(
-        attn_res_layer_backward="RECOMPUTE",
-        kda_save_chunk_states=False,
-        attn_res_remat_attention=True,
-        kda_state_grads="XLA",
-    )
     data = source["data"]
     if set(cache_map) != set(data["components"]):
         raise ValueError("cache-map must name exactly the frozen training and validation components")
@@ -100,7 +104,7 @@ def build_config(
     evaluation = source["eval"]
     evaluation["eval_batch_size"] = chips
     return GrugRunConfig(
-        model=draccus.decode(GrugModelConfig, model),
+        model=base16_model_config(),
         optimizer=draccus.decode(OptimizerConfig, source["optimizer"]),
         data=draccus.decode(LmDataConfig, data),
         trainer=draccus.decode(GrugTrainerConfig, outer),
