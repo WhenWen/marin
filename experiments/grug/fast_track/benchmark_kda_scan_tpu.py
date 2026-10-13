@@ -78,7 +78,9 @@ def main():
     parser.add_argument("--artifact-prefix", required=True)
     parser.add_argument("--full-gradient-only", action="store_true", help="Diagnose the full-shape gradient mismatch.")
     parser.add_argument("--reference-vjp", action="store_true", help="Test stack forward with the reference derivative.")
-    parser.add_argument("--state-only", action="store_true", help="Consume only cumulative states, as production KDA does.")
+    parser.add_argument(
+        "--state-only", action="store_true", help="Consume only cumulative states, as production KDA does."
+    )
     args = parser.parse_args()
     device = jax.local_devices()[0]
     if device.device_kind != "TPU v4":
