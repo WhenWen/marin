@@ -7,6 +7,7 @@ Random-token numerical validation is not a Belay training result. The model,
 global batch and sequence length match the frozen run; no optimizer updates run.
 """
 
+import argparse
 import json
 import os
 import time
@@ -26,13 +27,18 @@ from experiments.grug.fast_track.model import Transformer
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--batch-size", type=int, help="Override only the diagnostic batch; default is the frozen 128.")
+    args = parser.parse_args()
     DistributedConfig().initialize()
     devices = jax.devices()
     if any(d.platform != "tpu" or "v4" not in d.device_kind for d in devices):
         raise RuntimeError("Full-model validation requires TPU v4")
     config = base16_model_config()
     source = json.loads(SOURCE_CONFIG.read_text())
-    batch = source["trainer"]["trainer"]["train_batch_size"]
+    batch = args.batch_size or source["trainer"]["trainer"]["train_batch_size"]
+    if batch <= 0 or batch % len(devices):
+        raise ValueError("Diagnostic batch must be positive and divisible by the TPU chip count")
     policy = jmp.get_policy("params=float32,compute=bfloat16,output=bfloat16")
     mesh = compact_grug_mesh(expert_axis_size=len(devices), replica_axis_size=1)
     output = Path(os.environ.get("IRIS_OUTPUT_DIR", "outputs"))
@@ -45,6 +51,7 @@ def main() -> None:
         "seed": 0,
     }
     with jax.set_mesh(mesh):
+        print(f"Initializing base16 d512 on {len(devices)} TPU v4 chips, batch={batch}, seq=4096", flush=True)
         model = eqx.filter_jit(lambda key: Transformer.init(config, key=key))(jax.random.key(0))
         spec = P(("replica_dcn", "data", "expert"), None)
         tokens = jax.sharding.reshard(
@@ -58,6 +65,7 @@ def main() -> None:
             return policy.cast_to_compute(model).next_token_loss(tokens, weights, mask=mask)
 
         start = time.monotonic()
+        print("Compiling and executing forward/backward", flush=True)
         loss_value, grads = eqx.filter_jit(eqx.filter_value_and_grad(loss))(model)
         loss_value.block_until_ready()
         finite = jnp.stack([jnp.all(jnp.isfinite(x)) for x in jax.tree.leaves(grads) if eqx.is_array(x)]).all()
