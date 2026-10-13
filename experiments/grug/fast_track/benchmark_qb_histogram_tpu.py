@@ -59,7 +59,7 @@ def main() -> None:
                         continue
                     name = "flat_reference" if group is None else f"group_{group}"
                     fn = lambda x: flat_histogram(x, bins) if group is None else grouped_histogram(x, bins, group)
-                    row = {
+                    row: dict[str, object] = {
                         "kernel": "qb_integer_histogram",
                         "implementation": name,
                         "shape": [tokens, experts, bins],
