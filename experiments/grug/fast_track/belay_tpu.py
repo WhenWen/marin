@@ -43,6 +43,7 @@ def base16_model_config() -> GrugModelConfig:
         kda_save_chunk_states=False,
         attn_res_remat_attention=True,
         kda_state_grads="XLA",
+        kda_xla_scan_impl="parallel_stacked",
     )
     return draccus.decode(GrugModelConfig, model)
 

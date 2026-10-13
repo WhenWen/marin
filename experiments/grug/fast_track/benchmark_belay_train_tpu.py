@@ -67,8 +67,10 @@ def main() -> None:
         help="Active enables EMA from the first diagnostic update; it does not simulate a trained checkpoint.",
     )
     parser.add_argument("--revision", required=True)
-    parser.add_argument("--kda-scan", choices=("reference", "stacked"), default="reference")
-    parser.add_argument("--accepted-mask", choices=("reference", "inverse-direct"), default="reference")
+    parser.add_argument("--kda-scan", choices=("production", "reference", "stacked"), default="production")
+    parser.add_argument(
+        "--accepted-mask", choices=("production", "reference", "inverse-direct"), default="production"
+    )
     parser.add_argument("--artifact-prefix", required=True)
     args = parser.parse_args()
     if args.steps < 1 or not args.artifact_prefix.startswith("gs://marin-us-central2/"):
@@ -87,8 +89,9 @@ def main() -> None:
         base16_model_config(),
         attn_res_remat_attention=args.attention_remat != "off",
         attn_res_remat_attention_save_all=args.attention_remat == "save-all",
-        kda_xla_scan_impl="parallel_stacked" if args.kda_scan == "stacked" else "parallel",
     )
+    if args.kda_scan != "production":
+        config = replace(config, kda_xla_scan_impl="parallel_stacked" if args.kda_scan == "stacked" else "parallel")
     policy = jmp.get_policy("params=float32,compute=bfloat16,output=bfloat16")
     source["optimizer"]["type"] = "grug_fast_track_muonh_v1"
     optimizer = draccus.decode(OptimizerConfig, source["optimizer"]).build(trainer["num_train_steps"])
@@ -110,6 +113,7 @@ def main() -> None:
         "attn_res_remat_attention": config.attn_res_remat_attention,
         "attn_res_remat_attention_save_all": config.attn_res_remat_attention_save_all,
         "kda_scan": args.kda_scan,
+        "kda_xla_scan_impl": config.kda_xla_scan_impl,
         "accepted_mask": args.accepted_mask,
         "git_sha": args.revision,
         "seed": trainer["seed"],
@@ -189,13 +193,14 @@ def main() -> None:
         router_ties = _router_ties_active(config, 0)
         print("Compiling native base16 train step", flush=True)
         start = time.monotonic()
-        context = (
-            patch.object(
-                ep_ragged_all_to_all, "_accepted_assignments", ep_ragged_all_to_all._accepted_assignments_inverse
+        context = nullcontext()
+        if args.accepted_mask != "production":
+            implementation = (
+                ep_ragged_all_to_all._accepted_assignments_inverse
+                if args.accepted_mask == "inverse-direct"
+                else ep_ragged_all_to_all._accepted_assignments_scatter
             )
-            if args.accepted_mask == "inverse-direct"
-            else nullcontext()
-        )
+            context = patch.object(ep_ragged_all_to_all, "_accepted_assignments", implementation)
         with context:
             compiled = step_fn.lower(leaves, batch, loop_active=None, router_tie_active=router_ties).compile()
         report["compile_time"] = time.monotonic() - start

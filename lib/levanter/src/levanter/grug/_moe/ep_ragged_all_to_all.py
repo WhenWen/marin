@@ -365,6 +365,17 @@ def _accepted_assignments(
     group_sizes: Int[Array, "E"],
     accepted_group_sizes: Int[Array, "E"],
 ) -> Bool[Array, "TK"]:
+    if jax.default_backend() == "tpu":
+        return _accepted_assignments_inverse(flat_selected, sorted_indices, group_sizes, accepted_group_sizes)
+    return _accepted_assignments_scatter(flat_selected, sorted_indices, group_sizes, accepted_group_sizes)
+
+
+def _accepted_assignments_scatter(
+    flat_selected: Int[Array, "TK"],
+    sorted_indices: Int[Array, "TK"],
+    group_sizes: Int[Array, "E"],
+    accepted_group_sizes: Int[Array, "E"],
+) -> Bool[Array, "TK"]:
     """Mark, in assignment order, the assignments that reach their expert.
 
     Receivers accept a prefix of each expert's group in the expert-sorted buffer, so an

@@ -15,13 +15,13 @@ import fsspec
 import jax
 import jax.numpy as jnp
 import jaxlib
-from levanter.grug._moe.ep_ragged_all_to_all import _accepted_assignments, _accepted_assignments_inverse
+from levanter.grug._moe.ep_ragged_all_to_all import _accepted_assignments_inverse, _accepted_assignments_scatter
 
 
 def acceptance(selected, order, sizes, accepted_sizes, *, implementation, reuse_inverse):
     positions = jnp.argsort(order)
     if implementation == "reference":
-        mask = _accepted_assignments(selected, order, sizes, accepted_sizes)
+        mask = _accepted_assignments_scatter(selected, order, sizes, accepted_sizes)
     else:
         count = sizes.shape[0]
         starts = jnp.cumsum(sizes) - sizes
