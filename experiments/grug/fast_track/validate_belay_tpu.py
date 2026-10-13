@@ -21,8 +21,8 @@ import jax.numpy as jnp
 import jaxlib
 import jmp
 from jax.sharding import PartitionSpec as P
-from levanter.distributed import DistributedConfig
 from levanter.callbacks.profiler import ProfileOptionsConfig
+from levanter.distributed import DistributedConfig
 from levanter.grug.attention import AttentionMask
 from levanter.grug.sharding import compact_grug_mesh
 
