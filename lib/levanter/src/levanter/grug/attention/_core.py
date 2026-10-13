@@ -304,8 +304,13 @@ def reference_attention(
 
 
 def _blocked_inkling_math(
-    q: jax.Array, k: jax.Array, v: jax.Array, mask: AttentionMask | jax.Array | None,
-    rel_bias: jax.Array, *, block_size: int,
+    q: jax.Array,
+    k: jax.Array,
+    v: jax.Array,
+    mask: AttentionMask | jax.Array | None,
+    rel_bias: jax.Array,
+    *,
+    block_size: int,
 ) -> jax.Array:
     """Bound score/bias storage by query blocks; rematerialize their backward."""
     batch, length, heads, _ = q.shape
@@ -329,8 +334,13 @@ def _blocked_inkling_math(
 
 
 def blocked_inkling_attention(
-    q: jax.Array, k: jax.Array, v: jax.Array, mask: AttentionMask | jax.Array | None,
-    rel_bias: jax.Array, *, block_size: int = 128,
+    q: jax.Array,
+    k: jax.Array,
+    v: jax.Array,
+    mask: AttentionMask | jax.Array | None,
+    rel_bias: jax.Array,
+    *,
+    block_size: int = 128,
 ) -> jax.Array:
     """Exact Inkling attention with bounded query-block intermediates on TPU.
 
