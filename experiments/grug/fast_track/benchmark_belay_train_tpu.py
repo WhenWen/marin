@@ -52,7 +52,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--steps", type=int, default=4, help="Timed steps after two warmup steps and one profiled step.")
     parser.add_argument(
-        "--attention-remat", choices=("on", "off"), default="on", help="Diagnostic inner attention checkpoint."
+        "--attention-remat",
+        choices=("on", "off", "save-all"),
+        default="on",
+        help="Diagnostic inner attention checkpoint and residual-saving policy.",
     )
     parser.add_argument(
         "--ema-phase",
@@ -75,7 +78,11 @@ def main() -> None:
     devices = jax.devices()
     if len(devices) != 16 or any(d.platform != "tpu" or "v4" not in d.device_kind for d in devices):
         raise RuntimeError("This frozen full-batch benchmark requires 16 TPU v4 chips")
-    config = replace(base16_model_config(), attn_res_remat_attention=args.attention_remat == "on")
+    config = replace(
+        base16_model_config(),
+        attn_res_remat_attention=args.attention_remat != "off",
+        attn_res_remat_attention_save_all=args.attention_remat == "save-all",
+    )
     policy = jmp.get_policy("params=float32,compute=bfloat16,output=bfloat16")
     source["optimizer"]["type"] = "grug_fast_track_muonh_v1"
     optimizer = draccus.decode(OptimizerConfig, source["optimizer"]).build(trainer["num_train_steps"])
@@ -95,6 +102,7 @@ def main() -> None:
         "device_count": len(devices),
         "block_sizes": {"inkling_query": 128},
         "attn_res_remat_attention": config.attn_res_remat_attention,
+        "attn_res_remat_attention_save_all": config.attn_res_remat_attention_save_all,
         "git_sha": args.revision,
         "seed": trainer["seed"],
         "data_seed": 1,

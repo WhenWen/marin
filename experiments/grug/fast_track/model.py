@@ -886,6 +886,9 @@ class GrugModelConfig:
     """Rematerialize the attention branch inside each AttnRes layer's backward, so its residuals (incl.
     the ``[B, H, S, W]`` Inkling bias) are never alive during the MLP backward. Costs one extra
     attention forward per layer; needed for memory at d1280."""
+    attn_res_remat_attention_save_all: bool = False
+    """Diagnostic checkpoint policy: retain attention intermediates inside the checkpoint boundary.
+    Only applies when ``attn_res_remat_attention`` is enabled."""
     value_embeds: "ValueEmbeds" = dataclasses.field(default_factory=lambda: ValueEmbeds.NONE)
     kda_value_embeds: "ValueEmbeds" = dataclasses.field(default_factory=lambda: ValueEmbeds.NONE)
     """``value_embeds`` for the KDA layers: each gets its own ``[V, N*h]`` table mixed into its delta-rule values,
@@ -6575,7 +6578,8 @@ def _attn_res_layer(
     attn_in = h
     attn_branch = type(layer).attn_branch
     if cfg.attn_res_remat_attention:
-        attn_branch = eqx.filter_checkpoint(attn_branch, policy=None)
+        policy = jax.checkpoint_policies.everything_saveable if cfg.attn_res_remat_attention_save_all else None
+        attn_branch = eqx.filter_checkpoint(attn_branch, policy=policy)
     physical = layer_index % cfg.num_layers
     kda_ablation = (physical in cfg.kda_no_decay_layers, physical in cfg.kda_no_beta_layers)
     v_stream = None
