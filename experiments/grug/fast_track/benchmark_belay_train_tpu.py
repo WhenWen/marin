@@ -69,7 +69,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--layer-backward",
-        choices=("production", "recompute", "save", "save-threaded"),
+        choices=("production", "recompute", "save"),
         default="production",
         help="Diagnostic outer layer residual policy; inner attention checkpointing is separate.",
     )
@@ -98,9 +98,7 @@ def main() -> None:
         attn_res_remat_attention_save_all=args.attention_remat == "save-all",
     )
     if args.layer_backward != "production":
-        config = replace(
-            config, attn_res_layer_backward=AttnResLayerBackward[args.layer_backward.upper().replace("-", "_")]
-        )
+        config = replace(config, attn_res_layer_backward=AttnResLayerBackward[args.layer_backward.upper()])
     if args.kda_scan != "production":
         scans = {"reference": "parallel", "stacked": "parallel_stacked", "stacked-split": "parallel_stacked_split"}
         config = replace(config, kda_xla_scan_impl=scans[args.kda_scan])

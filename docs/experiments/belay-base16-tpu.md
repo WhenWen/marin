@@ -511,3 +511,15 @@ storage rose from 9.138 to 12.915 GB/device (+41.33%). This single trial failed
 the frozen acceptance gate and was not advanced to repeat or active-EMA checks.
 The launcher retains RECOMPUTE. Raw losses, curves, reports, HLO and profiles
 remain under `gs://marin-us-central2/kaiyue/belay-base16-tpu/native-layer-save-v1/`.
+
+The saved-pullback candidate at `d1a10c8d4`, `native-saved-vjp-v1`, retained the
+RECOMPUTE path's explicit history-gradient additions and backward barriers while
+saving forward residuals. All seven updates completed with finite parameter,
+optimizer and EMA arrays on every host. Updates 1–2 matched the default reference
+exactly, but updates 3–7 differed; maximum absolute scalar-loss difference was
+1.430511474609375e-5. Its slowest host median was 0.97193 seconds, 19.34% below
+`native-stride-default-v1`. Compiler temporary storage rose to 14.059 GB/device
+(+53.85%). The candidate failed the frozen exact-loss gate and was removed.
+Its source commit and artifacts remain available; reports, HLO, profiles and
+loss curves use the literal object prefix
+`gs://marin-us-central2/kaiyue/belay-base16-tpu/native-saved-vjp-v1//rank-{0,1,2,3}/`.
