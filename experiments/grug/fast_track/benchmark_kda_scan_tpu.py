@@ -63,7 +63,11 @@ def main():
             inputs = (m, c)
             for mode in ("forward", "value_and_grad"):
                 reference = None
-                for name, scan in (("jax_reference", lambda xs: jax.lax.associative_scan(compose, xs, axis=-3)), ("stacked", stacked_scan)):
+                for name, scan in (
+                    ("jax_reference", lambda xs: jax.lax.associative_scan(compose, xs, axis=-3)),
+                    ("stacked", stacked_scan),
+                ):
+
                     def run(xs, ct):
                         def objective(ys):
                             a, b = scan(ys)
@@ -72,12 +76,22 @@ def main():
                         return scan(xs) if mode == "forward" else jax.value_and_grad(objective)(xs)
 
                     row: dict[str, object] = {
-                        "kernel": "kda_affine_scan", "implementation": name, "shape": shape,
-                        "pass_mode": mode, "dtype": "float32", "seed": 0,
-                        "backend": "tpu", "device_type": device.device_kind, "device_count": 1,
-                        "block_sizes": {}, "git_sha": args.revision, "jax_version": jax.__version__,
-                        "jaxlib_version": jaxlib.__version__, "xla_flags": os.environ.get("XLA_FLAGS", ""),
-                        "backend_env": {"LIBTPU_INIT_ARGS": os.environ.get("LIBTPU_INIT_ARGS", "")}, "error": None,
+                        "kernel": "kda_affine_scan",
+                        "implementation": name,
+                        "shape": shape,
+                        "pass_mode": mode,
+                        "dtype": "float32",
+                        "seed": 0,
+                        "backend": "tpu",
+                        "device_type": device.device_kind,
+                        "device_count": 1,
+                        "block_sizes": {},
+                        "git_sha": args.revision,
+                        "jax_version": jax.__version__,
+                        "jaxlib_version": jaxlib.__version__,
+                        "xla_flags": os.environ.get("XLA_FLAGS", ""),
+                        "backend_env": {"LIBTPU_INIT_ARGS": os.environ.get("LIBTPU_INIT_ARGS", "")},
+                        "error": None,
                     }
                     try:
                         start = time.monotonic()
