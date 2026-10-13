@@ -255,6 +255,15 @@ inside CausalSelfAttention. Aggregate attention self time fell from 1.403 to
 1.049 million core-microseconds across eight cores, consistent with the measured
 update reduction. Aggregate activity is not a critical-path decomposition.
 
+The same mask path passed active EMA at `b97ec6384`,
+`/kaiyue/belay-base16-native-mask-active-ema-v1`: host medians were
+1.4256–1.4297 seconds, all seven losses matched exactly and every host's
+complete state was finite. Compiler temporary storage remained 9.55 GB/device;
+compilation took 346.7–358.2 seconds. Reports and the loss curve are under
+`gs://marin-us-central2/kaiyue/belay-base16-tpu/native-mask-active-ema-v1/`.
+This checks active EMA from initial optimizer state; real-data Belay acceptance
+and late-training EMA quality remain unverified.
+
 ## Unpromoted execution experiments
 
 Removing the inner attention checkpoint at `af0314a3f`,
@@ -279,8 +288,19 @@ baseline loss sequence. Reports, curves and profiles are at
 
 The row-gather microbenchmark at `b18b7fc91`, `/kaiyue/belay-row-gather-v1`,
 passed bit-exact parity in all 40 cases. Ordinary bf16 indexing was fastest
-at full shape: 0.838 ms for dispatch and 3.433 ms for permutation. Packing
+at width 512: 0.838 ms for dispatch and 3.433 ms for permutation. Packing
 pairs into uint32 or gathering output-row chunks slowed both operations;
 neither was integrated. These isolated timings do not explain all gather
 costs inside the native graph. Reports and HLO are at
 `gs://marin-us-central2/kaiyue/belay-base16-tpu/row-gather-v1/`.
+
+The state-only KDA affine-scan diagnostic at `b97ec6384` retained exact
+forward states but failed the unchanged 1e-5 absolute/relative gradient gate:
+431 entries of the transition-matrix gradient differed, with maximum absolute
+error 0.474609375. The state-increment gradient was exact. A localization run
+at `63ac6ef25` found all failing entries in forced-reset chunks. These inputs
+treat transition matrices as free parameters; parity through KDA's actual
+document-masked parameterization remains a separate check. Production KDA
+continues to use the reference associative scan. Reports are under
+`gs://marin-us-central2/kaiyue/belay-base16-tpu/kda-scan-state-only-v1/` and
+`kda-scan-error-locations-v1/`.
