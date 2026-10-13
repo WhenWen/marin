@@ -25,6 +25,7 @@ import jaxlib
 import jmp
 import matplotlib
 from jax.sharding import PartitionSpec as P
+from jax.experimental import multihost_utils
 from levanter.callbacks.profiler import ProfileOptionsConfig
 from levanter.callbacks.watch import WatchConfig
 from levanter.data.text.examples import GrugLmExample
@@ -102,6 +103,7 @@ def main() -> None:
         "recipe_ema_start_step": trainer["num_train_steps"] - outer["ema_last_steps"],
         "ema_start_step": 0 if args.ema_phase == "active" else trainer["num_train_steps"] - outer["ema_last_steps"],
         "ema_phase": args.ema_phase,
+        "timing_protocol": "all-host barrier before each update; block all outputs; reporting outside timer",
         "status": "initializing",
         "error": None,
     }
@@ -187,6 +189,9 @@ def main() -> None:
 
         def step(phase):
             nonlocal leaves
+            # Per-host artifact uploads and rank-zero plotting can finish at
+            # different times. Keep that skew outside the measured collectives.
+            multihost_utils.sync_global_devices(f"native-step-{len(rows) + 1}")
             start = time.monotonic()
             leaves, metrics, watch = jax.block_until_ready(compiled(leaves, batch))
             elapsed = time.monotonic() - start
