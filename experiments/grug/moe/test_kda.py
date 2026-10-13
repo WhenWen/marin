@@ -46,8 +46,8 @@ def test_chunk_kda_matches_recurrent(length, chunk_size):
     np.testing.assert_allclose(np.asarray(state_chunk), np.asarray(state_recur), rtol=1e-4, atol=1e-4)
 
 
-@pytest.mark.parametrize(("length", "chunk_size"), [(64, 64), (256, 64), (512, 128), (200, 64)])
-@pytest.mark.parametrize("scan_impl", ["parallel", "parallel_stacked"])
+@pytest.mark.parametrize(("length", "chunk_size"), [(64, 64), (256, 64), (512, 128), (200, 64), (112, 16)])
+@pytest.mark.parametrize("scan_impl", ["parallel", "parallel_stacked", "parallel_stacked_split"])
 def test_parallel_scan_matches_sequential(length, chunk_size, scan_impl):
     """The log-depth ``scan_impl='parallel'`` recurrence equals the serial one (fp32).
 

@@ -52,6 +52,7 @@ def main():
     parser.add_argument("--revision", required=True)
     parser.add_argument("--artifact-prefix", required=True)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--split-vjp", action="store_true", help="Also test direct interleaving of split cotangents.")
     args = parser.parse_args()
     device = jax.local_devices()[0]
     if device.device_kind != "TPU v4":
@@ -75,7 +76,10 @@ def main():
                 segments = None if document_length is None else jnp.arange(shape[-2]) // document_length
                 for mode in ("forward", "value_and_grad"):
                     reference = None
-                    for name in ("jax_reference", "stacked"):
+                    implementations = {"jax_reference": "parallel", "stacked": "parallel_stacked"}
+                    if args.split_vjp:
+                        implementations["stacked_split"] = "parallel_stacked_split"
+                    for name, scan_impl in implementations.items():
                         record = {
                             "kernel": "chunk_kda",
                             "implementation": name,
@@ -107,7 +111,7 @@ def main():
                             fn = partial(
                                 evaluate,
                                 mode=mode,
-                                scan_impl="parallel_stacked" if name == "stacked" else "parallel",
+                                scan_impl=scan_impl,
                             )
                             start = time.monotonic()
                             compiled = jax.jit(fn).lower(inputs, cotangent, segments).compile()

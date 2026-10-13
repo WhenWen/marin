@@ -341,7 +341,7 @@ def chunk_kda(
             mm,
             scan_unroll,
         )
-    elif scan_impl in ("parallel", "parallel_stacked", "pallas", "pallas_interpret"):
+    elif scan_impl in ("parallel", "parallel_stacked", "parallel_stacked_split", "pallas", "pallas_interpret"):
         if prep_impl == "xla":
             prep = _chunk_prep_xla(qc, kc, ec, vc, gc, bc, mm, mm_dtype, c, masks)
         elif prep_impl in ("pallas", "pallas_interpret"):
@@ -360,13 +360,13 @@ def chunk_kda(
             )
         else:
             raise ValueError(f"prep_impl must be 'xla', 'pallas' or 'pallas_interpret', got {prep_impl!r}")
-        if scan_impl in ("parallel", "parallel_stacked"):
+        if scan_impl in ("parallel", "parallel_stacked", "parallel_stacked_split"):
             out, state = _parallel_chunk_recurrence(prep, state, mm, lead, dk, dv, scan_impl=scan_impl)
         else:
             out, state = _pallas_chunk_recurrence(prep, state, interpret=scan_impl == "pallas_interpret")
     else:
         raise ValueError(
-            "scan_impl must be 'sequential', 'parallel', 'parallel_stacked', 'pallas' or "
+            "scan_impl must be 'sequential', 'parallel', 'parallel_stacked', 'parallel_stacked_split', 'pallas' or "
             f"'pallas_interpret', got {scan_impl!r}"
         )
 
@@ -564,16 +564,46 @@ def _compose_affine(left, right):
     return jnp.einsum("...ij,...jk->...ik", mr, ml), jnp.einsum("...ij,...jm->...im", mr, cl) + cr
 
 
-def _stacked_affine_scan(elems):
+@jax.custom_vjp
+def _split_even_odd(x):
+    return x[..., ::2, :, :], x[..., 1::2, :, :]
+
+
+def _split_even_odd_fwd(x):
+    return _split_even_odd(x), None
+
+
+def _split_even_odd_bwd(_residual, cotangents):
+    even, odd = cotangents
+    pairs = odd.shape[-3]
+    # The two slices are disjoint: reconstruct their cotangents without adding
+    # two full-size tensors padded with alternating zero matrices.
+    joined = jnp.stack((even[..., :pairs, :, :], odd), axis=-3)
+    joined = joined.reshape(*even.shape[:-3], 2 * pairs, *even.shape[-2:])
+    if even.shape[-3] != pairs:
+        joined = jnp.concatenate((joined, even[..., -1:, :, :]), axis=-3)
+    return (joined,)
+
+
+_split_even_odd.defvjp(_split_even_odd_fwd, _split_even_odd_bwd)
+
+
+def _stacked_affine_scan(elems, *, split_vjp=False):
     """Keep the reference pairwise scan order while interleaving without padded addition."""
     n = elems[0].shape[-3]
     if n < 2:
         return elems
-    odd = _stacked_affine_scan(
-        _compose_affine(tuple(x[..., :-1:2, :, :] for x in elems), tuple(x[..., 1::2, :, :] for x in elems))
-    )
+    if split_vjp:
+        evens, odds = zip(*(_split_even_odd(x) for x in elems), strict=True)
+        paired_evens = tuple(x[..., : n // 2, :, :] for x in evens)
+        tail_evens = tuple(x[..., 1:, :, :] for x in evens)
+    else:
+        paired_evens = tuple(x[..., :-1:2, :, :] for x in elems)
+        odds = tuple(x[..., 1::2, :, :] for x in elems)
+        tail_evens = tuple(x[..., 2::2, :, :] for x in elems)
+    odd = _stacked_affine_scan(_compose_affine(paired_evens, odds), split_vjp=split_vjp)
     left = tuple(x[..., :-1, :, :] for x in odd) if n % 2 == 0 else odd
-    even = _compose_affine(left, tuple(x[..., 2::2, :, :] for x in elems))
+    even = _compose_affine(left, tail_evens)
     even = tuple(jnp.concatenate((x[..., :1, :, :], y), axis=-3) for x, y in zip(elems, even, strict=True))
     result = []
     for a, b in zip(even, odd, strict=True):
@@ -605,8 +635,8 @@ def _parallel_chunk_recurrence(prep: ChunkPrep, state, mm, lead, dk, dv, *, scan
     c_mat = c_mat.at[..., 0, :, :].set(c0)
 
     _, s_incl = (
-        _stacked_affine_scan((m_mat, c_mat))
-        if scan_impl == "parallel_stacked"
+        _stacked_affine_scan((m_mat, c_mat), split_vjp=scan_impl == "parallel_stacked_split")
+        if scan_impl in ("parallel_stacked", "parallel_stacked_split")
         else lax.associative_scan(_compose_affine, (m_mat, c_mat), axis=-3)
     )  # S_0..S_{n-1}
 
