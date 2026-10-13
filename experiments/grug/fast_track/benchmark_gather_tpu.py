@@ -45,7 +45,7 @@ def main():
     fs, prefix = fsspec.core.url_to_fs(args.artifact_prefix)
     records = []
     with jax.default_device(device):
-        for tokens, width in ((4096, 16), (32768, 512)):
+        for tokens, width in ((4096, 16), (32768, 256), (32768, 512)):
             selected = jax.lax.top_k(jax.random.uniform(jax.random.key(1), (tokens, 512)), 8)[1]
             order = jnp.argsort(selected.reshape(-1), stable=True)
             for mode in ("dispatch", "permutation"):
@@ -100,8 +100,8 @@ def main():
                                 jax.block_until_ready(compiled(x, indices))
                                 samples.append(time.monotonic() - start)
                             record.update(steady_state_time=statistics.median(samples), steady_state_samples=samples)
-                            if width == 512:
-                                hlo = output / f"{mode}-{name}-hlo.txt"
+                            if tokens == 32768:
+                                hlo = output / f"{mode}-width{width}-{name}-hlo.txt"
                                 hlo.write_text(compiled.as_text())
                                 fs.put_file(str(hlo), f"{prefix}/{hlo.name}")
                         except Exception as exc:
