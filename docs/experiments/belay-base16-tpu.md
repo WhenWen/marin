@@ -24,6 +24,10 @@ one expert-parallel group spanning the chips. It recomputes attention
 intermediates and uses the existing XLA chunked KDA and TPU grouped matmuls.
 Inkling attention runs in rematerialized query blocks of 128 tokens, preserving
 the bias and packed-document masks. CUDA-only launch flags are not applied.
+On TPU v4 at the measured local routing shape (32,768 tokens, 512 experts, 10,000 bins),
+QB histogram counts use binary matrix products with int32 accumulation,
+64 experts per group and radix 64. Other shapes and devices retain the flat
+histogram. Quantile interpolation and global count reduction are unchanged.
 
 Muon uses batched JAX Newton–Schulz on TPU. Training requires
 `XLA_FLAGS=--xla_allow_excess_precision=false`. All four tested sharded/unsharded
@@ -172,6 +176,8 @@ still start at step zero. It does not simulate a trained checkpoint.
 Every completed update saves its random-token loss and partial curves. These
 losses do not measure LM quality. Data loading, checkpoints and held-out
 evaluation are excluded.
+The final parameters, optimizer buffers and EMA state are checked for
+finiteness outside the timing region.
 
 On 2026-10-13, changing aligned Inkling bias expansion from gather to pad/slice
 reduced each host's numerical forward/backward median from 92.56 to 1.40 seconds
@@ -202,3 +208,22 @@ early-EMA run exactly. This checks execution of the active blend at initial
 optimizer state; it does not validate late-training behavior or EMA evaluation.
 The [research record](https://github.com/WhenWen/astra-d8-research/issues/96)
 preserves these attempts and their distinct measurement protocols.
+
+The QB matrix-count implementation at `0fdda285a`,
+`/kaiyue/belay-base16-native-qb-matmul-profile-v1`, reduced native host medians
+to 1.4726–1.4739 seconds under the same seven-update protocol. Dividing
+524,288 global tokens by the slowest host's median gives about 356,000
+tokens/second, with 41% less time than the synchronized 2.4878-second
+baseline above. Every loss matched that baseline exactly, and all four hosts passed
+the final complete-state finiteness check. Compilation took 332.7–347.4
+seconds; compiler cache conditions were not controlled. The compiler reported
+9.57 GB temporary storage per device. Reports, losses, HLO, profiles and curves
+are at `gs://marin-us-central2/kaiyue/belay-base16-tpu/native-qb-matmul-profile-v1/`.
+
+The isolated histogram improved from 174.6 to 6.32 milliseconds. All 24
+microbenchmark rows had exact per-bin count parity; the six cases in
+`experiments/grug/fast_track/test_qb_balancing.py` and the tightened all-equal
+quantile case passed. A grouped-scatter intermediate reached 1.862 seconds
+for the slowest host's median under the same protocol before the matrix-count
+implementation. These measurements use fixed random tokens and early EMA;
+real-data training and evaluation remain unverified.
