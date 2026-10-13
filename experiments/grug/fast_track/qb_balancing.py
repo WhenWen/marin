@@ -5,14 +5,9 @@
 
 import jax
 import jax.numpy as jnp
+from jax import shard_map
 from jax.sharding import PartitionSpec as P
 from jax.sharding import reshard
-
-try:
-    from jax.shard_map import shard_map
-except ModuleNotFoundError:
-    from jax.experimental.shard_map import shard_map
-
 
 # Tuned on integer histograms at Belay d512's local routing shape; other
 # devices/shapes retain the flat implementation. See the issue's raw grid:
