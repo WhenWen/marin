@@ -1,0 +1,204 @@
+# Copyright The Marin Authors
+# SPDX-License-Identifier: Apache-2.0
+
+"""Measure native base16 train steps on fixed random tokens, not LM quality.
+
+This includes optimizer updates, router balancing, EMA storage and inline
+watch metrics. It excludes data loading, checkpoints and held-out evaluation.
+"""
+
+import argparse
+import gc
+import json
+import math
+import os
+import statistics
+import time
+from pathlib import Path
+
+import draccus
+import fsspec
+import jax
+import jax.numpy as jnp
+import jaxlib
+import jmp
+import matplotlib
+from jax.sharding import PartitionSpec as P
+from levanter.callbacks.profiler import ProfileOptionsConfig
+from levanter.callbacks.watch import WatchConfig
+from levanter.data.text.examples import GrugLmExample
+from levanter.distributed import DistributedConfig
+from levanter.grug.sharding import compact_grug_mesh
+from levanter.optim.config import OptimizerConfig
+
+from experiments.grug.fast_track.belay_tpu import SOURCE_CONFIG, base16_model_config
+from experiments.grug.fast_track.train import _flat_train_step, _make_train_step, _router_ties_active, initial_state
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # noqa: E402
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--steps", type=int, default=4, help="Timed steps after two warmup steps and one profiled step.")
+    parser.add_argument("--revision", required=True)
+    parser.add_argument("--artifact-prefix", required=True)
+    args = parser.parse_args()
+    if args.steps < 1 or not args.artifact_prefix.startswith("gs://marin-us-central2/"):
+        parser.error("Use positive steps and a unique us-central2 GCS artifact prefix")
+    source = json.loads(SOURCE_CONFIG.read_text())
+    outer = source["trainer"]
+    trainer = outer["trainer"]
+    for key, value in trainer["jax_config"].items():
+        jax.config.update(key, value)
+    DistributedConfig().initialize()
+    devices = jax.devices()
+    if len(devices) != 16 or any(d.platform != "tpu" or "v4" not in d.device_kind for d in devices):
+        raise RuntimeError("This frozen full-batch benchmark requires 16 TPU v4 chips")
+    config = base16_model_config()
+    policy = jmp.get_policy("params=float32,compute=bfloat16,output=bfloat16")
+    source["optimizer"]["type"] = "grug_fast_track_muonh_v1"
+    optimizer = draccus.decode(OptimizerConfig, source["optimizer"]).build(trainer["num_train_steps"])
+    rank = jax.process_index()
+    output = Path(os.environ.get("IRIS_OUTPUT_DIR", "outputs")) / f"native-rank-{rank}"
+    output.mkdir(parents=True, exist_ok=True)
+    fs, prefix = fsspec.core.url_to_fs(f"{args.artifact_prefix}/rank-{rank}")
+    report = {
+        "kernel": "base16_native_train_step",
+        "implementation": "native_grug_tpu",
+        "purpose": "fixed random-token throughput diagnostic; not LM quality",
+        "shape": [128, 4096, 512],
+        "dtype": str(policy),
+        "backend": "tpu",
+        "device_type": devices[0].device_kind,
+        "device_count": len(devices),
+        "block_sizes": {"inkling_query": 128},
+        "git_sha": args.revision,
+        "seed": trainer["seed"],
+        "data_seed": 1,
+        "jax_version": jax.__version__,
+        "jaxlib_version": jaxlib.__version__,
+        "xla_flags": os.environ.get("XLA_FLAGS", ""),
+        "backend_env": {"LIBTPU_INIT_ARGS": os.environ.get("LIBTPU_INIT_ARGS", "")},
+        "jax_config": trainer["jax_config"],
+        "watch": trainer["watch"],
+        "ema_start_step": trainer["num_train_steps"] - outer["ema_last_steps"],
+        "status": "initializing",
+        "error": None,
+        "steps": [],
+    }
+
+    def save_report():
+        path = output / "report.json"
+        path.write_text(json.dumps(report, indent=2) + "\n")
+        fs.put_file(str(path), f"{prefix}/report.json")
+
+    def save_curve():
+        if rank != 0:
+            return
+        plt.rcParams.update({"font.family": "DejaVu Sans", "font.size": 11, "pdf.fonttype": 42})
+        fig, ax = plt.subplots(figsize=(6.2, 3.0))
+        ax.plot(
+            [r["step"] for r in report["steps"]],
+            [r["loss"] for r in report["steps"]],
+            color="#1F77B4", marker="o", linewidth=2, markersize=4, label=f"base16, seed {trainer['seed']}",
+        )
+        ax.set(xlabel="Optimizer update", ylabel="Random-token training loss")
+        ax.grid(color="#B0B0B0", linestyle="--", alpha=0.65)
+        ax.set_axisbelow(True)
+        ax.legend()
+        fig.tight_layout()
+        for extension in ("pdf", "png"):
+            path = output / f"loss-curve.{extension}"
+            fig.savefig(path, dpi=220)
+            fs.put_file(str(path), f"{prefix}/{path.name}")
+        plt.close(fig)
+
+    save_report()
+    mesh = compact_grug_mesh(expert_axis_size=16, replica_axis_size=1)
+    with jax.set_mesh(mesh):
+        model_key = jax.random.split(jax.random.PRNGKey(trainer["seed"]), 2)[1]
+        state = jax.jit(
+            lambda key: initial_state(config, optimizer=optimizer, mp=policy, key=key, ema_beta=outer["ema_beta"])
+        )(model_key)
+        tokens = jax.sharding.reshard(
+            jax.random.randint(jax.random.key(1), (128, 4096), 0, config.vocab_size),
+            P(("replica_dcn", "data", "expert"), None),
+        )
+        segments = jax.sharding.reshard(
+            jnp.broadcast_to(jnp.arange(4096) // 1024, tokens.shape),
+            P(("replica_dcn", "data", "expert"), None),
+        )
+        batch = jax.vmap(GrugLmExample.causal)(tokens, segment_ids=segments)
+        step_fn = _make_train_step(
+            optimizer, policy, z_loss_weight=outer["z_loss_weight"],
+            ema_beta=outer["ema_beta"], ema_start_step=report["ema_start_step"],
+            watch_config=draccus.decode(WatchConfig, trainer["watch"]),
+            grad_accum_microbatches=outer["grad_accum_microbatches"],
+        )
+        leaves, treedef = jax.tree.flatten(state)
+        del state
+        step_fn = _flat_train_step(step_fn, treedef)
+        router_ties = _router_ties_active(config, 0)
+        print("Compiling native base16 train step", flush=True)
+        start = time.monotonic()
+        compiled = step_fn.lower(leaves, batch, loop_active=None, router_tie_active=router_ties).compile()
+        report["compile_time"] = time.monotonic() - start
+        memory = compiled.memory_analysis()
+        report["compiler_memory_bytes"] = {
+            "arguments": memory.argument_size_in_bytes, "outputs": memory.output_size_in_bytes,
+            "temporary": memory.temp_size_in_bytes, "aliases": memory.alias_size_in_bytes,
+        }
+        if rank == 0:
+            hlo = output / "optimized-hlo.txt"
+            hlo.write_text(compiled.as_text())
+            fs.put_file(str(hlo), f"{prefix}/{hlo.name}")
+        report["status"] = "compiled"
+        save_report()
+        gc.collect()
+        gc.disable()
+
+        def step(phase):
+            nonlocal leaves
+            start = time.monotonic()
+            leaves, metrics, watch = jax.block_until_ready(compiled(leaves, batch))
+            elapsed = time.monotonic() - start
+            loss = float(metrics["train/loss"])
+            row = {"step": len(report["steps"]) + 1, "phase": phase, "loss": loss, "seconds": elapsed}
+            report["steps"].append(row)
+            print(json.dumps({"rank": rank, **row}), flush=True)
+            if not math.isfinite(loss):
+                save_report()
+                raise RuntimeError("Nonfinite loss in native train-step benchmark")
+            del metrics, watch
+
+        step("warmup")
+        save_report()
+        save_curve()
+        step("warmup")
+        save_report()
+        save_curve()
+        profile = output / "profile"
+        options = ProfileOptionsConfig(
+            host_tracer_level=1, python_tracer_level=0, enable_hlo_proto=True
+        ).build_jax_profile_options()
+        with jax.profiler.trace(str(profile), profiler_options=options):
+            with jax.profiler.StepTraceAnnotation("base16_native_train_step", step_num=2):
+                step("profile")
+        save_report()
+        save_curve()
+        for path in profile.rglob("*"):
+            if path.is_file():
+                fs.put_file(str(path), f"{prefix}/profile/{path.relative_to(profile)}")
+        for _ in range(args.steps):
+            step("timed")
+            save_report()
+            save_curve()
+        samples = [r["seconds"] for r in report["steps"] if r["phase"] == "timed"]
+        report.update(status="completed", steady_state_time=statistics.median(samples))
+        save_report()
+        print(json.dumps(report), flush=True)
+
+
+if __name__ == "__main__":
+    main()
