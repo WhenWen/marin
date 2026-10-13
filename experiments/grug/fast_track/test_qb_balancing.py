@@ -71,6 +71,6 @@ def test_qb_thresholds_on_tpu_v4(constant):
         )(sharded)
     # Float32 interpolation of thresholds spanning [-2048, 2047]. The integer
     # count equality has zero tolerance in the separate histogram test.
-    np.testing.assert_allclose(np.asarray(actual), expected, rtol=2e-7, atol=2e-4)
+    np.testing.assert_allclose(np.asarray(actual), expected, rtol=2e-7, atol=2e-17 if constant else 2e-4)
     np.testing.assert_array_equal(np.asarray(actual_lo), lo)
     np.testing.assert_array_equal(np.asarray(actual_hi), hi)
