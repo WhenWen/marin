@@ -334,9 +334,17 @@ tiled-mask baseline, or about 405,000 tokens/second. Compiler temporary storage
 fell from 9.55 to 8.85 GB/device; compilation took 335.0–346.7 seconds with
 uncontrolled cache conditions. This fixed-random-token run uses seed 0 and
 finishes before EMA updates begin. Independent replication, active EMA and
-additional parameterization seeds remain unverified. Reports, raw losses,
+input seed 2 remain unverified. The input-seed-1 parameterization grid at
+`3e3b33ed2`, `/kaiyue/belay-kda-parameter-scan-seed1-v1`, passed all 36 rows
+with zero observed differences and unchanged tolerances. Reports, raw losses,
 curves and profiles are under
 `gs://marin-us-central2/kaiyue/belay-base16-tpu/native-kda-stacked-v1/`.
+The corresponding rank-0 profile reduced aggregate KimiDeltaAttention self
+time from 4.233 to 3.309 million core-microseconds across eight cores, relative
+to `native-mask-tile-v1`. This measures aggregate activity, not the critical
+path. The derived comparison is retained in
+`native-kda-stacked-v1/analysis/kda-profile-comparison.json` under the same
+artifact root; the seed-1 grid is under `kda-parameter-scan-seed1-v1/`.
 
 The isolated acceptance-mask grid at `a02ac1142`, `/kaiyue/belay-accepted-mask-v1`,
 passed all 64 cases with exact masks and inverse positions. It covers two
@@ -349,3 +357,14 @@ benchmark's `--accepted-mask inverse-direct` option tests this substitution;
 production mask construction remains unchanged until the full training step
 passes exact loss parity and replicated timing checks. Reports and HLO are under
 `gs://marin-us-central2/kaiyue/belay-base16-tpu/accepted-mask-v1/`.
+
+The first native inverse-mask run at `a3cc2a231`,
+`/kaiyue/belay-base16-native-accepted-inverse-v1`, passed all seven exact
+reference losses and complete-state finiteness on every host. Median step
+times were 1.3839–1.3858 seconds across the four hosts. The slowest median was
+3.23% below the 1.4321-second tiled-mask baseline. Compiler temporary storage
+was 9.546 GB/device; compilation took 350.3–358.4 seconds with uncontrolled
+cache conditions. This run uses the reference KDA scan and finishes before
+EMA updates begin. Independent replication and a combined KDA-plus-mask run
+remain unverified. Reports, raw losses, curves and profiles are under
+`gs://marin-us-central2/kaiyue/belay-base16-tpu/native-accepted-inverse-v1/`.
