@@ -48,7 +48,9 @@ def main() -> None:
     ):
         for dtype in (jnp.float32, jnp.bfloat16):
             with jax.default_device(device):
-                band = jax.random.normal(jax.random.key(0), (batch, heads, REL_BIAS_BLOCK, extent + REL_BIAS_BLOCK), dtype)
+                band = jax.random.normal(
+                    jax.random.key(0), (batch, heads, REL_BIAS_BLOCK, extent + REL_BIAS_BLOCK), dtype
+                )
                 cotangent = jax.random.normal(jax.random.key(1), (batch, heads, REL_BIAS_BLOCK, keys), dtype)
 
                 def loss(band, cotangent, offset, *, candidate):
@@ -65,9 +67,11 @@ def main() -> None:
                     for candidate in (False, True):
                         name = "aligned_pad_slice" if candidate else "gather_reference"
                         start = time.monotonic()
-                        compiled = jax.jit(
-                            jax.value_and_grad(loss, has_aux=True), static_argnames=("candidate",)
-                        ).lower(band, cotangent, offset_array, candidate=candidate).compile()
+                        compiled = (
+                            jax.jit(jax.value_and_grad(loss, has_aux=True), static_argnames=("candidate",))
+                            .lower(band, cotangent, offset_array, candidate=candidate)
+                            .compile()
+                        )
                         compile_time = time.monotonic() - start
                         actual = jax.block_until_ready(compiled(band, cotangent, offset_array))
                         actual_host = [np.asarray(x).astype(np.float32) for x in jax.tree.leaves(actual)]
@@ -89,13 +93,17 @@ def main() -> None:
                             "shape": [batch, heads, REL_BIAS_BLOCK, keys, extent],
                             "query_offset": offset,
                             "dtype": str(jnp.dtype(dtype)),
-                            "backend": "tpu", "device_type": device.device_kind, "device_count": 1,
+                            "backend": "tpu",
+                            "device_type": device.device_kind,
+                            "device_count": 1,
                             "block_sizes": {"query": REL_BIAS_BLOCK},
-                            "compile_time": compile_time, "steady_state_time": statistics.median(samples),
+                            "compile_time": compile_time,
+                            "steady_state_time": statistics.median(samples),
                             "steady_state_samples": samples,
                             "max_abs_error": max(float(x.max()) for x in errors),
                             "mean_abs_errors": [float(x.mean()) for x in errors],
-                            "error": None, "git_sha": args.revision,
+                            "error": None,
+                            "git_sha": args.revision,
                             "xla_flags": os.environ.get("XLA_FLAGS", ""),
                             "backend_env": {"LIBTPU_INIT_ARGS": os.environ.get("LIBTPU_INIT_ARGS", "")},
                         }
