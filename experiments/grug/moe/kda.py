@@ -32,6 +32,7 @@ References: Kimi Linear tech report (arXiv 2510.26692), Gated Delta Networks
 (arXiv 2406.06484), and flash-linear-attention ``fla/ops/kda/naive.py``.
 """
 
+from functools import partial
 from typing import NamedTuple
 
 import jax
@@ -564,28 +565,35 @@ def _compose_affine(left, right):
     return jnp.einsum("...ij,...jk->...ik", mr, ml), jnp.einsum("...ij,...jm->...im", mr, cl) + cr
 
 
-@jax.custom_vjp
-def _split_even_odd(x):
-    return x[..., ::2, :, :], x[..., 1::2, :, :]
+@partial(jax.custom_vjp, nondiff_argnums=(1, 2))
+def _scan_stride_slice(x, start, stop):
+    return x[..., start:stop:2, :, :]
 
 
-def _split_even_odd_fwd(x):
-    return _split_even_odd(x), None
+def _scan_stride_slice_fwd(x, start, stop):
+    # Retain only the input length in a zero-storage residual's static shape.
+    return _scan_stride_slice(x, start, stop), jnp.zeros((x.shape[-3], 0), dtype=x.dtype)
 
 
-def _split_even_odd_bwd(_residual, cotangents):
-    even, odd = cotangents
-    pairs = odd.shape[-3]
-    # The two slices are disjoint: reconstruct their cotangents without adding
-    # two full-size tensors padded with alternating zero matrices.
-    joined = jnp.stack((even[..., :pairs, :, :], odd), axis=-3)
-    joined = joined.reshape(*even.shape[:-3], 2 * pairs, *even.shape[-2:])
-    if even.shape[-3] != pairs:
-        joined = jnp.concatenate((joined, even[..., -1:, :, :]), axis=-3)
+def _scan_stride_slice_bwd(start, _stop, residual, cotangent):
+    n = residual.shape[0]
+    k = cotangent.shape[-3]
+    shape = (*cotangent.shape[:-3], n, *cotangent.shape[-2:])
+    if k == 0:
+        return (jnp.zeros(shape, dtype=cotangent.dtype),)
+    # Rebuild one slice's padding without combining distinct gradient branches.
+    joined = jnp.stack((cotangent, jnp.zeros_like(cotangent)), axis=-3)
+    joined = joined.reshape(*cotangent.shape[:-3], 2 * k, *cotangent.shape[-2:])
+    prefix = jnp.zeros((*cotangent.shape[:-3], start, *cotangent.shape[-2:]), dtype=cotangent.dtype)
+    joined = jnp.concatenate((prefix, joined), axis=-3)[..., :n, :, :]
+    tail = n - joined.shape[-3]
+    if tail:
+        zeros = jnp.zeros((*cotangent.shape[:-3], tail, *cotangent.shape[-2:]), dtype=cotangent.dtype)
+        joined = jnp.concatenate((joined, zeros), axis=-3)
     return (joined,)
 
 
-_split_even_odd.defvjp(_split_even_odd_fwd, _split_even_odd_bwd)
+_scan_stride_slice.defvjp(_scan_stride_slice_fwd, _scan_stride_slice_bwd)
 
 
 def _stacked_affine_scan(elems, *, split_vjp=False):
@@ -594,14 +602,13 @@ def _stacked_affine_scan(elems, *, split_vjp=False):
     if n < 2:
         return elems
     if split_vjp:
-        evens, odds = zip(*(_split_even_odd(x) for x in elems), strict=True)
-        paired_evens = tuple(x[..., : n // 2, :, :] for x in evens)
+        paired_evens = tuple(_scan_stride_slice(x, 0, -1) for x in elems)
+        odds = tuple(_scan_stride_slice(x, 1, None) for x in elems)
+        tail_evens = tuple(_scan_stride_slice(x, 2, None) for x in elems)
     else:
         paired_evens = tuple(x[..., :-1:2, :, :] for x in elems)
         odds = tuple(x[..., 1::2, :, :] for x in elems)
-    # Keep this branch separate: reusing evens moves its gradient accumulation
-    # before the split transpose and changes the full-shape KDA gradients.
-    tail_evens = tuple(x[..., 2::2, :, :] for x in elems)
+        tail_evens = tuple(x[..., 2::2, :, :] for x in elems)
     odd = _stacked_affine_scan(_compose_affine(paired_evens, odds), split_vjp=split_vjp)
     left = tuple(x[..., :-1, :, :] for x in odd) if n % 2 == 0 else odd
     even = _compose_affine(left, tail_evens)
