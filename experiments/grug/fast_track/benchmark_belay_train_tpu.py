@@ -24,8 +24,8 @@ import jax.numpy as jnp
 import jaxlib
 import jmp
 import matplotlib
-from jax.sharding import PartitionSpec as P
 from jax.experimental import multihost_utils
+from jax.sharding import PartitionSpec as P
 from levanter.callbacks.profiler import ProfileOptionsConfig
 from levanter.callbacks.watch import WatchConfig
 from levanter.data.text.examples import GrugLmExample
