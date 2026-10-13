@@ -68,9 +68,7 @@ def main() -> None:
     )
     parser.add_argument("--revision", required=True)
     parser.add_argument("--kda-scan", choices=("production", "reference", "stacked"), default="production")
-    parser.add_argument(
-        "--accepted-mask", choices=("production", "reference", "inverse-direct"), default="production"
-    )
+    parser.add_argument("--accepted-mask", choices=("production", "reference", "inverse-direct"), default="production")
     parser.add_argument("--artifact-prefix", required=True)
     args = parser.parse_args()
     if args.steps < 1 or not args.artifact_prefix.startswith("gs://marin-us-central2/"):
