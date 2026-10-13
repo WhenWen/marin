@@ -61,6 +61,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--revision", required=True)
     parser.add_argument("--artifact-prefix", required=True)
+    parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
     device = jax.local_devices()[0]
     if device.device_kind != "TPU v4":
@@ -73,13 +74,13 @@ def main():
     records = []
     with jax.default_device(device):
         for shape in ((1, 2, 112, 8), (2, 4, 1024, 64), (8, 4, 4096, 128)):
-            keys = jax.random.split(jax.random.key(0), 5)
+            keys = jax.random.split(jax.random.key(args.seed), 5)
             inputs = (
                 *(jax.random.normal(key, shape, jnp.bfloat16) for key in keys[:3]),
                 -0.05 * jax.nn.sigmoid(jax.random.normal(keys[3], shape)),
                 jax.nn.sigmoid(jax.random.normal(keys[4], shape[:-1])),
             )
-            cotangent = jax.random.normal(jax.random.key(1), shape)
+            cotangent = jax.random.normal(jax.random.key(args.seed + 1), shape)
             for document_length in (None, 1024, 83):
                 segments = None if document_length is None else jnp.arange(shape[-2]) // document_length
                 for mode in ("forward", "value_and_grad"):
@@ -97,8 +98,8 @@ def main():
                             ),
                             "document_length": document_length,
                             "dtype": "qkv=bf16,g_beta=fp32,internal_default_bf16",
-                            "seed": 0,
-                            "cotangent_seed": 1,
+                            "seed": args.seed,
+                            "cotangent_seed": args.seed + 1,
                             "backend": "tpu",
                             "device_type": device.device_kind,
                             "device_count": 1,

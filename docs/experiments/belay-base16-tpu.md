@@ -322,19 +322,30 @@ It covers three shapes, seed 0, and unpacked, 1024-token and 83-token documents,
 including resets inside chunks. At full shape `(8, 4, 4096, 128)`, the packed
 value-and-gradient time fell from 83.4 to 68.8 ms; compiler temporary storage
 fell from 6.85 to 6.18 GB. The native benchmark's `--kda-scan stacked` option
-tests this reconstruction without changing production selection. Native exact-loss
-parity, replicated step improvement and broader seeds remain unverified.
+tests this reconstruction without changing production selection.
 Reports and HLO are under
 `gs://marin-us-central2/kaiyue/belay-base16-tpu/kda-parameter-scan-v1/`.
 
-The acceptance-mask grid at `a02ac1142`, `/kaiyue/belay-accepted-mask-v1`,
+The first native stacked-scan run at `7cae3794f`,
+`/kaiyue/belay-base16-native-kda-stacked-v1`, passed all seven exact reference
+losses and complete-state finiteness on every host. Host medians were
+1.2830–1.2933 seconds. The slowest median was 9.7% below the 1.4321-second
+tiled-mask baseline, or about 405,000 tokens/second. Compiler temporary storage
+fell from 9.55 to 8.85 GB/device; compilation took 335.0–346.7 seconds with
+uncontrolled cache conditions. This fixed-random-token run uses seed 0 and
+finishes before EMA updates begin. Independent replication, active EMA and
+additional parameterization seeds remain unverified. Reports, raw losses,
+curves and profiles are under
+`gs://marin-us-central2/kaiyue/belay-base16-tpu/native-kda-stacked-v1/`.
+
+The isolated acceptance-mask grid at `a02ac1142`, `/kaiyue/belay-accepted-mask-v1`,
 passed all 64 cases with exact masks and inverse positions. It covers two
 shapes, partial/full/zero acceptance and concentrated assignments with invalid
 expert IDs. At 262,144 assignments and 512 experts, computing acceptance from
 inverse positions took 4.040–4.046 ms, compared with 7.351–7.375 ms for the
-reference boolean scatter, when both return the inverse positions used by
-combine. Temporary compiler storage fell from 2.65 to 1.69 MB. The native
+reference boolean scatter, when both construct and return the inverse positions
+used by combine. Temporary compiler storage fell from 2.65 to 1.69 MB. The native
 benchmark's `--accepted-mask inverse-direct` option tests this substitution;
-production mask construction remains unchanged until native parity and
-replicated timing pass. Reports and HLO are under
+production mask construction remains unchanged until the full training step
+passes exact loss parity and replicated timing checks. Reports and HLO are under
 `gs://marin-us-central2/kaiyue/belay-base16-tpu/accepted-mask-v1/`.
