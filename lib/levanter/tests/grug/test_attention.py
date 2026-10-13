@@ -16,6 +16,36 @@ from levanter.grug.attention import (
     token_validity_from_attention_mask,
 )
 from levanter.grug.attention._inkling_relpos import band_to_compact, compact_to_band, dense_rel_bias
+from levanter.grug.attention._core import blocked_inkling_attention
+
+
+@pytest.mark.parametrize("dense_mask", [False, True])
+def test_blocked_inkling_matches_reference_values_and_gradients(dense_mask):
+    q, k, v = _make_qkv(batch=1, q_len=256, k_len=256, q_heads=2, kv_heads=1)
+    # A document boundary inside the second query tile catches tile-relative
+    # causal indices and loss of packed-document masking.
+    segments = jnp.asarray([[0] * 173 + [1] * 83])
+    mask = AttentionMask.causal(sliding_window=80).with_segment_ids(segments)
+    if dense_mask:
+        mask = mask.materialize_mask(256, 256)
+    states = jax.random.normal(jax.random.key(1), (1, 2, 256, 4)) * 0.1
+    bank = jax.random.normal(jax.random.key(2), (4, 128)) * 0.1
+    band = inkling_rel_bias(states, bank)
+    weights = jax.random.normal(jax.random.key(3), q.shape)
+
+    def loss(q, k, v, band, *, blocked):
+        output = (blocked_inkling_attention(q, k, v, mask, band) if blocked else
+                  reference_attention(q, k, v, mask, logits_dtype=jnp.float32, rel_bias=band))
+        return jnp.sum(output * weights), output
+
+    compute = jax.jit(jax.value_and_grad(loss, argnums=(0, 1, 2, 3), has_aux=True), static_argnames="blocked")
+    (value, output), grads = compute(q, k, v, band, blocked=True)
+    (expected_value, expected_output), expected_grads = compute(q, k, v, band, blocked=False)
+    np.testing.assert_allclose(value, expected_value, atol=1e-4, rtol=1e-4)
+    for actual, expected in zip((output, *grads), (expected_output, *expected_grads), strict=True):
+        difference = np.abs(np.asarray(actual) - np.asarray(expected))
+        np.testing.assert_allclose(actual, expected, atol=1e-4, rtol=1e-4,
+                                   err_msg=f"max error {difference.max()}, mean error {difference.mean()}")
 
 
 def _make_qkv(*, batch: int = 2, q_len: int = 6, k_len: int = 6, q_heads: int = 4, kv_heads: int = 2):

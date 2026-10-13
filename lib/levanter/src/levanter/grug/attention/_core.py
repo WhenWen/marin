@@ -303,6 +303,41 @@ def reference_attention(
     return wrapped(q, k, v, mask, rel_bias_dense, logits_dtype=logits_dtype)
 
 
+def _blocked_inkling_math(q, k, v, mask, rel_bias, *, block_size: int):
+    """Bound score/bias storage by query blocks; rematerialize their backward."""
+    batch, length, heads, width = q.shape
+    explicit = mask.materialize_mask(length, k.shape[1]) if isinstance(mask, AttentionMask) else mask
+
+    @jax.checkpoint
+    def block(index):
+        start = index * block_size
+        queries = jax.lax.dynamic_slice_in_dim(q, start, block_size, axis=1)
+        band = jax.lax.dynamic_slice_in_dim(rel_bias, start, block_size, axis=2)
+        bias = dense_rel_bias(band, block_size, k.shape[1], query_offset=start)
+        tile_mask = None if explicit is None else jax.lax.dynamic_slice_in_dim(
+            explicit, start, block_size, axis=explicit.ndim - 2
+        )
+        return _reference_attention_math(queries, k, v, tile_mask, bias, logits_dtype=jnp.float32)
+
+    blocks = jax.lax.map(block, jnp.arange(length // block_size))
+    return blocks.transpose(1, 0, 2, 3, 4).reshape(batch, length, heads, width)
+
+
+def blocked_inkling_attention(q, k, v, mask, rel_bias, *, block_size: int = 128):
+    """Exact Inkling attention with bounded query-block intermediates on TPU.
+
+    Dense masks and packed documents use the same semantics as the reference.
+    The output follows q's sharding, including under explicit mesh axes.
+    """
+    if q.shape[1] % block_size:
+        raise ValueError("Query length must be divisible by the attention block size")
+    out_sharding = named_sharding_of(q)
+    if out_sharding is None:
+        return _blocked_inkling_math(q, k, v, mask, rel_bias, block_size=block_size)
+    wrapped = auto_axes(_blocked_inkling_math, out_sharding=out_sharding)
+    return wrapped(q, k, v, mask, rel_bias, block_size=block_size)
+
+
 def _tpu_splash_attention(
     q: Float[Array, "B Q Hq D"],
     k: Float[Array, "B K Hkv D"],
@@ -467,6 +502,8 @@ def attention(
         raise ValueError(f"Unknown Grug attention implementation: {implementation}")
 
     if jax.default_backend() == "tpu":
+        if rel_bias is not None and q.shape[1] % 128 == 0:
+            return blocked_inkling_attention(q, k, v, mask, rel_bias)
         if isinstance(mask, jax.Array) or rel_bias is not None:
             return reference_attention(q, k, v, mask, logits_dtype=jnp.float32, rel_bias=rel_bias)
         return _tpu_splash_attention(q, k, v, mask)
