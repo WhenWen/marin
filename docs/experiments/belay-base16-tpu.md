@@ -333,12 +333,17 @@ losses and complete-state finiteness on every host. Host medians were
 tiled-mask baseline, or about 405,000 tokens/second. Compiler temporary storage
 fell from 9.55 to 8.85 GB/device; compilation took 335.0–346.7 seconds with
 uncontrolled cache conditions. This fixed-random-token run uses seed 0 and
-finishes before EMA updates begin. Independent replication, active EMA and
+finishes before EMA updates begin. The independent repeat at `a3cc2a231`,
+`/kaiyue/belay-base16-native-kda-stacked-v2`, also passed all seven exact losses
+and finite state on every host. Its slowest median was 1.2915 seconds, a 9.82%
+reduction; compiler temporary storage remained 8.85 GB/device. Compilation
+took 32.23–32.32 seconds with uncontrolled cache conditions. Active EMA and
 input seed 2 remain unverified. The input-seed-1 parameterization grid at
 `3e3b33ed2`, `/kaiyue/belay-kda-parameter-scan-seed1-v1`, passed all 36 rows
 with zero observed differences and unchanged tolerances. Reports, raw losses,
 curves and profiles are under
-`gs://marin-us-central2/kaiyue/belay-base16-tpu/native-kda-stacked-v1/`.
+`gs://marin-us-central2/kaiyue/belay-base16-tpu/native-kda-stacked-v1/` and
+`gs://marin-us-central2/kaiyue/belay-base16-tpu/native-kda-stacked-v2/`.
 The corresponding rank-0 profile reduced aggregate KimiDeltaAttention self
 time from 4.233 to 3.309 million core-microseconds across eight cores, relative
 to `native-mask-tile-v1`. This measures aggregate activity, not the critical
