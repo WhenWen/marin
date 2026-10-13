@@ -14,11 +14,9 @@ import math
 import os
 import statistics
 import time
-from contextlib import ExitStack
+from contextlib import nullcontext
 from dataclasses import asdict, dataclass, replace
-from functools import partial
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import draccus
@@ -39,10 +37,7 @@ from levanter.grug.sharding import compact_grug_mesh
 from levanter.optim.config import OptimizerConfig
 
 from experiments.grug.fast_track.belay_tpu import SOURCE_CONFIG, base16_model_config, require_tpu_rounding
-from experiments.grug.fast_track.benchmark_accepted_mask_tpu import acceptance
-from experiments.grug.fast_track.benchmark_kda_parameter_scan_tpu import stacked_associative_scan
 from experiments.grug.fast_track.train import _flat_train_step, _make_train_step, _router_ties_active, initial_state
-from experiments.grug.moe import kda
 
 mpl.use("Agg")
 import matplotlib.pyplot as plt
@@ -92,6 +87,7 @@ def main() -> None:
         base16_model_config(),
         attn_res_remat_attention=args.attention_remat != "off",
         attn_res_remat_attention_save_all=args.attention_remat == "save-all",
+        kda_xla_scan_impl="parallel_stacked" if args.kda_scan == "stacked" else "parallel",
     )
     policy = jmp.get_policy("params=float32,compute=bfloat16,output=bfloat16")
     source["optimizer"]["type"] = "grug_fast_track_muonh_v1"
@@ -193,14 +189,14 @@ def main() -> None:
         router_ties = _router_ties_active(config, 0)
         print("Compiling native base16 train step", flush=True)
         start = time.monotonic()
-        # Substitute only during this diagnostic's trace, restoring both modules afterward.
-        with ExitStack() as contexts:
-            if args.kda_scan == "stacked":
-                stacked_lax = SimpleNamespace(**{**vars(jax.lax), "associative_scan": stacked_associative_scan})
-                contexts.enter_context(patch.object(kda, "lax", stacked_lax))
-            if args.accepted_mask == "inverse-direct":
-                candidate = partial(acceptance, implementation="inverse_direct", reuse_inverse=False)
-                contexts.enter_context(patch.object(ep_ragged_all_to_all, "_accepted_assignments", candidate))
+        context = (
+            patch.object(
+                ep_ragged_all_to_all, "_accepted_assignments", ep_ragged_all_to_all._accepted_assignments_inverse
+            )
+            if args.accepted_mask == "inverse-direct"
+            else nullcontext()
+        )
+        with context:
             compiled = step_fn.lower(leaves, batch, loop_active=None, router_tie_active=router_ties).compile()
         report["compile_time"] = time.monotonic() - start
         memory = compiled.memory_analysis()

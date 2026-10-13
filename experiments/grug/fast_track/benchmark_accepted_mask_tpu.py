@@ -15,7 +15,7 @@ import fsspec
 import jax
 import jax.numpy as jnp
 import jaxlib
-from levanter.grug._moe.ep_ragged_all_to_all import _accepted_assignments
+from levanter.grug._moe.ep_ragged_all_to_all import _accepted_assignments, _accepted_assignments_inverse
 
 
 def acceptance(selected, order, sizes, accepted_sizes, *, implementation, reuse_inverse):
@@ -26,8 +26,7 @@ def acceptance(selected, order, sizes, accepted_sizes, *, implementation, reuse_
         count = sizes.shape[0]
         starts = jnp.cumsum(sizes) - sizes
         if implementation == "inverse_direct":
-            experts = jnp.minimum(selected, count - 1)
-            mask = (selected < count) & (positions - starts[experts] < accepted_sizes[experts])
+            mask = _accepted_assignments_inverse(selected, order, sizes, accepted_sizes)
         else:
             sorted_experts = selected[order]
             experts = jnp.minimum(sorted_experts, count - 1)

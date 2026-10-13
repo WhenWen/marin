@@ -857,6 +857,8 @@ class GrugModelConfig:
     """Form the erase gate ``2 sigmoid(z)`` (``kda_erase_gate``) inside the fused kernels from its bf16 logits."""
     kda_state_grads: StateGrads = StateGrads.XLA
     """Where the fused KDA state pass's backward forms its per-chunk cotangents (``StateGrads``; same math)."""
+    kda_xla_scan_impl: str = "parallel"
+    """XLA cross-chunk scan: reference ``parallel`` or TPU-tuned ``parallel_stacked``."""
     # Block Attention Residuals (Kimi, arXiv 2603.15031): each sublayer's input is a per-token softmax
     # attention over the residual-block history (the embedding, completed block sums and the running
     # partial), scored by a learned per-sublayer pseudo-query against the RMS-normalized sources.
@@ -1791,6 +1793,8 @@ class GrugModelConfig:
             raise ValueError("local_mixer=kda requires attn_res (KDA layers run in the unrolled AttnRes loop)")
         if self.kda_chunk_size not in KDA_CHUNK_TILES:
             raise ValueError(f"kda_chunk_size must be one of {list(KDA_CHUNK_TILES)}, got {self.kda_chunk_size}")
+        if self.kda_xla_scan_impl not in ("parallel", "parallel_stacked"):
+            raise ValueError(f"Unknown KDA XLA scan: {self.kda_xla_scan_impl!r}")
         if self.kda_onchip_decay_gate and (
             self.kda_decay_per_head
             or self.kda_dd_rope
@@ -3279,6 +3283,7 @@ class KdaKernelOptions(NamedTuple):
     chunk_size: int  # fused (GPU) kernels' chunk length, see KDA_CHUNK_TILES
     save_chunk_states: bool
     state_grads: StateGrads
+    xla_scan_impl: str
 
 
 def _kda_kernel_rotating(q, k, v, g, beta, extras: dict[str, jax.Array], *, options: KdaKernelOptions):
@@ -3323,7 +3328,9 @@ def _kda_kernel(q, k, v, g, beta, extras: dict[str, jax.Array], *, options: KdaK
     q, k, v, g, beta = (jnp.swapaxes(x, 1, 2) for x in (q, k, v, g, beta))
     seg = None if segment_ids is None else segment_ids[:, None, :]  # same documents for every head
     erase = None if erase is None else jnp.swapaxes(erase, 1, 2)
-    out = chunk_kda(q, k, v, g, beta, chunk_size=KDA_CHUNK_SIZE, segment_ids=seg, erase=erase)[0]
+    out = chunk_kda(
+        q, k, v, g, beta, chunk_size=KDA_CHUNK_SIZE, segment_ids=seg, erase=erase, scan_impl=options.xla_scan_impl
+    )[0]
     return jnp.swapaxes(out, 1, 2)
 
 
@@ -3637,7 +3644,9 @@ class KimiDeltaAttention(eqx.Module):
             kernel_fn = _kda_kernel_paired
         else:
             kernel_fn = _kda_kernel
-        options = KdaKernelOptions(cfg.kda_chunk_size, cfg.kda_save_chunk_states, cfg.kda_state_grads)
+        options = KdaKernelOptions(
+            cfg.kda_chunk_size, cfg.kda_save_chunk_states, cfg.kda_state_grads, cfg.kda_xla_scan_impl
+        )
         run = functools.partial(kernel_fn, options=options)
         args = (q, k, v, g, beta, extras)
         in_specs = (spec4,) * 4 + (spec3, extra_specs)

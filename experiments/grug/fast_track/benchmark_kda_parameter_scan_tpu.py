@@ -8,30 +8,20 @@ import json
 import os
 import statistics
 import time
-from contextlib import nullcontext
 from functools import partial
 from pathlib import Path
-from unittest.mock import patch
 
 import fsspec
 import jax
 import jax.numpy as jnp
 import jaxlib
 
-from experiments.grug.fast_track.benchmark_kda_scan_tpu import stacked_scan
 from experiments.grug.moe.kda import chunk_kda
 
 
-def stacked_associative_scan(fn, elems, reverse=False, axis=0):
-    # Only substitute the affine recurrence while tracing chunk_kda below.
-    if reverse or axis != -3 or len(elems) != 2:
-        raise ValueError("Unexpected associative scan in the KDA trace")
-    return stacked_scan(elems)
-
-
-def evaluate(inputs, cotangent, segment_ids, *, mode):
+def evaluate(inputs, cotangent, segment_ids, *, mode, scan_impl):
     def outputs(xs):
-        return chunk_kda(*xs, chunk_size=16, segment_ids=segment_ids)
+        return chunk_kda(*xs, chunk_size=16, segment_ids=segment_ids, scan_impl=scan_impl)
 
     def objective(xs):
         out, _ = outputs(xs)
@@ -114,16 +104,13 @@ def main():
                             "error": None,
                         }
                         try:
-                            # New function per trace avoids reusing a reference JIT cache entry.
-                            fn = partial(evaluate, mode=mode)
-                            context = (
-                                patch("jax.lax.associative_scan", stacked_associative_scan)
-                                if name == "stacked"
-                                else nullcontext()
+                            fn = partial(
+                                evaluate,
+                                mode=mode,
+                                scan_impl="parallel_stacked" if name == "stacked" else "parallel",
                             )
                             start = time.monotonic()
-                            with context:
-                                compiled = jax.jit(fn).lower(inputs, cotangent, segments).compile()
+                            compiled = jax.jit(fn).lower(inputs, cotangent, segments).compile()
                             record["compile_time"] = time.monotonic() - start
                             if shape[-1] == 128:
                                 hlo = output / f"{name}-{mode}-doc{document_length}-hlo.txt"

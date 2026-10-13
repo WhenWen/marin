@@ -16,28 +16,13 @@ import jax
 import jax.numpy as jnp
 import jaxlib
 
+from experiments.grug.moe.kda import _stacked_affine_scan as stacked_scan
+
 
 def compose(left, right):
     ml, cl = left
     mr, cr = right
     return jnp.einsum("...ij,...jk->...ik", mr, ml), jnp.einsum("...ij,...jm->...im", mr, cl) + cr
-
-
-def stacked_scan(elems):
-    """Use JAX's pairwise scan order with stack/reshape interleaving on axis -3."""
-    n = elems[0].shape[-3]
-    if n < 2:
-        return elems
-    odd = stacked_scan(compose(tuple(x[..., :-1:2, :, :] for x in elems), tuple(x[..., 1::2, :, :] for x in elems)))
-    left = tuple(x[..., :-1, :, :] for x in odd) if n % 2 == 0 else odd
-    even = compose(left, tuple(x[..., 2::2, :, :] for x in elems))
-    even = tuple(jnp.concatenate((x[..., :1, :, :], y), axis=-3) for x, y in zip(elems, even, strict=True))
-    result = []
-    for a, b in zip(even, odd, strict=True):
-        paired = jnp.stack((a[..., : n // 2, :, :], b), axis=-3)
-        paired = paired.reshape(*a.shape[:-3], 2 * (n // 2), *a.shape[-2:])
-        result.append(jnp.concatenate((paired, a[..., -1:, :, :]), axis=-3) if n % 2 else paired)
-    return tuple(result)
 
 
 def reference_scan(elems):

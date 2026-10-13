@@ -384,6 +384,20 @@ def _accepted_assignments(
     )
 
 
+def _accepted_assignments_inverse(
+    flat_selected: Int[Array, "TK"],
+    sorted_indices: Int[Array, "TK"],
+    group_sizes: Int[Array, "E"],
+    accepted_group_sizes: Int[Array, "E"],
+) -> Bool[Array, "TK"]:
+    """Compute accepted prefixes using the inverse permutation shared with combine."""
+    num_experts = group_sizes.shape[0]
+    positions = jnp.argsort(sorted_indices)
+    group_starts = jnp.cumsum(group_sizes) - group_sizes
+    expert = jnp.minimum(flat_selected, num_experts - 1)
+    return (flat_selected < num_experts) & (positions - group_starts[expert] < accepted_group_sizes[expert])
+
+
 class _ExpertRouting(NamedTuple):
     """This shard's routing, all integer or boolean, shared by the forward and the backward."""
 
