@@ -14,8 +14,9 @@ import math
 import os
 import statistics
 import time
-from contextlib import nullcontext
+from contextlib import ExitStack
 from dataclasses import asdict, dataclass, replace
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -33,10 +34,12 @@ from levanter.callbacks.profiler import ProfileOptionsConfig
 from levanter.callbacks.watch import WatchConfig
 from levanter.data.text.examples import GrugLmExample
 from levanter.distributed import DistributedConfig
+from levanter.grug._moe import ep_ragged_all_to_all
 from levanter.grug.sharding import compact_grug_mesh
 from levanter.optim.config import OptimizerConfig
 
 from experiments.grug.fast_track.belay_tpu import SOURCE_CONFIG, base16_model_config, require_tpu_rounding
+from experiments.grug.fast_track.benchmark_accepted_mask_tpu import acceptance
 from experiments.grug.fast_track.benchmark_kda_parameter_scan_tpu import stacked_associative_scan
 from experiments.grug.fast_track.train import _flat_train_step, _make_train_step, _router_ties_active, initial_state
 from experiments.grug.moe import kda
@@ -70,6 +73,7 @@ def main() -> None:
     )
     parser.add_argument("--revision", required=True)
     parser.add_argument("--kda-scan", choices=("reference", "stacked"), default="reference")
+    parser.add_argument("--accepted-mask", choices=("reference", "inverse-direct"), default="reference")
     parser.add_argument("--artifact-prefix", required=True)
     args = parser.parse_args()
     if args.steps < 1 or not args.artifact_prefix.startswith("gs://marin-us-central2/"):
@@ -110,6 +114,7 @@ def main() -> None:
         "attn_res_remat_attention": config.attn_res_remat_attention,
         "attn_res_remat_attention_save_all": config.attn_res_remat_attention_save_all,
         "kda_scan": args.kda_scan,
+        "accepted_mask": args.accepted_mask,
         "git_sha": args.revision,
         "seed": trainer["seed"],
         "data_seed": 1,
@@ -188,13 +193,14 @@ def main() -> None:
         router_ties = _router_ties_active(config, 0)
         print("Compiling native base16 train step", flush=True)
         start = time.monotonic()
-        # Trace substitution is confined to the KDA module and this diagnostic.
-        scan_context = (
-            patch.object(kda, "lax", SimpleNamespace(**{**vars(jax.lax), "associative_scan": stacked_associative_scan}))
-            if args.kda_scan == "stacked"
-            else nullcontext()
-        )
-        with scan_context:
+        # Substitute only during this diagnostic's trace, restoring both modules afterward.
+        with ExitStack() as contexts:
+            if args.kda_scan == "stacked":
+                stacked_lax = SimpleNamespace(**{**vars(jax.lax), "associative_scan": stacked_associative_scan})
+                contexts.enter_context(patch.object(kda, "lax", stacked_lax))
+            if args.accepted_mask == "inverse-direct":
+                candidate = partial(acceptance, implementation="inverse_direct", reuse_inverse=False)
+                contexts.enter_context(patch.object(ep_ragged_all_to_all, "_accepted_assignments", candidate))
             compiled = step_fn.lower(leaves, batch, loop_active=None, router_tie_active=router_ties).compile()
         report["compile_time"] = time.monotonic() - start
         memory = compiled.memory_analysis()
