@@ -90,9 +90,11 @@ def main():
                             "implementation": name,
                             "shape": shape,
                             "pass_mode": mode,
-                            "leaf_order": ["output", "final_state"] if mode == "forward" else [
-                                "objective", "dq", "dk", "dv", "dg", "dbeta"
-                            ],
+                            "leaf_order": (
+                                ["output", "final_state"]
+                                if mode == "forward"
+                                else ["objective", "dq", "dk", "dv", "dg", "dbeta"]
+                            ),
                             "document_length": document_length,
                             "dtype": "qkv=bf16,g_beta=fp32,internal_default_bf16",
                             "seed": 0,
@@ -115,7 +117,8 @@ def main():
                             fn = partial(evaluate, mode=mode)
                             context = (
                                 patch("jax.lax.associative_scan", stacked_associative_scan)
-                                if name == "stacked" else nullcontext()
+                                if name == "stacked"
+                                else nullcontext()
                             )
                             start = time.monotonic()
                             with context:
