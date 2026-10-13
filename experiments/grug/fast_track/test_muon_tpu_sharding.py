@@ -25,11 +25,14 @@ def test_expert_sharded_muon_matches_unsharded(coefficient_type, steps, matrix_s
     params = {"expert": jax.random.normal(jax.random.key(0), shape)}
     grads = {"expert": jax.random.normal(jax.random.key(1), shape)}
     transform = _grug_scale_with_muon(momentum=0.95, nesterov=True, steps=steps, coefficient_type=coefficient_type)
-    expected, _ = jax.jit(transform.update)(grads, transform.init(params), params)
+    # Match the TPU training flag: bf16 casts must not be elided differently
+    # when a tall matrix is transposed before or inside the sharded function.
+    update = jax.jit(transform.update, compiler_options={"xla_allow_excess_precision": False})
+    expected, _ = update(grads, transform.init(params), params)
     sharding = NamedSharding(mesh, P(None, "expert", None, None))
     params, grads = jax.tree.map(lambda x: jax.device_put(x, sharding), (params, grads))
     with jax.set_mesh(mesh):
-        actual, _ = jax.jit(transform.update)(grads, transform.init(params), params)
+        actual, _ = update(grads, transform.init(params), params)
     got, want = np.asarray(actual["expert"], np.float32), np.asarray(expected["expert"], np.float32)
     assert actual["expert"].sharding.spec == params["expert"].sharding.spec
     # Match the existing bf16 Muon bucketing parity tolerance.

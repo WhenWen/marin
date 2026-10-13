@@ -32,7 +32,7 @@ from levanter.distributed import DistributedConfig
 from levanter.grug.sharding import compact_grug_mesh
 from levanter.optim.config import OptimizerConfig
 
-from experiments.grug.fast_track.belay_tpu import SOURCE_CONFIG, base16_model_config
+from experiments.grug.fast_track.belay_tpu import SOURCE_CONFIG, base16_model_config, require_tpu_rounding
 from experiments.grug.fast_track.train import _flat_train_step, _make_train_step, _router_ties_active, initial_state
 
 matplotlib.use("Agg")
@@ -55,6 +55,7 @@ def main() -> None:
     args = parser.parse_args()
     if args.steps < 1 or not args.artifact_prefix.startswith("gs://marin-us-central2/"):
         parser.error("Use positive steps and a unique us-central2 GCS artifact prefix")
+    require_tpu_rounding()
     source = json.loads(SOURCE_CONFIG.read_text())
     outer = source["trainer"]
     trainer = outer["trainer"]

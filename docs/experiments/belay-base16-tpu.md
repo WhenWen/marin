@@ -25,6 +25,12 @@ intermediates and uses the existing XLA chunked KDA and TPU grouped matmuls.
 Inkling attention runs in rematerialized query blocks of 128 tokens, preserving
 the bias and packed-document masks. CUDA-only launch flags are not applied.
 
+Muon uses batched JAX Newton–Schulz on TPU. Training requires
+`XLA_FLAGS=--xla_allow_excess_precision=false`: otherwise the compiler can omit
+bf16 rounding differently between sharded and unsharded matrix orientations.
+The worker checks this setting before training and records the flags in its
+provenance. This is independent of TPU VMEM settings.
+
 The default is one complete routing batch. `--microbatches` can lower memory
 use, but changes the capacity/drop boundary and must be reported as an
 experiment change. The TPU expert topology differs from the eight-GPU source;
@@ -58,7 +64,7 @@ uv run iris --cluster marin job run --enable-extra-resources \
   --cpu 8 --memory 128GB --disk 16GB --timeout 14400 \
   --sync-package marin-levanter --extra tpu --job-name belay-base16-v4-s0 \
   -e PYTHONPATH .:lib/levanter/src:lib/haliax/src:lib/fray/src:lib/iris/src:lib/rigging/src:lib/finelog/src:lib/marin/src:lib/zephyr/src \
-  -e JAX_PLATFORMS tpu,cpu -- \
+  -e JAX_PLATFORMS tpu,cpu -e XLA_FLAGS --xla_allow_excess_precision=false -- \
   uv run --package marin-levanter --extra tpu python -m experiments.grug.fast_track.belay_tpu \
     --run-id belay-base16-v4-s0 --cache-map cache-map.json \
     --checkpoint-path gs://marin-us-central2/USER/belay-base16-v4-s0/checkpoints --run
@@ -143,3 +149,10 @@ numerical objective without z-loss and `jax_softmax_custom_jvp=false`. Preserve 
 diagnostic reference; it is not the training-objective performance baseline.
 Full native train-step timings must additionally include optimizer work, router
 bias updates, EMA and metrics before making training-throughput claims.
+
+For that measurement, run
+`python -m experiments.grug.fast_track.benchmark_belay_train_tpu --steps 4 --revision COMMIT --artifact-prefix gs://marin-us-central2/USER/RUN`
+on v4-32 with the same rounding flag and `uv run --with matplotlib`. It uses the
+native optimizer, watch metrics and fixed random tokens, saving every completed
+update's loss and partial curves. These diagnostic losses do not measure LM
+quality. Data loading, checkpoints and held-out evaluation are excluded.

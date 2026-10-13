@@ -24,6 +24,13 @@ SOURCE_COMMIT = "358283f7da684d156d8bca095669cf8c023ef2f3"
 SOURCE_RUN = "https://wandb.ai/marin-community/marin_moe/runs/lc1-b205-ctrl"
 BASE16_CHANGE = "https://github.com/marin-community/marin/issues/9451#issuecomment-6105926801"
 REGION_PREFIX = "gs://marin-us-central2/"
+TPU_XLA_ROUNDING_FLAG = "--xla_allow_excess_precision=false"
+
+
+def require_tpu_rounding() -> None:
+    """Require declared bf16 rounding for Muon's sharded Newton–Schulz math."""
+    if TPU_XLA_ROUNDING_FLAG not in os.environ.get("XLA_FLAGS", "").split():
+        raise RuntimeError(f"Launch TPU training with XLA_FLAGS={TPU_XLA_ROUNDING_FLAG}")
 
 
 def base16_model_config() -> GrugModelConfig:
@@ -149,11 +156,13 @@ def main() -> None:
         "seed": args.seed,
         "microbatches": args.microbatches,
         "chips": args.chips,
+        "xla_flags": os.environ.get("XLA_FLAGS", ""),
         "equivalence": "unverified: EP topology differs; microbatches > 1 also change routing capacity",
     }
     (args.output / "provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")
     if not args.run:
         return
+    require_tpu_rounding()
     # Initialize distributed topology before inspecting devices. Do not apply the
     # H100 launcher's CUDA command-buffer or ragged-transport flags on TPU.
     config.trainer.trainer.distributed.initialize()
