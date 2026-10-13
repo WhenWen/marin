@@ -66,10 +66,12 @@ uv run iris --cluster marin job run --enable-extra-resources \
 
 The command has a four-hour operational ceiling, not a measured duration.
 Reaching that ceiling is an interrupted result, not a completed comparison.
-Each attempt preserves `resolved-config.yaml`, `provenance.json`, and per-rank
+Each attempt writes `resolved-config.yaml`, `provenance.json`, and per-rank
 `metrics.jsonl` under `IRIS_OUTPUT_DIR`; checkpoints use the supplied GCS path.
-Collect the attempt archive and plot the raw train/validation losses before
-reporting an experiment. Preserve partial logs from failures and interruptions.
+Collect the attempt archive when available and export the Iris job logs; archive
+capture is not guaranteed on every worker or cancellation path. Plot the raw
+train/validation losses before reporting an experiment. Preserve partial logs
+from failures and interruptions.
 
 ## Accelerator validation
 
@@ -106,3 +108,20 @@ compilation. This is a numerical check, not a throughput or training-quality
 measurement. The first multi-host validator attempt failed because its input
 arrays were captured in a closure; the corrected validator passes them as
 explicit JIT arguments.
+
+`/kaiyue/belay-base16-tpu-model-tests-v2` passed all 18 selected model and
+attention tests on TPU in 193.05 seconds. The 600-second per-test ceiling
+allows compilation; numerical tolerances are unchanged. The earlier attempt
+hit the default timeout while compiling a KDA gradient test.
+
+`/kaiyue/belay-base16-v4-32-full-shape-v2` then passed on all four hosts
+(16 TPU v4 chips) with the original batch 128 and sequence 4096. Every rank
+reported loss 9.825540543 and finite gradients; compilation plus execution
+took about 434.6 seconds. This validates forward/backward at the original
+batch size. Optimizer-state memory, sustained throughput, real-data loss
+curves, and equivalence to the GPU run remain unmeasured.
+
+The entry point and numerical validation are implemented. Training is blocked
+until verified us-central2 mirrors of the original 16k-token caches are
+available. The remote execution host could not access the source S3 caches
+without AWS credentials; no replacement data was used.
