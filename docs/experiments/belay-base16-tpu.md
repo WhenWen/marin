@@ -342,9 +342,10 @@ curves and profiles are under
 The corresponding rank-0 profile reduced aggregate KimiDeltaAttention self
 time from 4.233 to 3.309 million core-microseconds across eight cores, relative
 to `native-mask-tile-v1`. This measures aggregate activity, not the critical
-path. The derived comparison is retained in
-`native-kda-stacked-v1/analysis/kda-profile-comparison.json` under the same
-artifact root; the seed-1 grid is under `kda-parameter-scan-seed1-v1/`.
+path. The derived comparison is retained at
+`gs://marin-us-central2/kaiyue/belay-base16-tpu/native-kda-stacked-v1/analysis/kda-profile-comparison.json`;
+the seed-1 grid is under
+`gs://marin-us-central2/kaiyue/belay-base16-tpu/kda-parameter-scan-seed1-v1/`.
 
 The isolated acceptance-mask grid at `a02ac1142`, `/kaiyue/belay-accepted-mask-v1`,
 passed all 64 cases with exact masks and inverse positions. It covers two
