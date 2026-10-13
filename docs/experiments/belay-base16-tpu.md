@@ -85,7 +85,8 @@ from failures and interruptions.
 `python -m experiments.grug.fast_track.validate_belay_tpu` checks the full
 128-by-4096 d512 forward/backward with packed random tokens. It requires TPU v4,
 writes per-rank numerical diagnostics, and performs no optimizer updates.
-It does not establish optimizer-state memory use, throughput, or LM quality.
+A single pass checks numerical execution; repeated timing requires the options
+below. Neither establishes complete train-step throughput or LM quality.
 `--batch-size 4` permits an architecture check on v4-8, with the same d512
 geometry and 4096-token sequences. This does not validate the full batch's HBM use.
 
@@ -125,8 +126,8 @@ hit the default timeout while compiling a KDA gradient test.
 (16 TPU v4 chips) with the original batch 128 and sequence 4096. Every rank
 reported loss 9.825540543 and finite gradients; compilation plus execution
 took about 434.6 seconds. This validates forward/backward at the original
-batch size. Optimizer-state memory, sustained throughput, real-data loss
-curves, and equivalence to the GPU run remain unmeasured.
+batch size. Complete native train-step measurements are reported below;
+real-data loss curves and equivalence to the GPU run remain unmeasured.
 
 The entry point and numerical validation are implemented. Training is blocked
 until verified us-central2 mirrors of the original 16k-token caches are
@@ -162,12 +163,37 @@ XLA_FLAGS=--xla_allow_excess_precision=false \
 ```
 
 The timed region includes the native optimizer, router bias updates and inline
-parameter/gradient statistics. It allocates EMA state, but these early steps
-precede EMA activation at step 1817; active EMA timing remains a separate check.
+parameter/gradient statistics. All hosts synchronize before the timer, and all
+local outputs complete before it stops. Artifact uploads and plotting occur outside
+the timer. The default `--ema-phase early` allocates EMA state but precedes its
+activation at step 1817. `--ema-phase active` overrides the diagnostic activation
+threshold to zero to measure the blend operation; model and optimizer state
+still start at step zero. It does not simulate a trained checkpoint.
 Every completed update saves its random-token loss and partial curves. These
 losses do not measure LM quality. Data loading, checkpoints and held-out
 evaluation are excluded.
 
-The first native benchmark failed during lowering on a CUDA-only QuACK import.
-The JAX optimizer fallback passes the parity cases above, but successful native
-step timings remain unverified.
+On 2026-10-13, changing aligned Inkling bias expansion from gather to pad/slice
+reduced each host's numerical forward/backward median from 92.56 to 1.40 seconds
+(about 66 times faster). The reported loss stayed 9.825540543 with finite
+gradients. This comparison uses the numerical objective, eight timed calls
+after two warmups, and no optimizer. Ten attention value/gradient cases passed
+their unchanged tolerances. See the [measurement and parity record](https://github.com/WhenWen/astra-d8-research/issues/96#issuecomment-6153215667).
+
+The native benchmark at `1be1f0994`, `/kaiyue/belay-base16-native-profile-v3`,
+completed seven updates on all four hosts: two warmups, one profiled update,
+then four timed updates. The timed medians were 2.4858–2.4878 seconds. Dividing
+the global 524,288 tokens per update by the slowest host's median gives about
+211,000 tokens/second. All ranks reported
+the same finite loss sequence, from 9.835014 to 5.998792, on the fixed random
+batch. This includes EMA storage before activation. The compiler reported
+9.57 GB temporary storage and 2.21 GB arguments per device; those figures do
+not include all runtime allocations. Reports, raw losses, HLO, profiles and
+rank-zero curves are under
+`gs://marin-us-central2/kaiyue/belay-base16-tpu/native-profile-v3/`.
+
+The first native attempt failed during lowering on a CUDA-only QuACK import;
+the JAX fallback enabled the completed updates. The second attempt completed
+but exposed host timing skew from reporting; the third added synchronization.
+Active EMA validation is pending. The [research record](https://github.com/WhenWen/astra-d8-research/issues/96#issuecomment-6153356355)
+preserves these attempts and their distinct measurement protocols.
