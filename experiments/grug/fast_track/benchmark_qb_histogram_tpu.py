@@ -19,10 +19,28 @@ import numpy as np
 from experiments.grug.fast_track.qb_balancing import local_expert_histogram
 
 
+def factorized_histogram(indices: jax.Array, n_bins: int, group_size: int, radix: int) -> jax.Array:
+    """Count high/low bin digits with binary int8 matmuls and int32 sums."""
+    tokens, experts = indices.shape
+    groups = indices.T.reshape(experts // group_size, group_size, tokens)
+    high_bins = (n_bins + radix - 1) // radix
+
+    def count_group(group):
+        high = jax.nn.one_hot(group // radix, high_bins, dtype=jnp.int8)
+        low = jax.nn.one_hot(group % radix, radix, dtype=jnp.int8)
+        counts = jax.lax.dot_general(
+            high, low, (((1,), (1,)), ((0,), (0,))), preferred_element_type=jnp.int32
+        )
+        return counts.reshape(group_size, high_bins * radix)[:, :n_bins]
+
+    return jax.lax.map(count_group, groups).reshape(experts, n_bins)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--revision", required=True)
     parser.add_argument("--artifact-prefix", required=True)
+    parser.add_argument("--factorized", action="store_true", help="Compare bounded integer-matmul candidates.")
     args = parser.parse_args()
     device = jax.local_devices()[0]
     if device.platform != "tpu" or "v4" not in device.device_kind:
@@ -40,11 +58,21 @@ def main() -> None:
                 if distribution == "concentrated":
                     indices = jnp.where(indices < bins // 2, 0, bins - 1)
                 reference = None
-                for group in (None, 1, 8, 32, 128, 512):
+                candidates = [(g, None) for g in (None, 1, 8, 32, 128, 512)]
+                if args.factorized:
+                    candidates = [(None, None), (128, None)] + [
+                        (g, radix) for g in (16, 64) for radix in (64, 128, 256)
+                    ]
+                for group, radix in candidates:
                     if group is not None and experts % group:
                         continue
                     name = "flat_reference" if group is None else f"group_{group}"
-                    fn = lambda x: local_expert_histogram(x, bins, group)
+                    if radix is None:
+                        fn = lambda x: local_expert_histogram(x, bins, group)
+                    else:
+                        assert group is not None
+                        name = f"matmul_group_{group}_radix_{radix}"
+                        fn = lambda x: factorized_histogram(x, bins, group, radix)
                     row: dict[str, object] = {
                         "kernel": "qb_integer_histogram",
                         "implementation": name,
@@ -55,7 +83,7 @@ def main() -> None:
                         "backend": "tpu",
                         "device_type": device.device_kind,
                         "device_count": 1,
-                        "block_sizes": {"experts": group},
+                        "block_sizes": {"experts": group, "radix": radix},
                         "git_sha": args.revision,
                         "jax_version": jax.__version__,
                         "jaxlib_version": jaxlib.__version__,
