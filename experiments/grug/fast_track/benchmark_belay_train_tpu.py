@@ -67,7 +67,7 @@ def main() -> None:
         help="Active enables EMA from the first diagnostic update; it does not simulate a trained checkpoint.",
     )
     parser.add_argument("--revision", required=True)
-    parser.add_argument("--kda-scan", choices=("production", "reference", "stacked"), default="production")
+    parser.add_argument("--kda-scan", choices=("production", "reference", "stacked", "stacked-split"), default="production")
     parser.add_argument("--accepted-mask", choices=("production", "reference", "inverse-direct"), default="production")
     parser.add_argument("--artifact-prefix", required=True)
     args = parser.parse_args()
@@ -89,7 +89,8 @@ def main() -> None:
         attn_res_remat_attention_save_all=args.attention_remat == "save-all",
     )
     if args.kda_scan != "production":
-        config = replace(config, kda_xla_scan_impl="parallel_stacked" if args.kda_scan == "stacked" else "parallel")
+        scans = {"reference": "parallel", "stacked": "parallel_stacked", "stacked-split": "parallel_stacked_split"}
+        config = replace(config, kda_xla_scan_impl=scans[args.kda_scan])
     policy = jmp.get_policy("params=float32,compute=bfloat16,output=bfloat16")
     source["optimizer"]["type"] = "grug_fast_track_muonh_v1"
     optimizer = draccus.decode(OptimizerConfig, source["optimizer"]).build(trainer["num_train_steps"])

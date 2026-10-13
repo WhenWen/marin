@@ -858,7 +858,7 @@ class GrugModelConfig:
     kda_state_grads: StateGrads = StateGrads.XLA
     """Where the fused KDA state pass's backward forms its per-chunk cotangents (``StateGrads``; same math)."""
     kda_xla_scan_impl: str = "parallel"
-    """XLA scan: ``parallel`` or TPU-tuned ``parallel_stacked``."""
+    """XLA scan implementation; see ``chunk_kda``."""
     # Block Attention Residuals (Kimi, arXiv 2603.15031): each sublayer's input is a per-token softmax
     # attention over the residual-block history (the embedding, completed block sums and the running
     # partial), scored by a learned per-sublayer pseudo-query against the RMS-normalized sources.
@@ -1793,7 +1793,7 @@ class GrugModelConfig:
             raise ValueError("local_mixer=kda requires attn_res (KDA layers run in the unrolled AttnRes loop)")
         if self.kda_chunk_size not in KDA_CHUNK_TILES:
             raise ValueError(f"kda_chunk_size must be one of {list(KDA_CHUNK_TILES)}, got {self.kda_chunk_size}")
-        if self.kda_xla_scan_impl not in ("parallel", "parallel_stacked"):
+        if self.kda_xla_scan_impl not in ("parallel", "parallel_stacked", "parallel_stacked_split"):
             raise ValueError(f"Unknown KDA XLA scan: {self.kda_xla_scan_impl!r}")
         if self.kda_onchip_decay_gate and (
             self.kda_decay_per_head
