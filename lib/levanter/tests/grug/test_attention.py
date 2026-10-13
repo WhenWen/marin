@@ -20,8 +20,10 @@ from levanter.grug.attention._core import blocked_inkling_attention
 
 
 @pytest.mark.parametrize("dense_mask", [False, True])
-@pytest.mark.parametrize("block_size", [64, 128, 256])
-def test_blocked_inkling_matches_reference_values_and_gradients(dense_mask, block_size):
+@pytest.mark.parametrize(
+    "block_size,precision", [(128, None), (256, None), (64, "highest"), (128, "highest"), (256, "highest")]
+)
+def test_blocked_inkling_matches_reference_values_and_gradients(dense_mask, block_size, precision):
     q, k, v = _make_qkv(batch=1, q_len=256, k_len=256, q_heads=2, kv_heads=1)
     v = jax.random.normal(jax.random.key(4), (*v.shape[:-1], 12))
     # A document boundary inside the second query tile catches tile-relative
@@ -44,8 +46,12 @@ def test_blocked_inkling_matches_reference_values_and_gradients(dense_mask, bloc
         return jnp.sum(output * weights), output
 
     compute = jax.jit(jax.value_and_grad(loss, argnums=(0, 1, 2, 3), has_aux=True), static_argnames="blocked")
-    (value, output), grads = compute(q, k, v, band, blocked=True)
-    (expected_value, expected_output), expected_grads = compute(q, k, v, band, blocked=False)
+    # Highest precision isolates indexing/transpose parity across tile shapes;
+    # TPU default matmul precision introduces tile-dependent float32 rounding.
+    # Keep the production 128-row path covered at default precision as well.
+    with jax.default_matmul_precision(precision):
+        (value, output), grads = compute(q, k, v, band, blocked=True)
+        (expected_value, expected_output), expected_grads = compute(q, k, v, band, blocked=False)
     np.testing.assert_allclose(value, expected_value, atol=1e-4, rtol=1e-4)
     for actual, expected in zip((output, *grads), (expected_output, *expected_grads), strict=True):
         difference = np.abs(np.asarray(actual) - np.asarray(expected))
