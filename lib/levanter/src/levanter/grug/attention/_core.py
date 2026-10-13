@@ -314,8 +314,10 @@ def _blocked_inkling_math(q, k, v, mask, rel_bias, *, block_size: int):
         queries = jax.lax.dynamic_slice_in_dim(q, start, block_size, axis=1)
         band = jax.lax.dynamic_slice_in_dim(rel_bias, start, block_size, axis=2)
         bias = dense_rel_bias(band, block_size, k.shape[1], query_offset=start)
-        tile_mask = None if explicit is None else jax.lax.dynamic_slice_in_dim(
-            explicit, start, block_size, axis=explicit.ndim - 2
+        tile_mask = (
+            None
+            if explicit is None
+            else jax.lax.dynamic_slice_in_dim(explicit, start, block_size, axis=explicit.ndim - 2)
         )
         return _reference_attention_math(queries, k, v, tile_mask, bias, logits_dtype=jnp.float32)
 
