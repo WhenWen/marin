@@ -37,6 +37,7 @@ from levanter.grug.sharding import compact_grug_mesh
 from levanter.optim.config import OptimizerConfig
 
 from experiments.grug.fast_track.belay_tpu import SOURCE_CONFIG, base16_model_config, require_tpu_rounding
+from experiments.grug.fast_track.model import AttnResLayerBackward
 from experiments.grug.fast_track.train import _flat_train_step, _make_train_step, _router_ties_active, initial_state
 
 mpl.use("Agg")
@@ -66,6 +67,12 @@ def main() -> None:
         default="early",
         help="Active enables EMA from the first diagnostic update; it does not simulate a trained checkpoint.",
     )
+    parser.add_argument(
+        "--layer-backward",
+        choices=("production", "recompute", "save"),
+        default="production",
+        help="Diagnostic outer layer residual policy; inner attention checkpointing is separate.",
+    )
     parser.add_argument("--revision", required=True)
     parser.add_argument(
         "--kda-scan", choices=("production", "reference", "stacked", "stacked-split"), default="production"
@@ -90,6 +97,8 @@ def main() -> None:
         attn_res_remat_attention=args.attention_remat != "off",
         attn_res_remat_attention_save_all=args.attention_remat == "save-all",
     )
+    if args.layer_backward != "production":
+        config = replace(config, attn_res_layer_backward=AttnResLayerBackward[args.layer_backward.upper()])
     if args.kda_scan != "production":
         scans = {"reference": "parallel", "stacked": "parallel_stacked", "stacked-split": "parallel_stacked_split"}
         config = replace(config, kda_xla_scan_impl=scans[args.kda_scan])
@@ -111,6 +120,7 @@ def main() -> None:
         "device_type": devices[0].device_kind,
         "device_count": len(devices),
         "block_sizes": {"inkling_query": 128},
+        "attn_res_layer_backward": config.attn_res_layer_backward.value,
         "attn_res_remat_attention": config.attn_res_remat_attention,
         "attn_res_remat_attention_save_all": config.attn_res_remat_attention_save_all,
         "kda_scan": args.kda_scan,
