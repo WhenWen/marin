@@ -52,8 +52,7 @@ def main():
     parser.add_argument("--revision", required=True)
     parser.add_argument("--artifact-prefix", required=True)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--split-vjp", action="store_true", help="Also test separate stride-slice transposes.")
-    parser.add_argument("--select-vjp", action="store_true", help="Also compare broadcast-and-select stride transposes.")
+    parser.add_argument("--split-vjp", action="store_true", help="Also test direct interleaving of split cotangents.")
     args = parser.parse_args()
     device = jax.local_devices()[0]
     if device.device_kind != "TPU v4":
@@ -78,10 +77,8 @@ def main():
                 for mode in ("forward", "value_and_grad"):
                     reference = None
                     implementations = {"jax_reference": "parallel", "stacked": "parallel_stacked"}
-                    if args.split_vjp or args.select_vjp:
+                    if args.split_vjp:
                         implementations["stacked_split"] = "parallel_stacked_split"
-                    if args.select_vjp:
-                        implementations["stacked_select"] = "parallel_stacked_select"
                     for name, scan_impl in implementations.items():
                         record = {
                             "kernel": "chunk_kda",

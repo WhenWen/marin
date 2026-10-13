@@ -488,3 +488,14 @@ The slowest host median was 1.204977358 seconds/update, 3.29% below the
 and [native validation plan](https://github.com/WhenWen/astra-d8-research/issues/96#issuecomment-6156421544).
 Reports and loss curves retain each native run name under the GCS artifact
 parent above.
+
+The broadcast-select transpose candidate at `4a7741354` failed three of 72
+parameter-grid rows in `kda-stride-select-v1`, all full-shape backward cases.
+Maximum gradient differences were 0.00048828125 without resets and with
+1024-token documents, and 0.000244140625 with 83-token documents. The k/g/beta
+gradients failed atol=rtol=1e-5 against the original JAX associative scan;
+objectives and q/v gradients matched exactly. All 20 sequential-oracle unit cases passed. The unpacked backward HLO
+had 71 pad operations versus 140 for the validated separate-slice transpose,
+but numerical failure prevented backward timing or native promotion. The candidate was
+removed; its source commit, reports, HLOs and JUnit remain recorded under
+`gs://marin-us-central2/kaiyue/belay-base16-tpu/kda-stride-select-v1/`.
