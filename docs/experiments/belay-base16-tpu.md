@@ -137,8 +137,10 @@ real-data loss curves and equivalence to the GPU run remain unmeasured.
 
 The entry point and numerical validation are implemented. Training is blocked
 until verified us-central2 mirrors of the original 16k-token caches are
-available. The remote execution host could not access the source S3 caches
-without AWS credentials; no replacement data was used.
+available. The remote execution host lacks credentials for the source
+CoreWeave S3-compatible store. A metadata-only CPU job submitted to
+`cw-us-east-02a` was rejected because this account is not admitted to that
+cluster; its source listing never ran. No replacement data was used.
 
 ## Performance measurements
 
@@ -324,3 +326,15 @@ tests this reconstruction without changing production selection. Native exact-lo
 parity, replicated step improvement and broader seeds remain unverified.
 Reports and HLO are under
 `gs://marin-us-central2/kaiyue/belay-base16-tpu/kda-parameter-scan-v1/`.
+
+The acceptance-mask grid at `a02ac1142`, `/kaiyue/belay-accepted-mask-v1`,
+passed all 64 cases with exact masks and inverse positions. It covers two
+shapes, partial/full/zero acceptance and concentrated assignments with invalid
+expert IDs. At 262,144 assignments and 512 experts, computing acceptance from
+inverse positions took 4.040–4.046 ms, compared with 7.351–7.375 ms for the
+reference boolean scatter, when both return the inverse positions used by
+combine. Temporary compiler storage fell from 2.65 to 1.69 MB. The native
+benchmark's `--accepted-mask inverse-direct` option tests this substitution;
+production mask construction remains unchanged until native parity and
+replicated timing pass. Reports and HLO are under
+`gs://marin-us-central2/kaiyue/belay-base16-tpu/accepted-mask-v1/`.
