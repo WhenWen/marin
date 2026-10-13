@@ -35,7 +35,7 @@ from experiments.grug.fast_track.belay_tpu import SOURCE_CONFIG, base16_model_co
 from experiments.grug.fast_track.train import _flat_train_step, _make_train_step, _router_ties_active, initial_state
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.pyplot as plt
 
 
 def main() -> None:
@@ -101,7 +101,11 @@ def main() -> None:
         ax.plot(
             [r["step"] for r in report["steps"]],
             [r["loss"] for r in report["steps"]],
-            color="#1F77B4", marker="o", linewidth=2, markersize=4, label=f"base16, seed {trainer['seed']}",
+            color="#1F77B4",
+            marker="o",
+            linewidth=2,
+            markersize=4,
+            label=f"base16, seed {trainer['seed']}",
         )
         ax.set(xlabel="Optimizer update", ylabel="Random-token training loss")
         ax.grid(color="#B0B0B0", linestyle="--", alpha=0.65)
@@ -131,8 +135,11 @@ def main() -> None:
         )
         batch = jax.vmap(GrugLmExample.causal)(tokens, segment_ids=segments)
         step_fn = _make_train_step(
-            optimizer, policy, z_loss_weight=outer["z_loss_weight"],
-            ema_beta=outer["ema_beta"], ema_start_step=report["ema_start_step"],
+            optimizer,
+            policy,
+            z_loss_weight=outer["z_loss_weight"],
+            ema_beta=outer["ema_beta"],
+            ema_start_step=report["ema_start_step"],
             watch_config=draccus.decode(WatchConfig, trainer["watch"]),
             grad_accum_microbatches=outer["grad_accum_microbatches"],
         )
@@ -146,8 +153,10 @@ def main() -> None:
         report["compile_time"] = time.monotonic() - start
         memory = compiled.memory_analysis()
         report["compiler_memory_bytes"] = {
-            "arguments": memory.argument_size_in_bytes, "outputs": memory.output_size_in_bytes,
-            "temporary": memory.temp_size_in_bytes, "aliases": memory.alias_size_in_bytes,
+            "arguments": memory.argument_size_in_bytes,
+            "outputs": memory.output_size_in_bytes,
+            "temporary": memory.temp_size_in_bytes,
+            "aliases": memory.alias_size_in_bytes,
         }
         if rank == 0:
             hlo = output / "optimized-hlo.txt"
