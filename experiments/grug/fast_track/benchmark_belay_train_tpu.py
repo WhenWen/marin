@@ -226,6 +226,13 @@ def main() -> None:
             step("timed")
             save_report()
             save_curve()
+        # Inspect parameters, optimizer buffers and EMA after timing; EMA does
+        # not feed the training loss, so finite losses alone do not check it.
+        finite_state = jax.jit(lambda xs: jnp.stack([jnp.all(jnp.isfinite(x)) for x in xs]).all())(leaves)
+        report["finite_state"] = bool(finite_state)
+        if not report["finite_state"]:
+            save_report()
+            raise RuntimeError("Nonfinite parameter, optimizer or EMA state")
         samples = [r.seconds for r in rows if r.phase == "timed"]
         report.update(status="completed", steady_state_time=statistics.median(samples))
         save_report()
