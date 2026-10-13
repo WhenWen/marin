@@ -3278,8 +3278,6 @@ def _kda_rotate_qk(q, k, rate, segment_ids):
 
 
 class KdaKernelOptions(NamedTuple):
-    """Static KDA execution choices."""
-
     chunk_size: int  # fused (GPU) kernels' chunk length, see KDA_CHUNK_TILES
     save_chunk_states: bool
     state_grads: StateGrads
@@ -3287,7 +3285,6 @@ class KdaKernelOptions(NamedTuple):
 
 
 def _kda_kernel_rotating(q, k, v, g, beta, extras: dict[str, jax.Array], *, options: KdaKernelOptions):
-    """Rotate q/k with ``rot_rate``, then apply KDA."""
     extras = dict(extras)
     q, k = _kda_rotate_qk(q, k, extras.pop("rot_rate"), extras.get("segment_ids"))
     return _kda_kernel(q, k, v, g, beta, extras, options=options)
