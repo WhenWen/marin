@@ -10,7 +10,7 @@ import pytest
 from jax.sharding import AxisType, Mesh, NamedSharding
 from jax.sharding import PartitionSpec as P
 
-from experiments.grug.fast_track.qb_balancing import local_expert_histogram, qb_beta_hist
+from experiments.grug.fast_track.qb_balancing import factorized_expert_histogram, local_expert_histogram, qb_beta_hist
 
 
 @pytest.mark.parametrize("bins", [31, 10000])
@@ -24,6 +24,10 @@ def test_grouped_histogram_counts(bins, concentrated):
     for group in (None, 1, 8, 32, 128):
         actual = jax.jit(lambda x: local_expert_histogram(x, bins, group))(jnp.asarray(indices))
         np.testing.assert_array_equal(np.asarray(actual), expected)
+    for group in (16, 64):
+        for radix in (64, 128, 256):
+            actual = jax.jit(lambda x: factorized_expert_histogram(x, bins, group, radix))(jnp.asarray(indices))
+            np.testing.assert_array_equal(np.asarray(actual), expected)
 
 
 @pytest.mark.timeout(600)

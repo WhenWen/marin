@@ -11,8 +11,27 @@ from jax.sharding import reshard
 
 # Tuned on integer histograms at Belay d512's local routing shape; other
 # devices/shapes retain the flat implementation. See the issue's raw grid:
-# https://github.com/WhenWen/astra-d8-research/issues/96#issuecomment-6153400266
-_HISTOGRAM_GROUPS = {("TPU v4", 32768, 512, 10000): 128}
+# https://github.com/WhenWen/astra-d8-research/issues/96#issuecomment-6153566684
+_HISTOGRAM_MATMUL_TILES = {("TPU v4", 32768, 512, 10000): (64, 64)}
+
+
+def factorized_expert_histogram(indices: jax.Array, n_bins: int, group_size: int, radix: int) -> jax.Array:
+    """Count bins via high/low digits, with int8 products and int32 accumulation.
+
+    Each expert's binary one-hot matrices contract over tokens independently.
+    Counts are exact while the token count fits int32; groups limit live memory.
+    """
+    tokens, experts = indices.shape
+    groups = indices.T.reshape(experts // group_size, group_size, tokens)
+    high_bins = (n_bins + radix - 1) // radix
+
+    def count_group(group):
+        high = jax.nn.one_hot(group // radix, high_bins, dtype=jnp.int8)
+        low = jax.nn.one_hot(group % radix, radix, dtype=jnp.int8)
+        counts = jax.lax.dot_general(high, low, (((1,), (1,)), ((0,), (0,))), preferred_element_type=jnp.int32)
+        return counts.reshape(group_size, high_bins * radix)[:, :n_bins]
+
+    return jax.lax.map(count_group, groups).reshape(experts, n_bins)
 
 
 def local_expert_histogram(indices: jax.Array, n_bins: int, group_size: int | None = None) -> jax.Array:
@@ -53,13 +72,16 @@ def bincount_upper_quantile(
 
     Runs inside a ``shard_map``. Clip-to-edge bins build each expert's local histogram;
     one integer ``psum`` pools it globally. Beta is read from the top-cumulative counts,
-    interpolated in the crossing bin. The measured TPU v4 shape uses grouped scatters.
+    interpolated in the crossing bin. The measured TPU v4 shape uses integer matrix products.
     """
     bin_width = (hi - lo) / n_bins
     idx = jnp.clip(((s_local - lo) / bin_width).astype(jnp.int32), 0, n_bins - 1)
     device_kind = jax.local_devices()[0].device_kind
-    group_size = _HISTOGRAM_GROUPS.get((device_kind, s_local.shape[0], num_experts, n_bins))
-    local_counts = local_expert_histogram(idx, n_bins, group_size)
+    tile = _HISTOGRAM_MATMUL_TILES.get((device_kind, s_local.shape[0], num_experts, n_bins))
+    if tile is None:
+        local_counts = local_expert_histogram(idx, n_bins)
+    else:
+        local_counts = factorized_expert_histogram(idx, n_bins, *tile)
     counts = jax.lax.psum(local_counts, axis_name=batch_axes).astype(jnp.float32)
     cum_from_top = jnp.cumsum(counts[:, ::-1], axis=-1)[:, ::-1]  # #{margins in bins >= b}
     target_rank = jnp.broadcast_to(jnp.asarray(target_rank, jnp.float32), (num_experts,))

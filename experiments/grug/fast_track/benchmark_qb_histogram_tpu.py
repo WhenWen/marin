@@ -16,22 +16,7 @@ import jax.numpy as jnp
 import jaxlib
 import numpy as np
 
-from experiments.grug.fast_track.qb_balancing import local_expert_histogram
-
-
-def factorized_histogram(indices: jax.Array, n_bins: int, group_size: int, radix: int) -> jax.Array:
-    """Count high/low bin digits with binary int8 matmuls and int32 sums."""
-    tokens, experts = indices.shape
-    groups = indices.T.reshape(experts // group_size, group_size, tokens)
-    high_bins = (n_bins + radix - 1) // radix
-
-    def count_group(group):
-        high = jax.nn.one_hot(group // radix, high_bins, dtype=jnp.int8)
-        low = jax.nn.one_hot(group % radix, radix, dtype=jnp.int8)
-        counts = jax.lax.dot_general(high, low, (((1,), (1,)), ((0,), (0,))), preferred_element_type=jnp.int32)
-        return counts.reshape(group_size, high_bins * radix)[:, :n_bins]
-
-    return jax.lax.map(count_group, groups).reshape(experts, n_bins)
+from experiments.grug.fast_track.qb_balancing import factorized_expert_histogram, local_expert_histogram
 
 
 def main() -> None:
@@ -68,7 +53,7 @@ def main() -> None:
                     else:
                         assert group is not None
                         name = f"matmul_group_{group}_radix_{radix}"
-                        fn = lambda x: factorized_histogram(x, bins, group, radix)
+                        fn = lambda x: factorized_expert_histogram(x, bins, group, radix)
                     row: dict[str, object] = {
                         "kernel": "qb_integer_histogram",
                         "implementation": name,
