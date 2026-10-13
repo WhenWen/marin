@@ -303,7 +303,10 @@ def reference_attention(
     return wrapped(q, k, v, mask, rel_bias_dense, logits_dtype=logits_dtype)
 
 
-def _blocked_inkling_math(q, k, v, mask, rel_bias, *, block_size: int):
+def _blocked_inkling_math(
+    q: jax.Array, k: jax.Array, v: jax.Array, mask: AttentionMask | jax.Array | None,
+    rel_bias: jax.Array, *, block_size: int,
+) -> jax.Array:
     """Bound score/bias storage by query blocks; rematerialize their backward."""
     batch, length, heads, width = q.shape
     explicit = mask.materialize_mask(length, k.shape[1]) if isinstance(mask, AttentionMask) else mask
@@ -325,7 +328,10 @@ def _blocked_inkling_math(q, k, v, mask, rel_bias, *, block_size: int):
     return blocks.transpose(1, 0, 2, 3, 4).reshape(batch, length, heads, width)
 
 
-def blocked_inkling_attention(q, k, v, mask, rel_bias, *, block_size: int = 128):
+def blocked_inkling_attention(
+    q: jax.Array, k: jax.Array, v: jax.Array, mask: AttentionMask | jax.Array | None,
+    rel_bias: jax.Array, *, block_size: int = 128,
+) -> jax.Array:
     """Exact Inkling attention with bounded query-block intermediates on TPU.
 
     Dense masks and packed documents use the same semantics as the reference.
@@ -336,7 +342,8 @@ def blocked_inkling_attention(q, k, v, mask, rel_bias, *, block_size: int = 128)
     out_sharding = named_sharding_of(q)
     if out_sharding is None:
         return _blocked_inkling_math(q, k, v, mask, rel_bias, block_size=block_size)
-    wrapped = auto_axes(_blocked_inkling_math, out_sharding=out_sharding)
+    # pyrefly: ignore[bad-assignment]  # auto_axes's decorator overload erases the wrapped signature
+    wrapped: Callable[..., jax.Array] = auto_axes(_blocked_inkling_math, out_sharding=out_sharding)
     return wrapped(q, k, v, mask, rel_bias, block_size=block_size)
 
 
