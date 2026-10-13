@@ -35,6 +35,7 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, help="Override only the diagnostic batch; default is the frozen 128.")
     parser.add_argument("--benchmark-steps", type=int, default=0)
     parser.add_argument("--profile-steps", type=int, default=0)
+    parser.add_argument("--training-objective", action="store_true", help="Use recorded trainer JAX flags and loss terms.")
     parser.add_argument("--revision", help="Exact source commit for benchmark provenance.")
     parser.add_argument("--artifact-prefix", help="Unique gs://marin-us-central2/ path for durable diagnostics.")
     args = parser.parse_args()
@@ -44,12 +45,15 @@ def main() -> None:
         parser.error("Benchmarks require --revision")
     if args.artifact_prefix and not args.artifact_prefix.startswith("gs://marin-us-central2/"):
         parser.error("Artifacts must remain in us-central2")
+    source = json.loads(SOURCE_CONFIG.read_text())
+    if args.training_objective:
+        for name, value in source["trainer"]["trainer"]["jax_config"].items():
+            jax.config.update(name, value)
     DistributedConfig().initialize()
     devices = jax.devices()
     if any(d.platform != "tpu" or "v4" not in d.device_kind for d in devices):
         raise RuntimeError("Full-model validation requires TPU v4")
     config = base16_model_config()
-    source = json.loads(SOURCE_CONFIG.read_text())
     batch = source["trainer"]["trainer"]["train_batch_size"] if args.batch_size is None else args.batch_size
     if batch <= 0 or batch % len(devices):
         raise ValueError("Diagnostic batch must be positive and divisible by the TPU chip count")
@@ -78,6 +82,12 @@ def main() -> None:
         "backend_env": {"LIBTPU_INIT_ARGS": os.environ.get("LIBTPU_INIT_ARGS", "")},
         "error": None,
         "status": "initializing",
+        "training_objective": args.training_objective,
+        "jax_config": {
+            "jax_softmax_custom_jvp": jax.config.jax_softmax_custom_jvp,
+            "jax_threefry_partitionable": jax.config.jax_threefry_partitionable,
+        },
+        "z_loss_weight": source["trainer"]["z_loss_weight"] if args.training_objective else None,
     }
     rank = jax.process_index()
     report_path = output / f"full-model-rank-{rank}.json"
@@ -102,7 +112,13 @@ def main() -> None:
         mask = AttentionMask.causal().with_segment_ids(segments)
 
         def loss(model, tokens, weights, mask):
-            return policy.cast_to_compute(model).next_token_loss(tokens, weights, mask=mask)
+            return policy.cast_to_compute(model).next_token_loss(
+                tokens,
+                weights,
+                mask=mask,
+                train_terms=args.training_objective,
+                logsumexp_weight=source["trainer"]["z_loss_weight"] if args.training_objective else None,
+            )
 
         start = time.monotonic()
         print("Compiling and executing forward/backward", flush=True)
