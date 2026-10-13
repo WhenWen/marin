@@ -35,7 +35,9 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, help="Override only the diagnostic batch; default is the frozen 128.")
     parser.add_argument("--benchmark-steps", type=int, default=0)
     parser.add_argument("--profile-steps", type=int, default=0)
-    parser.add_argument("--training-objective", action="store_true", help="Use recorded trainer JAX flags and loss terms.")
+    parser.add_argument(
+        "--training-objective", action="store_true", help="Use recorded trainer JAX flags and loss terms."
+    )
     parser.add_argument("--revision", help="Exact source commit for benchmark provenance.")
     parser.add_argument("--artifact-prefix", help="Unique gs://marin-us-central2/ path for durable diagnostics.")
     args = parser.parse_args()
