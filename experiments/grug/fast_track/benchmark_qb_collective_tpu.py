@@ -60,8 +60,9 @@ def main():
         mesh = Mesh(np.asarray(devices).reshape(mesh_shape), axes, axis_types=(AxisType.Explicit,) * len(axes))
         for experts, bins in ((16, 31), (512, 10000)):
             for distribution in ("spread", "concentrated", "constant"):
-                counts = jax.random.randint(jax.random.key(0), (4 * experts, bins - 1), 0, 4, dtype=jnp.int32)
-                counts = jnp.concatenate((counts, 32768 - counts.sum(axis=1, keepdims=True)), axis=1)
+                counts = jax.random.randint(jax.random.key(0), (4 * experts, bins), 0, 4, dtype=jnp.int32)
+                remaining = 32768 - counts.sum(axis=1, keepdims=True)
+                counts += remaining // bins + (jnp.arange(bins)[None, :] < remaining % bins)
                 if distribution != "spread":
                     counts = jnp.zeros_like(counts).at[:, 0].set(32768 if distribution == "constant" else 16384)
                     if distribution == "concentrated":
