@@ -858,7 +858,7 @@ class GrugModelConfig:
     kda_state_grads: StateGrads = StateGrads.XLA
     """Where the fused KDA state pass's backward forms its per-chunk cotangents (``StateGrads``; same math)."""
     kda_xla_scan_impl: str = "parallel"
-    """XLA cross-chunk scan: reference ``parallel`` or TPU-tuned ``parallel_stacked``."""
+    """XLA scan: ``parallel`` or TPU-tuned ``parallel_stacked``."""
     # Block Attention Residuals (Kimi, arXiv 2603.15031): each sublayer's input is a per-token softmax
     # attention over the residual-block history (the embedding, completed block sums and the running
     # partial), scored by a learned per-sublayer pseudo-query against the RMS-normalized sources.
@@ -3278,7 +3278,7 @@ def _kda_rotate_qk(q, k, rate, segment_ids):
 
 
 class KdaKernelOptions(NamedTuple):
-    """Static options of the KDA kernel call (``_kda_kernel``)."""
+    """Static KDA execution choices."""
 
     chunk_size: int  # fused (GPU) kernels' chunk length, see KDA_CHUNK_TILES
     save_chunk_states: bool
@@ -3287,17 +3287,17 @@ class KdaKernelOptions(NamedTuple):
 
 
 def _kda_kernel_rotating(q, k, v, g, beta, extras: dict[str, jax.Array], *, options: KdaKernelOptions):
-    """``_kda_kernel`` after rotating q and k by ``extras["rot_rate"]`` (``kda_dd_rope``)."""
+    """Rotate q/k with ``rot_rate``, then apply KDA."""
     extras = dict(extras)
     q, k = _kda_rotate_qk(q, k, extras.pop("rot_rate"), extras.get("segment_ids"))
     return _kda_kernel(q, k, v, g, beta, extras, options=options)
 
 
 def _kda_kernel(q, k, v, g, beta, extras: dict[str, jax.Array], *, options: KdaKernelOptions):
-    """KDA on the model layout ``(B, S, H, d)``: the fused Pallas kernels on GPU, else the XLA ``chunk_kda``
-    (heads-first layout, ``KDA_CHUNK_SIZE``). ``extras`` optionally holds ``segment_ids``, the erase gate
-    ``erase`` or its logits ``erase_logits``, and ``gate_p`` / ``gate_bias`` (``kda_onchip_decay_gate``:
-    ``g`` is then the gate pre-activation of ``-KDA_MIN_LOG_DECAY * sigmoid(gate_p * (g + gate_bias))``)."""
+    """Run KDA on ``(B, S, H, d)`` using fused GPU kernels or the selected XLA scan.
+
+    ``extras`` supplies document IDs, erase gates/logits and decay-gate parameters.
+    """
     segment_ids = extras.get("segment_ids")
     gate = (extras["gate_p"], extras["gate_bias"]) if "gate_p" in extras else None
     gate_fn = GateFn(GateKind.SIGMOID, KDA_MIN_LOG_DECAY)
