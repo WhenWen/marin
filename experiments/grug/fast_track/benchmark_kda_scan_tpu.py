@@ -43,6 +43,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--revision", required=True)
     parser.add_argument("--artifact-prefix", required=True)
+    parser.add_argument("--full-gradient-only", action="store_true", help="Diagnose the full-shape gradient mismatch.")
     args = parser.parse_args()
     device = jax.local_devices()[0]
     if device.device_kind != "TPU v4":
@@ -55,6 +56,8 @@ def main():
     rows = []
     with jax.default_device(device):
         for shape in ((1, 2, 7, 8, 8), (2, 4, 64, 64, 64), (8, 4, 256, 128, 128)):
+            if args.full_gradient_only and shape[-1] != 128:
+                continue
             # Stable transitions, including resets, exercise the same affine algebra.
             m = 0.95 * jnp.eye(shape[-1]) + 0.001 * jax.random.normal(jax.random.key(0), shape)
             m = m.at[..., ::5, :, :].set(0.0)
@@ -62,6 +65,8 @@ def main():
             cot = jax.random.normal(jax.random.key(2), shape)
             inputs = (m, c)
             for mode in ("forward", "value_and_grad"):
+                if args.full_gradient_only and mode != "value_and_grad":
+                    continue
                 reference = None
                 for name, scan in (
                     ("jax_reference", lambda xs: jax.lax.associative_scan(compose, xs, axis=-3)),
@@ -97,12 +102,29 @@ def main():
                         start = time.monotonic()
                         compiled = jax.jit(run).lower(inputs, cot).compile()
                         row["compile_time"] = time.monotonic() - start
+                        if shape[-1] == 128:
+                            hlo = output / f"{name}-{mode}-hlo.txt"
+                            hlo.write_text(compiled.as_text())
+                            fs.put_file(str(hlo), f"{prefix}/{hlo.name}")
                         actual = jax.block_until_ready(compiled(inputs, cot))
                         if reference is None:
                             reference = actual
                         pairs = list(zip(jax.tree.leaves(actual), jax.tree.leaves(reference), strict=True))
                         row["max_abs_error"] = max(float(jnp.max(jnp.abs(a - b))) for a, b in pairs)
                         row["mean_abs_errors"] = [float(jnp.mean(jnp.abs(a - b))) for a, b in pairs]
+                        errors = []
+                        for a, b in pairs:
+                            delta = jnp.abs(a - b)
+                            pos = int(jnp.argmax(delta))
+                            errors.append({
+                                "shape": a.shape,
+                                "max_abs_error": float(jnp.max(delta)),
+                                "bad_count": int(jnp.sum(~jnp.isclose(a, b, atol=1e-5, rtol=1e-5))),
+                                "actual_at_max": float(a.reshape(-1)[pos]),
+                                "reference_at_max": float(b.reshape(-1)[pos]),
+                                "flat_index_at_max": pos,
+                            })
+                        row["leaf_errors"] = errors
                         if not all(bool(jnp.allclose(a, b, atol=1e-5, rtol=1e-5)) for a, b in pairs):
                             raise AssertionError("Value or gradient differs from JAX associative_scan")
                         row["temporary_bytes"] = compiled.memory_analysis().temp_size_in_bytes
@@ -114,10 +136,6 @@ def main():
                             jax.block_until_ready(compiled(inputs, cot))
                             samples.append(time.monotonic() - start)
                         row.update(steady_state_time=statistics.median(samples), steady_state_samples=samples)
-                        if shape[-1] == 128:
-                            hlo = output / f"{name}-{mode}-hlo.txt"
-                            hlo.write_text(compiled.as_text())
-                            fs.put_file(str(hlo), f"{prefix}/{hlo.name}")
                     except Exception as exc:
                         row["error"] = repr(exc)
                     rows.append(row)

@@ -11,15 +11,16 @@ from jax.sharding import reshard
 
 # Tuned on integer histograms at Belay d512's local routing shape; other
 # devices/shapes retain the flat implementation. See the issue's raw grid:
-# https://github.com/WhenWen/astra-d8-research/issues/96#issuecomment-6153566684
+# https://github.com/WhenWen/astra-d8-research/issues/96#issuecomment-6153669097
 _HISTOGRAM_MATMUL_TILES = {("TPU v4", 32768, 512, 10000): (64, 64)}
 
 
 def factorized_expert_histogram(indices: jax.Array, n_bins: int, group_size: int, radix: int) -> jax.Array:
-    """Count bins via high/low digits, with int8 products and int32 accumulation.
+    """Count clipped ``[tokens, experts]`` indices with binary matrix products.
 
     Each expert's binary one-hot matrices contract over tokens independently.
-    Counts are exact while the token count fits int32; groups limit live memory.
+    Accumulation is int32 and exact while the token count fits; groups limit
+    live memory. TPU XLA can fold the source int8 one-hots into predicates.
     """
     tokens, experts = indices.shape
     groups = indices.T.reshape(experts // group_size, group_size, tokens)
