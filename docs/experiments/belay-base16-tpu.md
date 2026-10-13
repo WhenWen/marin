@@ -77,14 +77,24 @@ reporting an experiment. Preserve partial logs from failures and interruptions.
 128-by-4096 d512 forward/backward with packed random tokens. It requires TPU v4,
 writes per-rank numerical diagnostics, and performs no optimizer updates.
 It does not establish optimizer-state memory use, throughput, or LM quality.
+`--batch-size 4` permits an architecture check on v4-8, with the same d512
+geometry and 4096-token sequences. This does not validate the full batch's HBM use.
 
 Run kernel tests on TPU with one pytest process (`-n 0`); pytest's repository
 default starts multiple workers that contend for the TPU runtime:
 
 ```bash
 uv run --package marin-levanter --extra tpu --group test --with pytest-timeout pytest \
-  experiments/grug/moe/test_kda.py \
+  experiments/grug/moe/test_kda.py::test_chunk_kda_matches_recurrent \
+  experiments/grug/moe/test_kda.py::test_chunk_kda_bf16_matmuls_match_recurrent \
+  experiments/grug/moe/test_kda.py::test_chunk_kda_gradients_finite \
+  experiments/grug/moe/test_kda.py::test_floor_decay_is_exact_with_16_token_chunks \
   experiments/grug/fast_track/test_kda_local.py \
   experiments/grug/fast_track/test_mla_num_heads.py \
   lib/levanter/tests/grug/test_attention.py -n 0 -q
 ```
+
+The broader KDA file also exercises interpreted GPU Pallas kernels. On v4,
+ten of those checks failed their original tolerances; the TPU model dispatches
+to XLA `chunk_kda`, not those kernels. The original tolerances are unchanged.
+See the linked validation record for the full test results and run identities.

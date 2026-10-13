@@ -61,12 +61,12 @@ def main() -> None:
         segments = jax.sharding.reshard(jnp.broadcast_to(jnp.arange(config.max_seq_len) // 1024, tokens.shape), spec)
         mask = AttentionMask.causal().with_segment_ids(segments)
 
-        def loss(model):
+        def loss(model, tokens, weights, mask):
             return policy.cast_to_compute(model).next_token_loss(tokens, weights, mask=mask)
 
         start = time.monotonic()
         print("Compiling and executing forward/backward", flush=True)
-        loss_value, grads = eqx.filter_jit(eqx.filter_value_and_grad(loss))(model)
+        loss_value, grads = eqx.filter_jit(eqx.filter_value_and_grad(loss))(model, tokens, weights, mask)
         loss_value.block_until_ready()
         finite = jnp.stack([jnp.all(jnp.isfinite(x)) for x in jax.tree.leaves(grads) if eqx.is_array(x)]).all()
         report.update(
