@@ -61,12 +61,15 @@ def _reference_bwd(elems, cotangent):
 stacked_reference_vjp.defvjp(_stacked_fwd, _reference_bwd)
 
 
-def scan_result(xs, ct, *, scan, mode):
+def scan_result(xs, ct, *, scan, mode, state_only):
     def objective(ys):
         a, b = scan(ys)
-        return jnp.sum(a * ct) + jnp.sum(b * ct)
+        return jnp.sum(b * ct) if state_only else jnp.sum(a * ct) + jnp.sum(b * ct)
 
-    return scan(xs) if mode == "forward" else jax.value_and_grad(objective)(xs)
+    if mode == "forward":
+        result = scan(xs)
+        return result[1] if state_only else result
+    return jax.value_and_grad(objective)(xs)
 
 
 def main():
@@ -75,6 +78,7 @@ def main():
     parser.add_argument("--artifact-prefix", required=True)
     parser.add_argument("--full-gradient-only", action="store_true", help="Diagnose the full-shape gradient mismatch.")
     parser.add_argument("--reference-vjp", action="store_true", help="Test stack forward with the reference derivative.")
+    parser.add_argument("--state-only", action="store_true", help="Consume only cumulative states, as production KDA does.")
     args = parser.parse_args()
     device = jax.local_devices()[0]
     if device.device_kind != "TPU v4":
@@ -108,13 +112,14 @@ def main():
                     ),
                 ):
 
-                    run = partial(scan_result, scan=scan, mode=mode)
+                    run = partial(scan_result, scan=scan, mode=mode, state_only=args.state_only)
 
                     row: dict[str, object] = {
                         "kernel": "kda_affine_scan",
                         "implementation": name,
                         "shape": shape,
                         "pass_mode": mode,
+                        "output_scope": "states_only" if args.state_only else "affine_matrices_and_states",
                         "dtype": "float32",
                         "seed": 0,
                         "backend": "tpu",
