@@ -195,5 +195,10 @@ rank-zero curves are under
 The first native attempt failed during lowering on a CUDA-only QuACK import;
 the JAX fallback enabled the completed updates. The second attempt completed
 but exposed host timing skew from reporting; the third added synchronization.
-Active EMA validation is pending. The [research record](https://github.com/WhenWen/astra-d8-research/issues/96#issuecomment-6153356355)
+`/kaiyue/belay-base16-native-active-ema-v1` also completed seven updates at
+`1be1f0994`, with the diagnostic EMA threshold set to zero. Its four host
+medians were 2.4804–2.4813 seconds, and every reported loss matched the
+early-EMA run exactly. This checks execution of the active blend at initial
+optimizer state; it does not validate late-training behavior or EMA evaluation.
+The [research record](https://github.com/WhenWen/astra-d8-research/issues/96)
 preserves these attempts and their distinct measurement protocols.
