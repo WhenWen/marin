@@ -99,17 +99,22 @@ class AttentionMask(eqx.Module):
             fa4_bounds=(lower_bounds, valid),
         )
 
-    def materialize_mask(self, q_len: int, k_len: int) -> Bool[Array, "..."] | None:
+    def materialize_mask(
+        self, q_len: int, k_len: int, *, query_offset: int | jax.Array | None = None
+    ) -> Bool[Array, "..."] | None:
         """Return a boolean mask (True = allowed) or None.
 
         Shapes:
           - If `segment_ids` is unset, returns `(q_len, k_len)` (broadcastable across batch).
           - If `segment_ids` is set with per-batch IDs, returns `(batch, q_len, k_len)`.
+
+        `query_offset` selects an in-range query tile in global coordinates,
+        including slicing its segment IDs. None materializes the complete mask.
         """
         mask = None
 
         if self.is_causal:
-            q_idx = jnp.arange(q_len)[:, None]
+            q_idx = (jnp.arange(q_len) + (0 if query_offset is None else query_offset))[:, None]
             k_idx = jnp.arange(k_len)[None, :]
             allowed = k_idx <= q_idx
             mask = allowed
@@ -117,7 +122,7 @@ class AttentionMask(eqx.Module):
         if self.sliding_window is not None:
             if self.sliding_window <= 0:
                 raise ValueError(f"sliding_window must be positive, got {self.sliding_window}")
-            q_idx = jnp.arange(q_len)[:, None]
+            q_idx = (jnp.arange(q_len) + (0 if query_offset is None else query_offset))[:, None]
             k_idx = jnp.arange(k_len)[None, :]
             # Standard sliding-window semantics: `sliding_window=W` means "keep the last W tokens,
             # including self". Without causality, this is "don't look too far back":
@@ -129,6 +134,8 @@ class AttentionMask(eqx.Module):
             q_seg, k_seg = self.segment_ids
             if q_seg.ndim != k_seg.ndim:
                 raise ValueError(f"segment_ids ndim mismatch: q={q_seg.ndim}, k={k_seg.ndim}")
+            if query_offset is not None:
+                q_seg = jax.lax.dynamic_slice_in_dim(q_seg, query_offset, q_len, axis=-1)
             if q_seg.ndim == 1:
                 allowed = q_seg[:, None] == k_seg[None, :]
             elif q_seg.ndim == 2:
@@ -314,7 +321,6 @@ def _blocked_inkling_math(
 ) -> jax.Array:
     """Bound score/bias storage by query blocks; rematerialize their backward."""
     batch, length, heads, _ = q.shape
-    explicit = mask.materialize_mask(length, k.shape[1]) if isinstance(mask, AttentionMask) else mask
 
     @jax.checkpoint
     def block(index):
@@ -329,11 +335,12 @@ def _blocked_inkling_math(
             bias = jax.lax.dynamic_slice_in_dim(padded, keys + rel_extent_of_band(band) - start, keys, axis=-1)
         else:
             bias = dense_rel_bias(band, block_size, k.shape[1], query_offset=start)
-        tile_mask = (
-            None
-            if explicit is None
-            else jax.lax.dynamic_slice_in_dim(explicit, start, block_size, axis=explicit.ndim - 2)
-        )
+        if isinstance(mask, AttentionMask):
+            tile_mask = mask.materialize_mask(block_size, k.shape[1], query_offset=start)
+        else:
+            tile_mask = (
+                None if mask is None else jax.lax.dynamic_slice_in_dim(mask, start, block_size, axis=mask.ndim - 2)
+            )
         return _reference_attention_math(queries, k, v, tile_mask, bias, logits_dtype=jnp.float32)
 
     blocks = jax.lax.map(block, jnp.arange(length // block_size))

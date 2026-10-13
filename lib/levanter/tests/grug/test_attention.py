@@ -1,6 +1,7 @@
 # Copyright The Levanter Authors
 # SPDX-License-Identifier: Apache-2.0
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -17,6 +18,28 @@ from levanter.grug.attention import (
 )
 from levanter.grug.attention._inkling_relpos import band_to_compact, compact_to_band, dense_rel_bias
 from levanter.grug.attention._core import blocked_inkling_attention
+
+
+@pytest.mark.parametrize("causal", [False, True])
+@pytest.mark.parametrize("window", [None, 37])
+@pytest.mark.parametrize("segments", [0, 1, 2])
+def test_structured_mask_query_tiles(causal, window, segments):
+    mask = AttentionMask(is_causal=causal, sliding_window=window)
+    if segments:
+        q_ids = (jnp.arange(256) // 73).at[-19:].set(-1)
+        k_ids = (jnp.arange(384) // 73).at[-17:].set(-1)
+        if segments == 2:
+            q_ids = jnp.stack((q_ids, q_ids // 2))
+            k_ids = jnp.stack((k_ids, k_ids // 2))
+        mask = mask.with_segment_ids(q_ids, k_ids)
+    reference = mask.materialize_mask(256, 384)
+    compute = eqx.filter_jit(lambda mask, start: mask.materialize_mask(64, 384, query_offset=start))
+    for offset in (0, 64, 192):
+        actual = compute(mask, jnp.asarray(offset, jnp.int32))
+        if reference is None:
+            assert actual is None
+        else:
+            np.testing.assert_array_equal(actual, reference[..., offset : offset + 64, :])
 
 
 @pytest.mark.parametrize("dense_mask", [False, True])
