@@ -596,11 +596,12 @@ def _stacked_affine_scan(elems, *, split_vjp=False):
     if split_vjp:
         evens, odds = zip(*(_split_even_odd(x) for x in elems), strict=True)
         paired_evens = tuple(x[..., : n // 2, :, :] for x in evens)
-        tail_evens = tuple(x[..., 1:, :, :] for x in evens)
     else:
         paired_evens = tuple(x[..., :-1:2, :, :] for x in elems)
         odds = tuple(x[..., 1::2, :, :] for x in elems)
-        tail_evens = tuple(x[..., 2::2, :, :] for x in elems)
+    # Keep this branch separate: reusing evens moves its gradient accumulation
+    # before the split transpose and changes the full-shape KDA gradients.
+    tail_evens = tuple(x[..., 2::2, :, :] for x in elems)
     odd = _stacked_affine_scan(_compose_affine(paired_evens, odds), split_vjp=split_vjp)
     left = tuple(x[..., :-1, :, :] for x in odd) if n % 2 == 0 else odd
     even = _compose_affine(left, tail_evens)
