@@ -1,0 +1,136 @@
+# Copyright The Marin Authors
+# SPDX-License-Identifier: Apache-2.0
+
+"""Frozen Belay base16 d512 on TPU v4, using the native Fast Track trainer."""
+
+import argparse
+import hashlib
+import json
+import logging
+import os
+from pathlib import Path
+
+import draccus
+import jax
+from fray.cluster import ResourceConfig
+from levanter.data.text.datasets import LmDataConfig
+from levanter.optim import OptimizerConfig
+
+from experiments.grug.fast_track.model import GrugModelConfig
+from experiments.grug.fast_track.train import GrugEvalConfig, GrugRunConfig, GrugTrainerConfig, _run_grug_local
+
+SOURCE_CONFIG = Path(__file__).with_name("belay_base15_d512.json")
+SOURCE_COMMIT = "358283f7da684d156d8bca095669cf8c023ef2f3"
+SOURCE_RUN = "https://wandb.ai/marin-community/marin_moe/runs/lc1-b205-ctrl"
+BASE16_CHANGE = "https://github.com/marin-community/marin/issues/9451#issuecomment-6105926801"
+REGION_PREFIX = "gs://marin-us-central2/"
+
+
+def build_config(*, run_id: str, cache_map: dict[str, str], output: Path, checkpoint_path: str,
+                 chips: int, microbatches: int, seed: int) -> GrugRunConfig:
+    """Decode the recorded recipe and apply documented TPU execution changes.
+
+    The cache map must cover every original component by name. Cache equivalence
+    is the caller's responsibility: paths alone cannot prove token identity.
+    """
+    source = json.loads(SOURCE_CONFIG.read_text())
+    model = source["model"]
+    model.update(kda_write_gate=False, kda_erase_gate=False, kda_onchip_erase_gate=False)
+    # Recompute attention intermediates to fit v4 HBM. All mathematical settings
+    # (including expert capacity, router combine, and bigram table) are unchanged.
+    model.update(attn_res_layer_backward="RECOMPUTE", kda_save_chunk_states=False,
+                 attn_res_remat_attention=True, kda_state_grads="XLA")
+    data = source["data"]
+    if set(cache_map) != set(data["components"]):
+        raise ValueError("cache-map must name exactly the frozen training and validation components")
+    if not checkpoint_path.startswith(REGION_PREFIX):
+        raise ValueError("TPU v4 checkpoints must be in us-central2")
+    for name, component in data["components"].items():
+        path = cache_map[name]
+        if not path.startswith(REGION_PREFIX):
+            raise ValueError(f"{name}: cache must be mirrored in us-central2 before launch")
+        component.update(type="cached", cache_dir=path)
+        component["format"]["type"] = "text"
+        if component["source"] is not None:
+            component["source"]["type"] = "url"
+            component["source"]["cache_dir"] = path
+            component["source"]["format"]["type"] = "text"
+    source["optimizer"]["type"] = "grug_fast_track_muonh_v1"
+    outer = source["trainer"]
+    # Route the entire logical batch through one expert group. Subdividing into
+    # independent data-parallel groups would change the capacity/drop boundary.
+    expert_shards = chips
+    batch = outer["trainer"]["train_batch_size"]
+    if microbatches < 1 or batch % (chips * microbatches):
+        raise ValueError("global batch must divide into equal device microbatches")
+    outer.update(expert_axis_size=expert_shards, replica_axis_size=1,
+                 grad_accum_microbatches=microbatches, loader_buffer_batches=8,
+                 completion_marker_path=f"{checkpoint_path}/final_eval_done.json",
+                 save_checkpoints=True)
+    trainer = outer["trainer"]
+    trainer.update(id=run_id, seed=seed, mp="params=float32,compute=bfloat16,output=bfloat16",
+                   load_checkpoint=False, load_checkpoint_path=None,
+                   log_dir=str(output / "logs"), tracker=[{"type": "json_logger"}])
+    trainer["checkpointer"].update(base_path=checkpoint_path,
+                                   temporary_base_path=f"{checkpoint_path}/temporary")
+    trainer["jax_config"]["jax_enable_pgle"] = False
+    # Keep the logical eval coverage and pure EMA semantics, with fewer examples
+    # live on each chip. Training steps and optimizer schedules remain 2817.
+    evaluation = source["eval"]
+    evaluation["eval_batch_size"] = chips
+    return GrugRunConfig(
+        model=draccus.decode(GrugModelConfig, model),
+        optimizer=draccus.decode(OptimizerConfig, source["optimizer"]),
+        data=draccus.decode(LmDataConfig, data),
+        trainer=draccus.decode(GrugTrainerConfig, outer),
+        eval=draccus.decode(GrugEvalConfig, evaluation),
+        resources=ResourceConfig.with_tpu(f"v4-{chips * 2}"),
+        tensorstore_cache_bytes=source["tensorstore_cache_bytes"],
+        stop_after_steps=source["stop_after_steps"],
+        processes_per_task=1,
+        max_retries_failure=0,
+        max_task_failures=0,
+    )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--run-id", required=True)
+    parser.add_argument("--cache-map", type=Path, required=True)
+    parser.add_argument("--checkpoint-path", required=True)
+    parser.add_argument("--chips", type=int, choices=(4, 16), default=16)
+    parser.add_argument("--microbatches", type=int, default=1)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--output", type=Path, default=Path(os.environ.get("IRIS_OUTPUT_DIR", "outputs")))
+    parser.add_argument("--run", action="store_true", help="Execute; otherwise write the resolved configuration.")
+    args = parser.parse_args()
+    args.output.mkdir(parents=True, exist_ok=True)
+    config = build_config(run_id=args.run_id, cache_map=json.loads(args.cache_map.read_text()),
+                          output=args.output, checkpoint_path=args.checkpoint_path, chips=args.chips,
+                          microbatches=args.microbatches, seed=args.seed)
+    with (args.output / "resolved-config.yaml").open("w") as stream:
+        draccus.dump(config, stream)
+    provenance = {"source_commit": SOURCE_COMMIT, "source_run": SOURCE_RUN,
+                  "source_config_sha256": hashlib.sha256(SOURCE_CONFIG.read_bytes()).hexdigest(),
+                  "base16_change": BASE16_CHANGE, "seed": args.seed,
+                  "microbatches": args.microbatches, "chips": args.chips,
+                  "equivalence": "unverified: EP topology differs; microbatches > 1 also change routing capacity"}
+    (args.output / "provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")
+    if not args.run:
+        return
+    # Initialize distributed topology before inspecting devices. Do not apply the
+    # H100 launcher's CUDA command-buffer or ragged-transport flags on TPU.
+    config.trainer.trainer.distributed.initialize()
+    devices = jax.devices()
+    if len(devices) != args.chips or any(d.platform != "tpu" or "v4" not in d.device_kind for d in devices):
+        raise RuntimeError(f"Expected {args.chips} TPU v4 chips; got {devices}")
+    rank_output = args.output / f"rank-{jax.process_index()}"
+    rank_output.mkdir(parents=True, exist_ok=True)
+    handler = logging.FileHandler(rank_output / "metrics.jsonl")
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    logging.getLogger("levanter.json_logger").addHandler(handler)
+    _run_grug_local(config)
+
+
+if __name__ == "__main__":
+    main()
