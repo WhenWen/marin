@@ -526,12 +526,13 @@ loss curves use the literal object prefix
 
 Adding an input optimization barrier before forming the saved pullback at
 `888315a78` also failed exact-loss parity in `native-saved-barrier-v1`.
-Updates 1–2 matched `native-stride-default-v1`; updates 3–7 differed, with maximum
-absolute scalar-loss difference 8.106231689453125e-6. All seven updates completed
-with finite parameter, optimizer and EMA arrays on every host. The maximum of
+Scalar training losses at updates 1–2 matched `native-stride-default-v1`;
+updates 3–7 differed, with maximum absolute difference 8.106231689453125e-6.
+All seven updates completed, and parameter, optimizer and EMA arrays were finite
+after the final update on every host. The maximum of
 four host medians over four timed updates was 1.03653 seconds, 13.98% below the
 reference. Host medians ranged from 0.96772 to 1.03653 seconds. Compiler temporary
 storage was 14.991 GB/device (+64.06%); runtime peak memory was not measured.
-The candidate was removed after this single failed trial. Its reports, HLO,
+These are single-trial timings. The failed candidate was removed. Its reports, HLO,
 profiles and loss curves remain under
 `gs://marin-us-central2/kaiyue/belay-base16-tpu/native-saved-barrier-v1/`.
