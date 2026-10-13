@@ -499,3 +499,15 @@ had 71 pad operations versus 140 for the validated separate-slice transpose,
 but numerical failure prevented backward timing or native promotion. The candidate was
 removed; its source commit, reports, HLOs and JUnit remain recorded under
 `gs://marin-us-central2/kaiyue/belay-base16-tpu/kda-stride-select-v1/`.
+
+The outer-layer SAVE diagnostic at `c3cf5ccab`, `native-layer-save-v1`, completed
+seven updates with finite parameter, optimizer and EMA arrays on all four hosts.
+SAVE retains layer residuals for ordinary autodiff; RECOMPUTE reruns the layer
+forward in its custom backward. Inner attention
+checkpointing remained enabled. Its slowest host median was 0.96475 seconds,
+19.94% below `native-stride-default-v1`, but updates 2–7 failed exact scalar-loss
+parity; the maximum absolute difference was 3.719329833984375e-5. Compiler temporary
+storage rose from 9.138 to 12.915 GB/device (+41.33%). This single trial failed
+the frozen acceptance gate and was not advanced to repeat or active-EMA checks.
+The launcher retains RECOMPUTE. Raw losses, curves, reports, HLO and profiles
+remain under `gs://marin-us-central2/kaiyue/belay-base16-tpu/native-layer-save-v1/`.
