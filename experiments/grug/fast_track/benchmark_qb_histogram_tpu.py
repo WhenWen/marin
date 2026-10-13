@@ -16,21 +16,7 @@ import jax.numpy as jnp
 import jaxlib
 import numpy as np
 
-
-def flat_histogram(indices: jax.Array, n_bins: int) -> jax.Array:
-    experts = indices.shape[1]
-    flat = (jnp.arange(experts, dtype=jnp.int32)[None, :] * n_bins + indices).reshape(-1)
-    return jnp.bincount(flat, length=experts * n_bins).reshape(experts, n_bins)
-
-
-def grouped_histogram(indices: jax.Array, n_bins: int, group_size: int) -> jax.Array:
-    """Use identical bins and integer sums, limiting each scatter to a group."""
-    tokens, experts = indices.shape
-    if experts % group_size:
-        raise ValueError("Expert count must divide into equal histogram groups")
-    groups = indices.T.reshape(experts // group_size, group_size, tokens)
-    counts = jax.lax.map(lambda group: flat_histogram(group.T, n_bins), groups)
-    return counts.reshape(experts, n_bins)
+from experiments.grug.fast_track.qb_balancing import local_expert_histogram
 
 
 def main() -> None:
@@ -58,7 +44,7 @@ def main() -> None:
                     if group is not None and experts % group:
                         continue
                     name = "flat_reference" if group is None else f"group_{group}"
-                    fn = lambda x: flat_histogram(x, bins) if group is None else grouped_histogram(x, bins, group)
+                    fn = lambda x: local_expert_histogram(x, bins, group)
                     row: dict[str, object] = {
                         "kernel": "qb_integer_histogram",
                         "implementation": name,
