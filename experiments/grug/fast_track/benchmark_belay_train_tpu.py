@@ -14,8 +14,11 @@ import math
 import os
 import statistics
 import time
+from contextlib import nullcontext
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import draccus
 import fsspec
@@ -34,7 +37,9 @@ from levanter.grug.sharding import compact_grug_mesh
 from levanter.optim.config import OptimizerConfig
 
 from experiments.grug.fast_track.belay_tpu import SOURCE_CONFIG, base16_model_config, require_tpu_rounding
+from experiments.grug.fast_track.benchmark_kda_parameter_scan_tpu import stacked_associative_scan
 from experiments.grug.fast_track.train import _flat_train_step, _make_train_step, _router_ties_active, initial_state
+from experiments.grug.moe import kda
 
 mpl.use("Agg")
 import matplotlib.pyplot as plt
@@ -64,6 +69,7 @@ def main() -> None:
         help="Active enables EMA from the first diagnostic update; it does not simulate a trained checkpoint.",
     )
     parser.add_argument("--revision", required=True)
+    parser.add_argument("--kda-scan", choices=("reference", "stacked"), default="reference")
     parser.add_argument("--artifact-prefix", required=True)
     args = parser.parse_args()
     if args.steps < 1 or not args.artifact_prefix.startswith("gs://marin-us-central2/"):
@@ -103,6 +109,7 @@ def main() -> None:
         "block_sizes": {"inkling_query": 128},
         "attn_res_remat_attention": config.attn_res_remat_attention,
         "attn_res_remat_attention_save_all": config.attn_res_remat_attention_save_all,
+        "kda_scan": args.kda_scan,
         "git_sha": args.revision,
         "seed": trainer["seed"],
         "data_seed": 1,
@@ -181,7 +188,14 @@ def main() -> None:
         router_ties = _router_ties_active(config, 0)
         print("Compiling native base16 train step", flush=True)
         start = time.monotonic()
-        compiled = step_fn.lower(leaves, batch, loop_active=None, router_tie_active=router_ties).compile()
+        # Trace substitution is confined to the KDA module and this diagnostic.
+        scan_context = (
+            patch.object(kda, "lax", SimpleNamespace(**{**vars(jax.lax), "associative_scan": stacked_associative_scan}))
+            if args.kda_scan == "stacked"
+            else nullcontext()
+        )
+        with scan_context:
+            compiled = step_fn.lower(leaves, batch, loop_active=None, router_tie_active=router_ties).compile()
         report["compile_time"] = time.monotonic() - start
         memory = compiled.memory_analysis()
         report["compiler_memory_bytes"] = {
