@@ -523,7 +523,7 @@ def attention(
     if jax.default_backend() == "tpu":
         if rel_bias is not None and q.shape[1] % 128 == 0:
             return blocked_inkling_attention(q, k, v, mask, rel_bias)
-        if isinstance(mask, jax.Array) or rel_bias is not None:
+        if isinstance(mask, jax.Array) or rel_bias is not None or k.shape[1] % 128:
             return reference_attention(q, k, v, mask, logits_dtype=jnp.float32, rel_bias=rel_bias)
         return _tpu_splash_attention(q, k, v, mask)
     return reference_attention(q, k, v, mask, logits_dtype=jnp.float32, rel_bias=rel_bias)
