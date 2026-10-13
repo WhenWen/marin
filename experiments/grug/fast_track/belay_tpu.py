@@ -28,7 +28,7 @@ TPU_XLA_ROUNDING_FLAG = "--xla_allow_excess_precision=false"
 
 
 def require_tpu_rounding() -> None:
-    """Require declared bf16 rounding for Muon's sharded Newton–Schulz math."""
+    """Require declared bf16 rounding for Muon's sharded Newton-Schulz math."""
     if TPU_XLA_ROUNDING_FLAG not in os.environ.get("XLA_FLAGS", "").split():
         raise RuntimeError(f"Launch TPU training with XLA_FLAGS={TPU_XLA_ROUNDING_FLAG}")
 

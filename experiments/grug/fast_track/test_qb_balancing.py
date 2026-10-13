@@ -22,11 +22,13 @@ def test_grouped_histogram_counts(bins, concentrated):
         indices = np.where(indices < bins // 2, 0, bins - 1).astype(np.int32)
     expected = np.stack([np.bincount(column, minlength=bins) for column in indices.T])
     for group in (None, 1, 8, 32, 128):
-        actual = jax.jit(lambda x: local_expert_histogram(x, bins, group))(jnp.asarray(indices))
+        actual = jax.jit(lambda x, group=group: local_expert_histogram(x, bins, group))(jnp.asarray(indices))
         np.testing.assert_array_equal(np.asarray(actual), expected)
     for group in (16, 64):
         for radix in (64, 128, 256):
-            actual = jax.jit(lambda x: factorized_expert_histogram(x, bins, group, radix))(jnp.asarray(indices))
+            actual = jax.jit(lambda x, group=group, radix=radix: factorized_expert_histogram(x, bins, group, radix))(
+                jnp.asarray(indices)
+            )
             np.testing.assert_array_equal(np.asarray(actual), expected)
 
 

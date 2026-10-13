@@ -53,7 +53,7 @@ def main() -> None:
                 )
                 cotangent = jax.random.normal(jax.random.key(1), (batch, heads, REL_BIAS_BLOCK, keys), dtype)
 
-                def loss(band, cotangent, offset, *, candidate):
+                def loss(band, cotangent, offset, *, candidate, keys=keys):
                     expanded = (
                         aligned_slice(band, offset, keys)
                         if candidate

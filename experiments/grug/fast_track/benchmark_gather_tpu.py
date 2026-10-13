@@ -8,6 +8,7 @@ import json
 import os
 import statistics
 import time
+from functools import partial
 from pathlib import Path
 
 import fsspec
@@ -79,7 +80,7 @@ def main():
                             "error": None,
                         }
                         try:
-                            fn = lambda a, idx: gather_rows(a, idx, packed=packed, rows=rows)
+                            fn = partial(gather_rows, packed=packed, rows=rows)
                             start = time.monotonic()
                             compiled = jax.jit(fn).lower(x, indices).compile()
                             record["compile_time"] = time.monotonic() - start

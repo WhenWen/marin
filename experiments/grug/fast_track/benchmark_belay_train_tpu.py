@@ -23,7 +23,7 @@ import jax
 import jax.numpy as jnp
 import jaxlib
 import jmp
-import matplotlib
+import matplotlib as mpl
 from jax.experimental import multihost_utils
 from jax.sharding import PartitionSpec as P
 from levanter.callbacks.profiler import ProfileOptionsConfig
@@ -36,7 +36,7 @@ from levanter.optim.config import OptimizerConfig
 from experiments.grug.fast_track.belay_tpu import SOURCE_CONFIG, base16_model_config, require_tpu_rounding
 from experiments.grug.fast_track.train import _flat_train_step, _make_train_step, _router_ties_active, initial_state
 
-matplotlib.use("Agg")
+mpl.use("Agg")
 import matplotlib.pyplot as plt
 
 

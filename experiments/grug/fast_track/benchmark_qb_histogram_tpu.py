@@ -8,6 +8,7 @@ import json
 import os
 import statistics
 import time
+from functools import partial
 from pathlib import Path
 
 import fsspec
@@ -49,11 +50,11 @@ def main() -> None:
                         continue
                     name = "flat_reference" if group is None else f"group_{group}"
                     if radix is None:
-                        fn = lambda x: local_expert_histogram(x, bins, group)
+                        fn = partial(local_expert_histogram, n_bins=bins, group_size=group)
                     else:
                         assert group is not None
                         name = f"matmul_group_{group}_radix_{radix}"
-                        fn = lambda x: factorized_expert_histogram(x, bins, group, radix)
+                        fn = partial(factorized_expert_histogram, n_bins=bins, group_size=group, radix=radix)
                     row: dict[str, object] = {
                         "kernel": "qb_integer_histogram",
                         "implementation": name,

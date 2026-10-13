@@ -8,6 +8,7 @@ import json
 import os
 import statistics
 import time
+from functools import partial
 from pathlib import Path
 
 import fsspec
@@ -60,6 +61,14 @@ def _reference_bwd(elems, cotangent):
 stacked_reference_vjp.defvjp(_stacked_fwd, _reference_bwd)
 
 
+def scan_result(xs, ct, *, scan, mode):
+    def objective(ys):
+        a, b = scan(ys)
+        return jnp.sum(a * ct) + jnp.sum(b * ct)
+
+    return scan(xs) if mode == "forward" else jax.value_and_grad(objective)(xs)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--revision", required=True)
@@ -99,12 +108,7 @@ def main():
                     ),
                 ):
 
-                    def run(xs, ct):
-                        def objective(ys):
-                            a, b = scan(ys)
-                            return jnp.sum(a * ct) + jnp.sum(b * ct)
-
-                        return scan(xs) if mode == "forward" else jax.value_and_grad(objective)(xs)
+                    run = partial(scan_result, scan=scan, mode=mode)
 
                     row: dict[str, object] = {
                         "kernel": "kda_affine_scan",
