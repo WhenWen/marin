@@ -63,7 +63,7 @@ from levanter.utils.activation import ActivationFunctionEnum
 
 from experiments.grug.fast_track import attention_rows_probe
 from experiments.grug.fast_track.activations import polynorm, polynorm_over_input
-from experiments.grug.fast_track.attn_res_backward import saved_attn_res_layer
+from experiments.grug.fast_track.attn_res_backward import AttnResLayerBackward, saved_attn_res_layer
 from experiments.grug.fast_track.expert_write_mask import expert_write_block_ids, expert_write_mask
 from experiments.grug.fast_track.gating import _load_error_grad, mixture_weights, switchhead_weights
 from experiments.grug.fast_track.head_loss import prototype_target_logits, reduce_token_loss
@@ -256,19 +256,6 @@ class LocalMixer(StrEnum):
     SLIDING_WINDOW = "sliding_window"
     KDA = "kda"
     """Kimi Delta Attention (``KimiDeltaAttention``); requires ``attn_res``."""
-
-
-class AttnResLayerBackward(StrEnum):
-    """How a Block AttnRes layer's backward obtains its forward intermediates."""
-
-    RECOMPUTE = "recompute"
-    """Custom VJP that saves only the layer inputs and re-runs the layer forward in backward (lowest
-    memory; costs a second forward of every layer)."""
-    SAVE = "save"
-    """Plain autodiff: the forward keeps the layer's residuals, so backward runs no forward again.
-    Same math as RECOMPUTE; needs the memory to hold every layer's residuals."""
-    SAVE_THREADED = "save_threaded"
-    """Diagnostic saved pullback with RECOMPUTE's explicit history-cotangent accumulation."""
 
 
 class KdaHeadPairing(StrEnum):

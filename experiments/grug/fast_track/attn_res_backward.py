@@ -3,9 +3,24 @@
 
 """Saved layer pullbacks with explicit history-gradient accumulation."""
 
+from enum import StrEnum
+
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+
+
+class AttnResLayerBackward(StrEnum):
+    """How a Block AttnRes layer's backward obtains its forward intermediates."""
+
+    RECOMPUTE = "recompute"
+    """Custom VJP that saves only the layer inputs and re-runs the layer forward in backward (lowest
+    memory; costs a second forward of every layer)."""
+    SAVE = "save"
+    """Plain autodiff: the forward keeps the layer's residuals, so backward runs no forward again.
+    Same math as RECOMPUTE; needs the memory to hold every layer's residuals."""
+    SAVE_THREADED = "save_threaded"
+    """Diagnostic saved pullback with RECOMPUTE's explicit history-cotangent accumulation."""
 
 
 @eqx.filter_custom_vjp
