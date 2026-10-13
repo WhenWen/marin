@@ -342,7 +342,14 @@ def chunk_kda(
             mm,
             scan_unroll,
         )
-    elif scan_impl in ("parallel", "parallel_stacked", "parallel_stacked_split", "pallas", "pallas_interpret"):
+    elif scan_impl in (
+        "parallel",
+        "parallel_stacked",
+        "parallel_stacked_split",
+        "parallel_stacked_select",
+        "pallas",
+        "pallas_interpret",
+    ):
         if prep_impl == "xla":
             prep = _chunk_prep_xla(qc, kc, ec, vc, gc, bc, mm, mm_dtype, c, masks)
         elif prep_impl in ("pallas", "pallas_interpret"):
@@ -361,13 +368,14 @@ def chunk_kda(
             )
         else:
             raise ValueError(f"prep_impl must be 'xla', 'pallas' or 'pallas_interpret', got {prep_impl!r}")
-        if scan_impl in ("parallel", "parallel_stacked", "parallel_stacked_split"):
+        if scan_impl in ("parallel", "parallel_stacked", "parallel_stacked_split", "parallel_stacked_select"):
             out, state = _parallel_chunk_recurrence(prep, state, mm, lead, dk, dv, scan_impl=scan_impl)
         else:
             out, state = _pallas_chunk_recurrence(prep, state, interpret=scan_impl == "pallas_interpret")
     else:
         raise ValueError(
-            "scan_impl must be 'sequential', 'parallel', 'parallel_stacked', 'parallel_stacked_split', 'pallas' or "
+            "scan_impl must be 'sequential', 'parallel', 'parallel_stacked', 'parallel_stacked_split', "
+            "'parallel_stacked_select', 'pallas' or "
             f"'pallas_interpret', got {scan_impl!r}"
         )
 
@@ -596,20 +604,55 @@ def _scan_stride_slice_bwd(start, _stop, residual, cotangent):
 _scan_stride_slice.defvjp(_scan_stride_slice_fwd, _scan_stride_slice_bwd)
 
 
-def _stacked_affine_scan(elems, *, split_vjp=False):
+@partial(jax.custom_vjp, nondiff_argnums=(1, 2))
+def _scan_stride_select(x, start, stop):
+    return x[..., start:stop:2, :, :]
+
+
+def _scan_stride_select_fwd(x, start, stop):
+    return _scan_stride_select(x, start, stop), jnp.zeros((x.shape[-3], 0), dtype=x.dtype)
+
+
+def _scan_stride_select_bwd(start, _stop, residual, cotangent):
+    n = residual.shape[0]
+    k = cotangent.shape[-3]
+    shape = (*cotangent.shape[:-3], n, *cotangent.shape[-2:])
+    if k == 0:
+        return (jnp.zeros(shape, dtype=cotangent.dtype),)
+    # Select over a broadcast pair instead of stacking a zero tensor.
+    selected = jnp.arange(2).reshape(2, 1, 1) == start % 2
+    joined = jnp.where(selected, cotangent[..., None, :, :], jnp.zeros((), dtype=cotangent.dtype))
+    joined = joined.reshape(*cotangent.shape[:-3], 2 * k, *cotangent.shape[-2:])
+    prefix_length = start - start % 2
+    if prefix_length:
+        prefix = jnp.zeros((*cotangent.shape[:-3], prefix_length, *cotangent.shape[-2:]), dtype=cotangent.dtype)
+        joined = jnp.concatenate((prefix, joined), axis=-3)
+    joined = joined[..., :n, :, :]
+    tail = n - joined.shape[-3]
+    if tail:
+        zeros = jnp.zeros((*cotangent.shape[:-3], tail, *cotangent.shape[-2:]), dtype=cotangent.dtype)
+        joined = jnp.concatenate((joined, zeros), axis=-3)
+    return (joined,)
+
+
+_scan_stride_select.defvjp(_scan_stride_select_fwd, _scan_stride_select_bwd)
+
+
+def _stacked_affine_scan(elems, *, split_vjp=False, select_vjp=False):
     """Keep the reference pairwise scan order while interleaving without padded addition."""
     n = elems[0].shape[-3]
     if n < 2:
         return elems
-    if split_vjp:
-        paired_evens = tuple(_scan_stride_slice(x, 0, -1) for x in elems)
-        odds = tuple(_scan_stride_slice(x, 1, None) for x in elems)
-        tail_evens = tuple(_scan_stride_slice(x, 2, None) for x in elems)
+    if split_vjp or select_vjp:
+        stride_slice = _scan_stride_select if select_vjp else _scan_stride_slice
+        paired_evens = tuple(stride_slice(x, 0, -1) for x in elems)
+        odds = tuple(stride_slice(x, 1, None) for x in elems)
+        tail_evens = tuple(stride_slice(x, 2, None) for x in elems)
     else:
         paired_evens = tuple(x[..., :-1:2, :, :] for x in elems)
         odds = tuple(x[..., 1::2, :, :] for x in elems)
         tail_evens = tuple(x[..., 2::2, :, :] for x in elems)
-    odd = _stacked_affine_scan(_compose_affine(paired_evens, odds), split_vjp=split_vjp)
+    odd = _stacked_affine_scan(_compose_affine(paired_evens, odds), split_vjp=split_vjp, select_vjp=select_vjp)
     left = tuple(x[..., :-1, :, :] for x in odd) if n % 2 == 0 else odd
     even = _compose_affine(left, tail_evens)
     even = tuple(jnp.concatenate((x[..., :1, :, :], y), axis=-3) for x, y in zip(elems, even, strict=True))
@@ -643,8 +686,12 @@ def _parallel_chunk_recurrence(prep: ChunkPrep, state, mm, lead, dk, dv, *, scan
     c_mat = c_mat.at[..., 0, :, :].set(c0)
 
     _, s_incl = (
-        _stacked_affine_scan((m_mat, c_mat), split_vjp=scan_impl == "parallel_stacked_split")
-        if scan_impl in ("parallel_stacked", "parallel_stacked_split")
+        _stacked_affine_scan(
+            (m_mat, c_mat),
+            split_vjp=scan_impl == "parallel_stacked_split",
+            select_vjp=scan_impl == "parallel_stacked_select",
+        )
+        if scan_impl in ("parallel_stacked", "parallel_stacked_split", "parallel_stacked_select")
         else lax.associative_scan(_compose_affine, (m_mat, c_mat), axis=-3)
     )  # S_0..S_{n-1}
 
