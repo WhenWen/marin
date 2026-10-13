@@ -4,7 +4,6 @@
 """Expert-sharded Muon directions agree with per-matrix orthogonalization."""
 
 import jax
-import jax.numpy as jnp
 import numpy as np
 import pytest
 from jax.sharding import AxisType, Mesh, NamedSharding
