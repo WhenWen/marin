@@ -124,6 +124,7 @@ def main():
                         "output_scope": "states_only" if args.state_only else "affine_matrices_and_states",
                         "dtype": "float32",
                         "seed": 0,
+                        "reset_stride": 5,
                         "backend": "tpu",
                         "device_type": device.device_kind,
                         "device_count": 1,
@@ -153,11 +154,17 @@ def main():
                         for a, b in pairs:
                             delta = jnp.abs(a - b)
                             pos = int(jnp.argmax(delta))
+                            bad = ~jnp.isclose(a, b, atol=1e-5, rtol=1e-5)
+                            by_chunk = {}
+                            if a.ndim == 5:
+                                counts = jax.device_get(jnp.sum(bad, axis=(0, 1, 3, 4))).tolist()
+                                by_chunk = {str(i): count for i, count in enumerate(counts) if count}
                             errors.append(
                                 {
                                     "shape": a.shape,
                                     "max_abs_error": float(jnp.max(delta)),
-                                    "bad_count": int(jnp.sum(~jnp.isclose(a, b, atol=1e-5, rtol=1e-5))),
+                                    "bad_count": int(jnp.sum(bad)),
+                                    "bad_entries_by_chunk": by_chunk,
                                     "actual_at_max": float(a.reshape(-1)[pos]),
                                     "reference_at_max": float(b.reshape(-1)[pos]),
                                     "flat_index_at_max": pos,
