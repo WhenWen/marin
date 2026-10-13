@@ -91,10 +91,18 @@ uv run --package marin-levanter --extra tpu --group test --with pytest-timeout p
   experiments/grug/moe/test_kda.py::test_floor_decay_is_exact_with_16_token_chunks \
   experiments/grug/fast_track/test_kda_local.py \
   experiments/grug/fast_track/test_mla_num_heads.py \
-  lib/levanter/tests/grug/test_attention.py -n 0 -q
+  lib/levanter/tests/grug/test_attention.py -n 0 -q --timeout=600
 ```
 
 The broader KDA file also exercises interpreted GPU Pallas kernels. On v4,
 ten of those checks failed their original tolerances; the TPU model dispatches
 to XLA `chunk_kda`, not those kernels. The original tolerances are unchanged.
 See the linked validation record for the full test results and run identities.
+
+On 2026-10-13, `/kaiyue/belay-base16-v4-8-full-model-v1` passed the full
+d512 architecture forward/backward at diagnostic batch 4 and sequence 4096:
+random-token loss 9.825521469, finite gradients, 227.44 seconds including
+compilation. This is a numerical check, not a throughput or training-quality
+measurement. The first multi-host validator attempt failed because its input
+arrays were captured in a closure; the corrected validator passes them as
+explicit JIT arguments.
