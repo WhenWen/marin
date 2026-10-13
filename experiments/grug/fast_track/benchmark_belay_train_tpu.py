@@ -67,7 +67,9 @@ def main() -> None:
         help="Active enables EMA from the first diagnostic update; it does not simulate a trained checkpoint.",
     )
     parser.add_argument("--revision", required=True)
-    parser.add_argument("--kda-scan", choices=("production", "reference", "stacked", "stacked-split"), default="production")
+    parser.add_argument(
+        "--kda-scan", choices=("production", "reference", "stacked", "stacked-split"), default="production"
+    )
     parser.add_argument("--accepted-mask", choices=("production", "reference", "inverse-direct"), default="production")
     parser.add_argument("--artifact-prefix", required=True)
     args = parser.parse_args()
