@@ -24,7 +24,9 @@ class AttnResLayerBackward(StrEnum):
 
 
 @eqx.filter_custom_vjp
-def saved_attn_res_layer(diff_args, mask, token_ids, use_long, layer_index, eps, noise_key, *, layer_fn, differentiable_stats):
+def saved_attn_res_layer(
+    diff_args, mask, token_ids, use_long, layer_index, eps, noise_key, *, layer_fn, differentiable_stats
+):
     """Save a layer-local pullback while threading history cotangents through each layer."""
     _, blocks, block_logits, _, _, _ = diff_args
     partial, stats = layer_fn(diff_args, mask, token_ids, use_long, layer_index, eps, noise_key)
