@@ -26,8 +26,16 @@ BASE16_CHANGE = "https://github.com/marin-community/marin/issues/9451#issuecomme
 REGION_PREFIX = "gs://marin-us-central2/"
 
 
-def build_config(*, run_id: str, cache_map: dict[str, str], output: Path, checkpoint_path: str,
-                 chips: int, microbatches: int, seed: int) -> GrugRunConfig:
+def build_config(
+    *,
+    run_id: str,
+    cache_map: dict[str, str],
+    output: Path,
+    checkpoint_path: str,
+    chips: int,
+    microbatches: int,
+    seed: int,
+) -> GrugRunConfig:
     """Decode the recorded recipe and apply documented TPU execution changes.
 
     The cache map must cover every original component by name. Cache equivalence
@@ -38,8 +46,12 @@ def build_config(*, run_id: str, cache_map: dict[str, str], output: Path, checkp
     model.update(kda_write_gate=False, kda_erase_gate=False, kda_onchip_erase_gate=False)
     # Recompute attention intermediates to fit v4 HBM. All mathematical settings
     # (including expert capacity, router combine, and bigram table) are unchanged.
-    model.update(attn_res_layer_backward="RECOMPUTE", kda_save_chunk_states=False,
-                 attn_res_remat_attention=True, kda_state_grads="XLA")
+    model.update(
+        attn_res_layer_backward="RECOMPUTE",
+        kda_save_chunk_states=False,
+        attn_res_remat_attention=True,
+        kda_state_grads="XLA",
+    )
     data = source["data"]
     if set(cache_map) != set(data["components"]):
         raise ValueError("cache-map must name exactly the frozen training and validation components")
@@ -63,16 +75,25 @@ def build_config(*, run_id: str, cache_map: dict[str, str], output: Path, checkp
     batch = outer["trainer"]["train_batch_size"]
     if microbatches < 1 or batch % (chips * microbatches):
         raise ValueError("global batch must divide into equal device microbatches")
-    outer.update(expert_axis_size=expert_shards, replica_axis_size=1,
-                 grad_accum_microbatches=microbatches, loader_buffer_batches=8,
-                 completion_marker_path=f"{checkpoint_path}/final_eval_done.json",
-                 save_checkpoints=True)
+    outer.update(
+        expert_axis_size=expert_shards,
+        replica_axis_size=1,
+        grad_accum_microbatches=microbatches,
+        loader_buffer_batches=8,
+        completion_marker_path=f"{checkpoint_path}/final_eval_done.json",
+        save_checkpoints=True,
+    )
     trainer = outer["trainer"]
-    trainer.update(id=run_id, seed=seed, mp="params=float32,compute=bfloat16,output=bfloat16",
-                   load_checkpoint=False, load_checkpoint_path=None,
-                   log_dir=str(output / "logs"), tracker=[{"type": "json_logger"}])
-    trainer["checkpointer"].update(base_path=checkpoint_path,
-                                   temporary_base_path=f"{checkpoint_path}/temporary")
+    trainer.update(
+        id=run_id,
+        seed=seed,
+        mp="params=float32,compute=bfloat16,output=bfloat16",
+        load_checkpoint=False,
+        load_checkpoint_path=None,
+        log_dir=str(output / "logs"),
+        tracker=[{"type": "json_logger"}],
+    )
+    trainer["checkpointer"].update(base_path=checkpoint_path, temporary_base_path=f"{checkpoint_path}/temporary")
     trainer["jax_config"]["jax_enable_pgle"] = False
     # Keep the logical eval coverage and pure EMA semantics, with fewer examples
     # live on each chip. Training steps and optimizer schedules remain 2817.
@@ -105,16 +126,27 @@ def main() -> None:
     parser.add_argument("--run", action="store_true", help="Execute; otherwise write the resolved configuration.")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
-    config = build_config(run_id=args.run_id, cache_map=json.loads(args.cache_map.read_text()),
-                          output=args.output, checkpoint_path=args.checkpoint_path, chips=args.chips,
-                          microbatches=args.microbatches, seed=args.seed)
+    config = build_config(
+        run_id=args.run_id,
+        cache_map=json.loads(args.cache_map.read_text()),
+        output=args.output,
+        checkpoint_path=args.checkpoint_path,
+        chips=args.chips,
+        microbatches=args.microbatches,
+        seed=args.seed,
+    )
     with (args.output / "resolved-config.yaml").open("w") as stream:
         draccus.dump(config, stream)
-    provenance = {"source_commit": SOURCE_COMMIT, "source_run": SOURCE_RUN,
-                  "source_config_sha256": hashlib.sha256(SOURCE_CONFIG.read_bytes()).hexdigest(),
-                  "base16_change": BASE16_CHANGE, "seed": args.seed,
-                  "microbatches": args.microbatches, "chips": args.chips,
-                  "equivalence": "unverified: EP topology differs; microbatches > 1 also change routing capacity"}
+    provenance = {
+        "source_commit": SOURCE_COMMIT,
+        "source_run": SOURCE_RUN,
+        "source_config_sha256": hashlib.sha256(SOURCE_CONFIG.read_bytes()).hexdigest(),
+        "base16_change": BASE16_CHANGE,
+        "seed": args.seed,
+        "microbatches": args.microbatches,
+        "chips": args.chips,
+        "equivalence": "unverified: EP topology differs; microbatches > 1 also change routing capacity",
+    }
     (args.output / "provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")
     if not args.run:
         return
