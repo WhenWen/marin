@@ -46,6 +46,8 @@ def main():
     records = []
     with jax.default_device(device):
         for tokens, width in ((4096, 16), (32768, 512)):
+            selected = jax.lax.top_k(jax.random.uniform(jax.random.key(1), (tokens, 512)), 8)[1]
+            order = jnp.argsort(selected.reshape(-1), stable=True)
             for mode in ("dispatch", "permutation"):
                 source_rows = tokens if mode == "dispatch" else tokens * 8
                 if width == 16:
@@ -53,9 +55,7 @@ def main():
                     x = jax.lax.bitcast_convert_type(bits, jnp.bfloat16)
                 else:
                     x = jax.random.normal(jax.random.key(0), (source_rows, width), jnp.bfloat16)
-                indices = jax.random.permutation(jax.random.key(1), tokens * 8)
-                if mode == "dispatch":
-                    indices = indices // 8
+                indices = order // 8 if mode == "dispatch" else jnp.argsort(order)
                 reference = jax.block_until_ready(x[indices])
                 reference_bits = jax.lax.bitcast_convert_type(reference, jnp.uint16)
                 for rows in (None, 128, 512, 4096, 16384):
@@ -68,6 +68,8 @@ def main():
                             "mode": mode,
                             "dtype": "bfloat16",
                             "seed": 0,
+                            "routing_seed": 1,
+                            "index_distribution": "top-8 uniform scores over 512 experts, stable expert sort",
                             "backend": "tpu",
                             "device_type": device.device_kind,
                             "device_count": 1,
