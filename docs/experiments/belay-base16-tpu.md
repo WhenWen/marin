@@ -21,7 +21,13 @@ Sources:
 
 Use v4-32 (16 chips across four hosts) for the full model. The launcher uses
 one expert-parallel group spanning the chips. It recomputes attention
-intermediates and uses the existing XLA chunked KDA and TPU grouped matmuls.
+intermediates and uses XLA chunked KDA and TPU grouped matmuls. The base16
+configuration selects `kda_xla_scan_impl="parallel_stacked"`; other model
+configurations retain the reference scan by default. TPU routing acceptance
+uses inverse permutation positions, sharing that permutation with combine.
+The combined native diagnostic passed at 1.2514 seconds/update and an
+independent run through the launcher defaults passed at 1.2460 seconds/update.
+The 35-update check with active EMA also passed at 1.2520 seconds/update.
 Inkling attention runs in rematerialized query blocks of 128 tokens, preserving
 the bias and packed-document masks. Structured masks are built for each query
 tile in global sequence coordinates; dense masks retain their slice path.
@@ -266,7 +272,7 @@ compilation took 346.7–358.2 seconds. Reports and the loss curve are under
 This checks active EMA from initial optimizer state; real-data Belay acceptance
 and late-training EMA quality remain unverified.
 
-## Unpromoted execution experiments
+## Execution experiment history
 
 Removing the inner attention checkpoint at `af0314a3f`,
 `/kaiyue/belay-base16-native-no-inner-remat-v1`, reduced host medians to
@@ -310,8 +316,8 @@ forward states but failed the unchanged 1e-5 absolute/relative gradient gate:
 error 0.474609375. The state-increment gradient was exact. A localization run
 at `63ac6ef25` found all failing entries in forced-reset chunks. These inputs
 treat transition matrices as free parameters; parity through KDA's actual
-document-masked parameterization requires a separate check. Production KDA
-continues to use the reference associative scan. Reports are under
+document-masked parameterization requires the separate checks below. This
+unconstrained-matrix failure remains part of the record. Reports are under
 `gs://marin-us-central2/kaiyue/belay-base16-tpu/kda-scan-state-only-v1/` and
 `kda-scan-error-locations-v1/`.
 
@@ -322,7 +328,8 @@ It covers three shapes, seed 0, and unpacked, 1024-token and 83-token documents,
 including resets inside chunks. At full shape `(8, 4, 4096, 128)`, the packed
 value-and-gradient time fell from 83.4 to 68.8 ms; compiler temporary storage
 fell from 6.85 to 6.18 GB. The native benchmark's `--kda-scan stacked` option
-tests this reconstruction without changing production selection.
+selects this reconstruction explicitly; `--kda-scan reference` restores the
+reference scan for comparison, while the default follows the launcher config.
 Reports and HLO are under
 `gs://marin-us-central2/kaiyue/belay-base16-tpu/kda-parameter-scan-v1/`.
 
@@ -337,11 +344,13 @@ finishes before EMA updates begin. The independent repeat at `a3cc2a231`,
 `/kaiyue/belay-base16-native-kda-stacked-v2`, also passed all seven exact losses
 and finite state on every host. Its slowest median was 1.2915 seconds, a 9.82%
 reduction; compiler temporary storage remained 8.85 GB/device. Compilation
-took 32.23–32.32 seconds with uncontrolled cache conditions. Active EMA and
-input seed 2 remain unverified. The input-seed-1 parameterization grid at
-`3e3b33ed2`, `/kaiyue/belay-kda-parameter-scan-seed1-v1`, passed all 36 rows
-with zero observed differences and unchanged tolerances. Reports, raw losses,
-curves and profiles are under
+took 32.23–32.32 seconds with uncontrolled cache conditions. The active-EMA
+run at `3e3b33ed2`, `/kaiyue/belay-base16-native-kda-stacked-active-ema-v1`,
+also passed all seven exact losses and finite state at 1.2904 seconds/update.
+It enables EMA from initial state. The input-seed-1 and input-seed-2 grids at
+`3e3b33ed2` passed all 72 rows with zero observed differences and unchanged
+tolerances, bringing parameterization coverage to 108 rows across three seeds.
+Reports, raw losses, curves and profiles are under
 `gs://marin-us-central2/kaiyue/belay-base16-tpu/native-kda-stacked-v1/` and
 `gs://marin-us-central2/kaiyue/belay-base16-tpu/native-kda-stacked-v2/`.
 The corresponding rank-0 profile reduced aggregate KimiDeltaAttention self
@@ -349,8 +358,9 @@ time from 4.233 to 3.309 million core-microseconds across eight cores, relative
 to `native-mask-tile-v1`. This measures aggregate activity, not the critical
 path. The derived comparison is retained at
 `gs://marin-us-central2/kaiyue/belay-base16-tpu/native-kda-stacked-v1/analysis/kda-profile-comparison.json`;
-the seed-1 grid is under
-`gs://marin-us-central2/kaiyue/belay-base16-tpu/kda-parameter-scan-seed1-v1/`.
+the additional seed grids are under
+`gs://marin-us-central2/kaiyue/belay-base16-tpu/kda-parameter-scan-seed1-v1/` and
+`gs://marin-us-central2/kaiyue/belay-base16-tpu/kda-parameter-scan-seed2-v1/`.
 
 The isolated acceptance-mask grid at `a02ac1142`, `/kaiyue/belay-accepted-mask-v1`,
 passed all 64 cases with exact masks and inverse positions. It covers two
@@ -359,9 +369,8 @@ expert IDs. At 262,144 assignments and 512 experts, computing acceptance from
 inverse positions took 4.040–4.046 ms, compared with 7.351–7.375 ms for the
 reference boolean scatter, when both construct and return the inverse positions
 used by combine. Temporary compiler storage fell from 2.65 to 1.69 MB. The native
-benchmark's `--accepted-mask inverse-direct` option tests this substitution;
-production mask construction remains unchanged until the full training step
-passes exact loss parity and replicated timing checks. Reports and HLO are under
+benchmark's `--accepted-mask reference` option restores the original scatter
+for comparison; the default follows TPU production dispatch. Reports and HLO are under
 `gs://marin-us-central2/kaiyue/belay-base16-tpu/accepted-mask-v1/`.
 
 The first native inverse-mask run at `a3cc2a231`,
@@ -371,6 +380,46 @@ times were 1.3839–1.3858 seconds across the four hosts. The slowest median was
 3.23% below the 1.4321-second tiled-mask baseline. Compiler temporary storage
 was 9.546 GB/device; compilation took 350.3–358.4 seconds with uncontrolled
 cache conditions. This run uses the reference KDA scan and finishes before
-EMA updates begin. Independent replication and a combined KDA-plus-mask run
-remain unverified. Reports, raw losses, curves and profiles are under
-`gs://marin-us-central2/kaiyue/belay-base16-tpu/native-accepted-inverse-v1/`.
+EMA updates begin. Its independent repeat at `3e3b33ed2`,
+`/kaiyue/belay-base16-native-accepted-inverse-v2`, passed the same exact-loss
+and finiteness checks at 1.3977 seconds/update, a 2.40% reduction. Both exceed
+the frozen 2% gate. The first run's profile removed 24 large boolean-scatter
+HLO rows and reduced routing-sort rows from 36 to 24. Reports, raw losses,
+curves and profiles are under
+`gs://marin-us-central2/kaiyue/belay-base16-tpu/native-accepted-inverse-v1/` and
+`gs://marin-us-central2/kaiyue/belay-base16-tpu/native-accepted-inverse-v2/`.
+
+The first combined stacked-KDA and inverse-mask run at `80aff07e4`,
+`/kaiyue/belay-base16-native-kda-accepted-v1`, matched all seven losses from
+`native-mask-tile-v2` exactly. Parameters, optimizer buffers and EMA state
+were finite on every host. The slowest host median was 1.2514 seconds,
+3.10% below the faster KDA-only repeat. Compiler temporary storage was
+8.854 GB/device. The candidate launcher path at `fcc2455cb` selects both
+kernels directly; the native benchmark defaults exercise it without trace
+patches. Its independent seven-update run, `native-production-v2`, passed
+all exact reference losses and complete-state finiteness on every host.
+The slowest median was 1.2460 seconds, 3.52% below the faster KDA-only repeat,
+or about 421,000 tokens/second. Compiler temporary storage remained
+8.854 GB/device. Compilation took 31.81–32.21 seconds with uncontrolled
+cache conditions.
+
+The same production path passed `native-production-active-35-v1`, with EMA
+active from initial state: all 35 losses matched `native-reference-35-v1`
+exactly, and complete state was finite on every host. The slowest median
+was 1.2520 seconds over 32 timed updates after two warmups and one profiled
+update. This is 13.41% below the reference's 1.4459 seconds, exceeding the
+frozen 2% gate. Compiler temporary storage remained 8.854 GB/device;
+compilation took 347.0–356.6 seconds with uncontrolled cache conditions.
+The reference finishes before EMA starts; EMA does not feed the training
+loss. This does not compare EMA buffer values or late-training quality.
+
+Reports and curves use each `native-*` name above as a directory under
+`gs://marin-us-central2/kaiyue/belay-base16-tpu/`.
+
+The integrated implementations at `0ed2832d8` passed all 10 selected TPU unit
+cases in `/kaiyue/belay-integrated-kernels-v1`: eight comparisons of the two
+KDA scan implementations against a sequential oracle and two head-pairing
+checks. The same job passed all 36 KDA parameter-grid rows and 64 routing-mask
+rows with zero observed differences. JUnit, the attempt archive and
+microbenchmark reports are retained under
+`gs://marin-us-central2/kaiyue/belay-base16-tpu/integrated-kernels-v1/`.
