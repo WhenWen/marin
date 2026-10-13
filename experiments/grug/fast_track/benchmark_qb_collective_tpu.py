@@ -75,8 +75,12 @@ def main():
                     reference = None
                     for scatter in (False, True):
                         name = "reduce_scatter" if scatter else "all_reduce"
-                        row = {
+                        row: dict[str, object] = {
+                            "kernel": "qb_count_reduction_and_quantile",
                             "implementation": name,
+                            "dtype": "int32 counts, float32 thresholds",
+                            "backend": "tpu",
+                            "block_sizes": {"threshold_experts": experts // 4 if scatter else experts},
                             "shape": [4, experts, bins],
                             "mesh_shape": mesh_shape,
                             "distribution": distribution,
@@ -87,6 +91,7 @@ def main():
                             "jax_version": jax.__version__,
                             "jaxlib_version": jaxlib.__version__,
                             "xla_flags": os.environ.get("XLA_FLAGS", ""),
+                            "backend_env": {"LIBTPU_INIT_ARGS": os.environ.get("LIBTPU_INIT_ARGS", "")},
                             "error": None,
                         }
                         try:
@@ -96,6 +101,8 @@ def main():
                             compiled = run.lower(counts, rank).compile()
                             row["compile_time"] = time.monotonic() - start
                             actual = np.asarray(jax.block_until_ready(compiled(counts, rank)))
+                            if not np.all(np.isfinite(actual)):
+                                raise AssertionError("Nonfinite QB thresholds")
                             if reference is None:
                                 reference = actual
                             row["max_abs_error"] = float(np.max(np.abs(actual - reference)))
