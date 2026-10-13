@@ -26,10 +26,11 @@ Inkling attention runs in rematerialized query blocks of 128 tokens, preserving
 the bias and packed-document masks. CUDA-only launch flags are not applied.
 
 Muon uses batched JAX Newton–Schulz on TPU. Training requires
-`XLA_FLAGS=--xla_allow_excess_precision=false`: otherwise the compiler can omit
-bf16 rounding differently between sharded and unsharded matrix orientations.
-The worker checks this setting before training and records the flags in its
-provenance. This is independent of TPU VMEM settings.
+`XLA_FLAGS=--xla_allow_excess_precision=false`. All four tested sharded/unsharded
+Muon cases passed with this setting; the two tall-matrix cases failed under the
+default. This supports compiler rounding as the cause without establishing
+parity for every shape. The worker checks the flag before training and records
+it in provenance. This is independent of TPU VMEM settings.
 
 The default is one complete routing batch. `--microbatches` can lower memory
 use, but changes the capacity/drop boundary and must be reported as an
@@ -150,9 +151,23 @@ diagnostic reference; it is not the training-objective performance baseline.
 Full native train-step timings must additionally include optimizer work, router
 bias updates, EMA and metrics before making training-throughput claims.
 
-For that measurement, run
-`python -m experiments.grug.fast_track.benchmark_belay_train_tpu --steps 4 --revision COMMIT --artifact-prefix gs://marin-us-central2/USER/RUN`
-on v4-32 with the same rounding flag and `uv run --with matplotlib`. It uses the
-native optimizer, watch metrics and fixed random tokens, saving every completed
-update's loss and partial curves. These diagnostic losses do not measure LM
-quality. Data loading, checkpoints and held-out evaluation are excluded.
+For that measurement, run this worker command on v4-32:
+
+```bash
+XLA_FLAGS=--xla_allow_excess_precision=false \
+  uv run --package marin-levanter --extra tpu --with matplotlib \
+  python -m experiments.grug.fast_track.benchmark_belay_train_tpu \
+    --steps 4 --revision COMMIT \
+    --artifact-prefix gs://marin-us-central2/USER/RUN
+```
+
+The timed region includes the native optimizer, router bias updates and inline
+parameter/gradient statistics. It allocates EMA state, but these early steps
+precede EMA activation at step 1817; active EMA timing remains a separate check.
+Every completed update saves its random-token loss and partial curves. These
+losses do not measure LM quality. Data loading, checkpoints and held-out
+evaluation are excluded.
+
+The first native benchmark failed during lowering on a CUDA-only QuACK import.
+The JAX optimizer fallback passes the parity cases above, but successful native
+step timings remain unverified.
