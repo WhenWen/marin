@@ -23,7 +23,9 @@ Use v4-32 (16 chips across four hosts) for the full model. The launcher uses
 one expert-parallel group spanning the chips. It recomputes attention
 intermediates and uses the existing XLA chunked KDA and TPU grouped matmuls.
 Inkling attention runs in rematerialized query blocks of 128 tokens, preserving
-the bias and packed-document masks. CUDA-only launch flags are not applied.
+the bias and packed-document masks. Structured masks are built for each query
+tile in global sequence coordinates; dense masks retain their slice path.
+CUDA-only launch flags are not applied.
 On TPU v4 at the measured local routing shape (32,768 tokens, 512 experts, 10,000 bins),
 QB histogram counts use binary matrix products with int32 accumulation,
 64 experts per group and radix 64. Other shapes and devices retain the flat
@@ -233,6 +235,25 @@ The matrix-count active-EMA run at `e8d111782`,
 for all seven losses and complete-state finiteness on all four hosts. Host
 medians were 1.4724–1.4748 seconds. As with the earlier active-EMA diagnostic,
 this measures the blend operation from initial state, not late-training quality.
+
+Building structured masks per query tile removes repeated full-sequence mask
+construction inside the attention checkpoint. After 22 TPU mask/attention
+cases passed, `/kaiyue/belay-base16-native-mask-tile-v1` at `e321355de` and
+the independent `native-mask-tile-v2` repeat at `2ce7dba10` passed all seven
+exact losses and complete-state finiteness on every host. Their slowest-host
+medians were 1.4317 and 1.4321 seconds, respectively: 2.83–2.86% less time
+than the 1.4739-second matrix-QB reference, or about 366,000 tokens/second.
+Both runs used early EMA. The repeat's numerical source was unchanged;
+intervening commits only added a separate benchmark and documentation.
+Compiler temporary storage was 9.55 GB/device in the first run. Its compilation
+took 337.0–345.6 seconds; the repeat took 40.1–55.8 seconds, with uncontrolled
+cache conditions. Reports, raw losses, curves and profiles are under
+`gs://marin-us-central2/kaiyue/belay-base16-tpu/native-mask-tile-v1/` and
+`native-mask-tile-v2/`.
+The first run's profile removed all full `8 × 4096 × 4096` mask operations
+inside CausalSelfAttention. Aggregate attention self time fell from 1.403 to
+1.049 million core-microseconds across eight cores, consistent with the measured
+update reduction. Aggregate activity is not a critical-path decomposition.
 
 ## Unpromoted execution experiments
 
