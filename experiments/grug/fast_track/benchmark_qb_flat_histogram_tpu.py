@@ -23,7 +23,7 @@ from jax.sharding import PartitionSpec as P
 from experiments.grug.fast_track.qb_balancing import factorized_expert_histogram, histogram_quantile
 
 
-def flat_histogram(indices, n_bins, group_size, radix):
+def flat_histogram(indices, n_bins, group_size, radix, *, axes):
     experts = indices.shape[1]
     high_bins = (n_bins + radix - 1) // radix
     groups = indices.T
@@ -36,11 +36,12 @@ def flat_histogram(indices, n_bins, group_size, radix):
         counts = counts.reshape(group_size, high_bins * radix)[:, :n_bins]
         return jax.lax.dynamic_update_slice(output, counts, (index * group_size, 0))
 
-    return jax.lax.fori_loop(0, experts // group_size, update, jnp.zeros((experts, n_bins), jnp.int32))
+    initial = jax.lax.pcast(jnp.zeros((experts, n_bins), jnp.int32), axes, to="varying")
+    return jax.lax.fori_loop(0, experts // group_size, update, initial)
 
 
 def pipeline(indices, rank, *, axes, n_bins, group_size, radix, implementation):
-    histogram = flat_histogram if implementation == "flat" else factorized_expert_histogram
+    histogram = partial(flat_histogram, axes=axes) if implementation == "flat" else factorized_expert_histogram
     counts = jax.lax.psum(histogram(indices, n_bins, group_size, radix), axes).astype(jnp.float32)
     return histogram_quantile(counts, rank, jnp.float32(-2048), jnp.float32(4095) / n_bins)
 
@@ -140,7 +141,7 @@ def main():
                                 start = time.monotonic()
                                 executable = run.lower(inputs, rank).compile()
                                 compiled[key] = (executable, time.monotonic() - start)
-                                histogram = flat_histogram if name == "flat" else factorized_expert_histogram
+                                histogram = partial(flat_histogram, axes=axes) if name == "flat" else factorized_expert_histogram
                                 checker = jax.jit(
                                     jax.shard_map(
                                         partial(histogram, **kwargs),
