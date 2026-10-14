@@ -17,7 +17,6 @@ import jax.numpy as jnp
 import jaxlib
 import numpy as np
 
-
 IMPLEMENTATIONS = ("reference", "sort", "scatter")
 DISTRIBUTIONS = ("uniform_partial", "concentrated_invalid", "identity_accepted", "reverse_dropped")
 
@@ -142,9 +141,9 @@ def main():
                                 path.write_text(executable.as_text())
                                 fs.put_file(str(path), f"{prefix}/{path.name}")
                             if (assignments, name) not in permutations:
-                                permutations[(assignments, name)] = jax.jit(
-                                    partial(restore_scalars, implementation=name)
-                                ).lower(*arrays[:2]).compile()
+                                permutations[(assignments, name)] = (
+                                    jax.jit(partial(restore_scalars, implementation=name)).lower(*arrays[:2]).compile()
+                                )
                             restored = np.asarray(permutations[(assignments, name)](*arrays[:2]))
                             executable, compile_time = compiled[key]
                             actual = jax.block_until_ready(executable(*arrays))
