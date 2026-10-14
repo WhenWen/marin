@@ -565,8 +565,10 @@ computes thresholds on each partition and gathers those thresholds.
 The maximum host median over 32 timed updates was 1.20181 seconds versus
 1.20744 seconds for the reference, a 0.47% reduction in this single trial.
 Compiler temporary storage rose from 9.138 to 9.817 GB/device.
-The candidate missed the frozen 1% performance gate and was removed without
-launching the conditional control trial. Production retains all-reduce.
+The candidate missed the [frozen 1% performance gate](https://github.com/WhenWen/astra-d8-research/issues/96#issuecomment-6158204146).
+The benchmark-only override and helper extraction were removed, restoring the
+original production all-reduce implementation. The conditional control required
+both numerical and performance gates to pass, so it was not launched.
 Reports, raw losses, curves, HLO and profiles remain under
 `gs://marin-us-central2/kaiyue/belay-base16-tpu/native-qb-scatter-active35-v1/`.
 
