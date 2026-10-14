@@ -14,7 +14,7 @@ import math
 import os
 import statistics
 import time
-from contextlib import nullcontext
+from contextlib import ExitStack
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from unittest.mock import patch
@@ -52,6 +52,20 @@ class StepMeasurement:
     seconds: float
 
 
+def _saved_expert_forward(self, x_dispatch, w13, w2, physical_sizes, active_sizes):
+    output, pullback = jax.vjp(
+        lambda x, up, down: self._apply(x, up, down, physical_sizes, active_sizes), x_dispatch, w13, w2
+    )
+    return output, (output, pullback)
+
+
+def _saved_expert_backward(self, residuals, cotangent):
+    output, pullback = residuals
+    dx, dw13, dw2 = pullback(cotangent)
+    row_dot = jnp.sum(output.astype(jnp.float32) * cotangent.astype(jnp.float32), axis=-1)
+    return dx, dw13, dw2, row_dot
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--steps", type=int, default=4, help="Timed steps after two warmup steps and one profiled step.")
@@ -74,6 +88,7 @@ def main() -> None:
         help="Diagnostic outer layer residual policy; inner attention checkpointing is separate.",
     )
     parser.add_argument("--revision", required=True)
+    parser.add_argument("--expert-backward", choices=("production", "saved-pullback"), default="production")
     parser.add_argument(
         "--kda-scan", choices=("production", "reference", "stacked", "stacked-split"), default="production"
     )
@@ -126,6 +141,7 @@ def main() -> None:
         "kda_scan": args.kda_scan,
         "kda_xla_scan_impl": config.kda_xla_scan_impl,
         "accepted_mask": args.accepted_mask,
+        "expert_backward": args.expert_backward,
         "git_sha": args.revision,
         "seed": trainer["seed"],
         "data_seed": 1,
@@ -204,15 +220,18 @@ def main() -> None:
         router_ties = _router_ties_active(config, 0)
         print("Compiling native base16 train step", flush=True)
         start = time.monotonic()
-        context = nullcontext()
-        if args.accepted_mask != "production":
-            implementation = (
-                ep_ragged_all_to_all._accepted_assignments_inverse
-                if args.accepted_mask == "inverse-direct"
-                else ep_ragged_all_to_all._accepted_assignments_scatter
-            )
-            context = patch.object(ep_ragged_all_to_all, "_accepted_assignments", implementation)
-        with context:
+        with ExitStack() as contexts:
+            if args.accepted_mask != "production":
+                implementation = (
+                    ep_ragged_all_to_all._accepted_assignments_inverse
+                    if args.accepted_mask == "inverse-direct"
+                    else ep_ragged_all_to_all._accepted_assignments_scatter
+                )
+                contexts.enter_context(patch.object(ep_ragged_all_to_all, "_accepted_assignments", implementation))
+            if args.expert_backward == "saved-pullback":
+                expert = ep_ragged_all_to_all._RaggedDotExpertMlp
+                contexts.enter_context(patch.object(expert, "forward", _saved_expert_forward))
+                contexts.enter_context(patch.object(expert, "backward", _saved_expert_backward))
             compiled = step_fn.lower(leaves, batch, loop_active=None, router_tie_active=router_ties).compile()
         report["compile_time"] = time.monotonic() - start
         memory = compiled.memory_analysis()
