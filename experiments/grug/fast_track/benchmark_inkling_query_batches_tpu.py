@@ -97,11 +97,14 @@ def main():
                         values = jax.block_until_ready(fn(*inputs))
                         row["implementations"][name] = {
                             key: errors(actual, expected)
-                            for key, actual, expected in zip(("output", "dq", "dk", "dv", "dband"), values, oracle, strict=True)
+                            for key, actual, expected in zip(
+                                ("output", "dq", "dk", "dv", "dband"), values, oracle, strict=True
+                            )
                         }
                     for name in ("batch2", "batch4", "batch8"):
                         row["passed"][name] = all(
-                            baseline["finite"] and candidate["finite"]
+                            baseline["finite"]
+                            and candidate["finite"]
                             and candidate[metric] <= 1.25 * baseline[metric] + 1e-3
                             for key, baseline in row["implementations"]["reference"].items()
                             for candidate in (row["implementations"][name][key],)
@@ -109,7 +112,10 @@ def main():
                         )
                     report["numerics"].append(row)
                     save()
-                    print(json.dumps({"seed": seed, "length": length, "scenario": scenario, "passed": row["passed"]}), flush=True)
+                    print(
+                        json.dumps({"seed": seed, "length": length, "scenario": scenario, "passed": row["passed"]}),
+                        flush=True,
+                    )
     with jax.default_device(device):
         for batch, length, heads, kv_heads in ((1, 1024, 2, 1), (8, 4096, 6, 6)):
             shape = [batch, length, heads, kv_heads, 128]
@@ -132,15 +138,23 @@ def main():
                 start = time.monotonic()
                 executable = fn.lower(*inputs).compile()
                 compiled[name] = executable
-                report["compilation"].append({"shape": shape, "implementation": name,
-                    "seconds": time.monotonic() - start, "temporary_bytes": executable.memory_analysis().temp_size_in_bytes})
+                report["compilation"].append(
+                    {
+                        "shape": shape,
+                        "implementation": name,
+                        "seconds": time.monotonic() - start,
+                        "temporary_bytes": executable.memory_analysis().temp_size_in_bytes,
+                    }
+                )
                 path = folder / f"b{batch}-s{length}-{name}-hlo.txt"
                 path.write_text(executable.as_text())
                 fs.put_file(str(path), f"{prefix}/{path.name}")
                 for repeat in range(2):
                     values = jax.block_until_ready(executable(*inputs))
                     finite = bool(jax.jit(lambda xs: jnp.stack([jnp.isfinite(x).all() for x in xs]).all())(values))
-                    report["warmups"].append({"shape": shape, "implementation": name, "repeat": repeat, "finite": finite})
+                    report["warmups"].append(
+                        {"shape": shape, "implementation": name, "repeat": repeat, "finite": finite}
+                    )
                     save()
                     if not finite:
                         raise ValueError(f"Nonfinite target outputs/gradients: {name}, {shape}")
@@ -151,11 +165,16 @@ def main():
                 for name in names:
                     start = time.monotonic()
                     jax.block_until_ready(compiled[name](*inputs))
-                    report["timings"].append({"shape": shape, "implementation": name, "repeat": repeat,
-                                              "seconds": time.monotonic() - start})
+                    report["timings"].append(
+                        {"shape": shape, "implementation": name, "repeat": repeat, "seconds": time.monotonic() - start}
+                    )
                 save()
-            medians = {name: statistics.median(r["seconds"] for r in report["timings"]
-                       if r["shape"] == shape and r["implementation"] == name) for name in implementations}
+            medians = {
+                name: statistics.median(
+                    r["seconds"] for r in report["timings"] if r["shape"] == shape and r["implementation"] == name
+                )
+                for name in implementations
+            }
             print(json.dumps({"shape": shape, "medians": medians}), flush=True)
     report["status"] = "completed"
     save()
