@@ -123,8 +123,11 @@ def main():
     )
     report = {
         "issue_url": "https://github.com/WhenWen/astra-d8-research/issues/96",
-        "protocol_url": (attention_mask_crop.PROTOCOL if crop else
-                         "https://github.com/WhenWen/astra-d8-research/issues/96#issuecomment-6171089614"),
+        "protocol_url": (
+            attention_mask_crop.PROTOCOL
+            if crop
+            else "https://github.com/WhenWen/astra-d8-research/issues/96#issuecomment-6171089614"
+        ),
         "candidate": candidate,
         "revision": args.revision,
         "source_sha256": {str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in source_paths},
@@ -239,14 +242,18 @@ def main():
                             report["fixtures"].append(
                                 {"shape": shape, "window": window, "seed": seed, "sha256_q_k_v_band_ct": hashes}
                             )
-                            for scenario in (("one-document", "packed1024", "mixed") if crop else ("one-document", "packed1024")):
+                            for scenario in (
+                                ("one-document", "packed1024", "mixed") if crop else ("one-document", "packed1024")
+                            ):
                                 segments = jnp.zeros((batch, length), jnp.int32)
                                 if scenario == "packed1024":
                                     segments = jnp.broadcast_to(
                                         jnp.arange(length, dtype=jnp.int32) // 1024, (batch, length)
                                     )
                                 if scenario == "mixed":
-                                    segments = jnp.arange(length, dtype=jnp.int32)[None] // (257 + 137 * jnp.arange(batch, dtype=jnp.int32)[:, None])
+                                    segments = jnp.arange(length, dtype=jnp.int32)[None] // (
+                                        257 + 137 * jnp.arange(batch, dtype=jnp.int32)[:, None]
+                                    )
                                 inputs = q, k, v, band, segments, ct
                                 case = {"shape": shape, "window": window, "seed": seed, "scenario": scenario}
                                 if crop:

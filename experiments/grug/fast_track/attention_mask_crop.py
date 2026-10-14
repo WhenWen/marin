@@ -126,7 +126,13 @@ def support_check():
                     if scenario == "empty":
                         assert width == length
                     results.append(
-                        dict(length=length, window=window, scenario=scenario, query_start=start,
-                             key_start=key_start, width=width)
+                        dict(
+                            length=length,
+                            window=window,
+                            scenario=scenario,
+                            query_start=start,
+                            key_start=key_start,
+                            width=width,
+                        )
                     )
     return results
