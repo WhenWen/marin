@@ -5,7 +5,7 @@
 
 import jax
 import jax.numpy as jnp
-from jax.shard_map import shard_map
+from jax import shard_map
 from jax.sharding import PartitionSpec as P
 from jax.sharding import get_abstract_mesh, reshard
 
