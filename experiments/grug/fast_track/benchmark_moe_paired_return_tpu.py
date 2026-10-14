@@ -36,8 +36,22 @@ from experiments.grug.fast_track.moe_transport_tpu import (
 )
 
 SCALAR_PATTERNS = np.asarray(
-    [0, 0x80000000, 1, 0x80000001, 0x007FFFFF, 0x807FFFFF, 0x7F800000, 0xFF800000,
-     0x7FC00001, 0xFFC12345, 0x7F800001, 0xFF812345, 0x3F800000, 0xBF800000],
+    [
+        0,
+        0x80000000,
+        1,
+        0x80000001,
+        0x007FFFFF,
+        0x807FFFFF,
+        0x7F800000,
+        0xFF800000,
+        0x7FC00001,
+        0xFFC12345,
+        0x7F800001,
+        0xFF812345,
+        0x3F800000,
+        0xBF800000,
+    ],
     dtype=np.uint32,
 )
 
@@ -140,8 +154,12 @@ def main():
         xla_flags=os.environ.get("XLA_FLAGS", ""),
         source_hashes={
             filename: hashlib.sha256(Path(__file__).with_name(filename).read_bytes()).hexdigest()
-            for filename in (Path(__file__).name, "benchmark_moe_padded_transport_tpu.py",
-                             "moe_padded_transport_tpu.py", "moe_transport_tpu.py")
+            for filename in (
+                Path(__file__).name,
+                "benchmark_moe_padded_transport_tpu.py",
+                "moe_padded_transport_tpu.py",
+                "moe_transport_tpu.py",
+            )
         },
         numerics=[],
         compilation=[],
@@ -175,44 +193,82 @@ def main():
                             seed, distribution, 16, rows, experts, chunk
                         )
                         for width in widths:
-                            case = dict(rows=rows, experts=experts, width=width, seed=seed,
-                                        distribution=distribution, chunk=chunk)
+                            case = dict(
+                                rows=rows,
+                                experts=experts,
+                                width=width,
+                                seed=seed,
+                                distribution=distribution,
+                                chunk=chunk,
+                            )
                             arrays = []
                             for generator, channels, dtype in (
-                                (payload, width, ml_dtypes.bfloat16), (scalar_payload, 1, np.float32)
+                                (payload, width, ml_dtypes.bfloat16),
+                                (scalar_payload, 1, np.float32),
                             ):
                                 for initial in (False, True):
                                     length = rows if initial else capacity
 
-                                    def callback(index, *, generator=generator, channels=channels,
-                                                 dtype=dtype, length=length, initial=initial):
-                                        return np.stack([
-                                            generator(seed, peer, index[1].start or 0, index[1].stop or length,
-                                                      channels, dtype, initial=initial)
-                                            for peer in range(index[0].start, index[0].stop)
-                                        ])
+                                    def callback(
+                                        index,
+                                        *,
+                                        generator=generator,
+                                        channels=channels,
+                                        dtype=dtype,
+                                        length=length,
+                                        initial=initial,
+                                        seed=seed,
+                                    ):
+                                        return np.stack(
+                                            [
+                                                generator(
+                                                    seed,
+                                                    peer,
+                                                    index[1].start or 0,
+                                                    index[1].stop or length,
+                                                    channels,
+                                                    dtype,
+                                                    initial=initial,
+                                                )
+                                                for peer in range(index[0].start, index[0].stop)
+                                            ]
+                                        )
 
-                                    arrays.append(jax.make_array_from_callback(
-                                        (16, length, channels), NamedSharding(mesh, P("expert", None, None)), callback
-                                    ))
+                                    arrays.append(
+                                        jax.make_array_from_callback(
+                                            (16, length, channels),
+                                            NamedSharding(mesh, P("expert", None, None)),
+                                            callback,
+                                        )
+                                    )
                             arrays.extend(
-                                jax.make_array_from_callback(a.shape, NamedSharding(mesh, P("expert", None)),
-                                                            lambda index, a=a: a[index])
+                                jax.make_array_from_callback(
+                                    a.shape, NamedSharding(mesh, P("expert", None)), lambda index, a=a: a[index]
+                                )
                                 for a in metadata
                             )
-                            result_row = {**case, "metadata_sha256": hashlib.sha256(
-                                b"".join(a.tobytes() for a in (counts, clipped, *metadata))
-                            ).hexdigest(), "implementations": {}}
+                            result_row = {
+                                **case,
+                                "metadata_sha256": (
+                                    hashlib.sha256(
+                                        b"".join(a.tobytes() for a in (counts, clipped, *metadata))
+                                    ).hexdigest()
+                                ),
+                                "implementations": {},
+                            }
                             for implementation in ("reference", "paired"):
                                 key = (rows, width, implementation)
                                 if key not in cache:
                                     fn = jax.jit(partial(mapped_return, mesh=mesh, implementation=implementation))
                                     start = time.monotonic()
                                     cache[key] = fn.lower(*arrays).compile()
-                                    report["compilation"].append(dict(
-                                        key=key, seconds=time.monotonic() - start,
-                                        temporary_bytes=cache[key].memory_analysis().temp_size_in_bytes,
-                                    ))
+                                    report["compilation"].append(
+                                        dict(
+                                            key=key,
+                                            seconds=time.monotonic() - start,
+                                            temporary_bytes=cache[key].memory_analysis().temp_size_in_bytes,
+                                        )
+                                    )
                                     if rank == 0:
                                         path = folder / ("-".join(map(str, key)) + "-hlo.txt")
                                         path.write_text(cache[key].as_text())
@@ -225,15 +281,31 @@ def main():
                                 ):
                                     shard_checks = []
                                     for shard in value.addressable_shards:
-                                        expected = output_oracle(seed, shard.index[0].start, channels, dtype,
-                                                                 counts, clipped, capacity, rows, "return",
-                                                                 payload_fn=generator)
+                                        expected = output_oracle(
+                                            seed,
+                                            shard.index[0].start,
+                                            channels,
+                                            dtype,
+                                            counts,
+                                            clipped,
+                                            capacity,
+                                            rows,
+                                            "return",
+                                            payload_fn=generator,
+                                        )
                                         shard_checks.append(bit_check(np.asarray(shard.data)[0], expected))
-                                    checks.append(dict(mismatched_elements=sum(c["mismatched_elements"] for c in shard_checks),
-                                                       max_xor_bits=max(c["max_xor_bits"] for c in shard_checks)))
+                                    checks.append(
+                                        dict(
+                                            mismatched_elements=sum(c["mismatched_elements"] for c in shard_checks),
+                                            max_xor_bits=max(c["max_xor_bits"] for c in shard_checks),
+                                        )
+                                    )
                                 result_row["implementations"][implementation] = checks
-                            result_row["passed"] = all(c["mismatched_elements"] == 0
-                                                       for checks in result_row["implementations"].values() for c in checks)
+                            result_row["passed"] = all(
+                                c["mismatched_elements"] == 0
+                                for checks in result_row["implementations"].values()
+                                for c in checks
+                            )
                             report["numerics"].append(result_row)
                             save()
                             if not result_row["passed"]:
@@ -245,30 +317,53 @@ def main():
                                 for repeat in range(16):
                                     order = ("reference", "paired") if repeat % 2 == 0 else ("paired", "reference")
                                     for implementation in order:
-                                        multihost_utils.sync_global_devices(f"{rows}-{width}-{seed}-{chunk}-{repeat}-{implementation}")
+                                        multihost_utils.sync_global_devices(
+                                            f"{rows}-{width}-{seed}-{chunk}-{repeat}-{implementation}"
+                                        )
                                         start = time.monotonic()
                                         jax.block_until_ready(cache[(rows, width, implementation)](*arrays))
-                                        report["timings"].append({**case, "implementation": implementation,
-                                                                  "repeat": repeat, "seconds": time.monotonic() - start})
+                                        report["timings"].append(
+                                            {
+                                                **case,
+                                                "implementation": implementation,
+                                                "repeat": repeat,
+                                                "seconds": time.monotonic() - start,
+                                            }
+                                        )
                                 save()
                             if not full and rank == 0:
                                 path = folder / ("fixture-" + "-".join(map(str, case.values())) + ".npz")
-                                data = {"counts": counts, "clipped": clipped,
-                                        **dict(zip(("input_offsets", "send_sizes", "output_offsets", "recv_sizes"), metadata, strict=True))}
+                                data = {
+                                    "counts": counts,
+                                    "clipped": clipped,
+                                    **dict(
+                                        zip(
+                                            ("input_offsets", "send_sizes", "output_offsets", "recv_sizes"),
+                                            metadata,
+                                            strict=True,
+                                        )
+                                    ),
+                                }
                                 for label, generator, channels, dtype in (
                                     ("vector", payload, width, ml_dtypes.bfloat16),
                                     ("scalar", scalar_payload, 1, np.float32),
                                 ):
                                     for initial in (False, True):
                                         length = rows if initial else capacity
-                                        data[f"{label}_{'initial' if initial else 'source'}"] = np.stack([
-                                            generator(seed, peer, 0, length, channels, dtype, initial=initial)
-                                            for peer in range(16)
-                                        ])
+                                        data[f"{label}_{'initial' if initial else 'source'}"] = np.stack(
+                                            [
+                                                generator(seed, peer, 0, length, channels, dtype, initial=initial)
+                                                for peer in range(16)
+                                            ]
+                                        )
                                 np.savez_compressed(path, **data)
                                 fs.put_file(str(path), f"{prefix}/{path.name}")
-                    print(json.dumps(dict(rows=rows, seed=seed, distribution=distribution,
-                                          checked=len(report["numerics"]))), flush=True)
+                    print(
+                        json.dumps(
+                            dict(rows=rows, seed=seed, distribution=distribution, checked=len(report["numerics"]))
+                        ),
+                        flush=True,
+                    )
     report["status"] = "completed"
     save()
 
