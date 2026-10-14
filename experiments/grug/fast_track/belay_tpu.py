@@ -133,6 +133,8 @@ def build_config(
     trainer.update(
         id=run_id,
         seed=seed,
+        per_device_parallelism=batch // (chips * microbatches),
+        per_device_eval_parallelism=1,
         mp="params=float32,compute=bfloat16,output=bfloat16",
         load_checkpoint=None if resume else False,
         load_checkpoint_path=None,
