@@ -24,7 +24,12 @@ from jax.sharding import PartitionSpec as P
 from levanter.distributed import DistributedConfig
 
 from experiments.grug.fast_track.belay_tpu import require_tpu_rounding
-from experiments.grug.fast_track.moe_padded_transport_tpu import padded_transport, peer_capacity
+from experiments.grug.fast_track.moe_padded_transport_tpu import (
+    overflowed,
+    packed_transport,
+    padded_transport,
+    peer_capacity,
+)
 
 DISTRIBUTIONS = ("uniform", "half-valid", "concentrated", "empty", "at-capacity", "over-capacity")
 
@@ -127,6 +132,12 @@ def mapped_transport(*arrays, mesh, implementation):
         if implementation == "reference":
             result = jax.lax.ragged_all_to_all(*values, axis_name="expert")
             overflow = jnp.asarray(False)
+        elif implementation == "packed-only":
+            capacity = peer_capacity(values[0].shape[0], values[1].shape[0], jax.lax.axis_size("expert"))
+            overflow = overflowed(
+                values[3], values[5], peers=jax.lax.axis_size("expert"), capacity=capacity, axis_name="expert"
+            )
+            result = packed_transport(*values, axis_name="expert")
         else:
             result, overflow = padded_transport(*values, axis_name="expert")
         return result[None], overflow[None]
@@ -144,7 +155,10 @@ def main():
     parser.add_argument("--revision", required=True)
     parser.add_argument("--artifact-prefix", required=True)
     parser.add_argument("--cpu-check", action="store_true")
+    parser.add_argument("--cpu-packed-only", action="store_true")
     args = parser.parse_args()
+    if args.cpu_packed_only and not args.cpu_check:
+        raise ValueError("Packed-only preflight is CPU-only; TPU must validate the ragged fallback")
     if not args.cpu_check:
         require_tpu_rounding()
         DistributedConfig().initialize()
@@ -162,6 +176,7 @@ def main():
         revision=args.revision,
         rank=rank,
         status="running",
+        cpu_packed_only=args.cpu_packed_only,
         backend=devices[0].platform,
         jax_version=jax.__version__,
         jaxlib_version=jaxlib.__version__,
@@ -270,7 +285,8 @@ def main():
                                         ).hexdigest()
                                     ),
                                 }
-                                for implementation in ("reference", "padded"):
+                                implementations = ("packed-only",) if args.cpu_packed_only else ("reference", "padded")
+                                for implementation in implementations:
                                     key = (sender_rows, width, np.dtype(dtype).name, direction, implementation)
                                     if key not in cache:
                                         start = time.monotonic()
@@ -288,23 +304,28 @@ def main():
                                             path.write_text(cache[key].as_text())
                                             fs.put_file(str(path), f"{prefix}/{path.name}")
                                     actual, branches = jax.block_until_ready(cache[key](*arrays))
-                                    exact = True
-                                    for shard in actual.addressable_shards:
-                                        peer = shard.index[0].start
-                                        expected = output_oracle(
-                                            seed, peer, width, dtype, counts, clipped, capacity, sender_rows, direction
-                                        )
-                                        exact &= np.asarray(shard.data)[0].tobytes() == expected.tobytes()
+                                    output_checked = not (args.cpu_packed_only and overflow)
+                                    exact = True if output_checked else None
+                                    if output_checked:
+                                        for shard in actual.addressable_shards:
+                                            peer = shard.index[0].start
+                                            expected = output_oracle(
+                                                seed, peer, width, dtype, counts, clipped, capacity, sender_rows, direction
+                                            )
+                                            exact &= np.asarray(shard.data)[0].tobytes() == expected.tobytes()
                                     branch_ok = all(
                                         bool(np.asarray(shard.data)[0])
-                                        == (overflow if implementation == "padded" else False)
+                                        == (False if implementation == "reference" else overflow)
                                         for shard in branches.addressable_shards
                                     )
                                     result_row["implementations"][implementation] = dict(
-                                        exact=bool(exact), branch_correct=branch_ok
+                                        exact=bool(exact) if output_checked else None,
+                                        output_checked=output_checked,
+                                        branch_correct=branch_ok,
                                     )
                                 result_row["passed"] = all(
-                                    m["exact"] and m["branch_correct"] for m in result_row["implementations"].values()
+                                    (m["exact"] or not m["output_checked"]) and m["branch_correct"]
+                                    for m in result_row["implementations"].values()
                                 )
                                 report["numerics"].append(result_row)
                                 if not result_row["passed"]:
