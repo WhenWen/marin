@@ -310,7 +310,15 @@ def main():
                                         for shard in actual.addressable_shards:
                                             peer = shard.index[0].start
                                             expected = output_oracle(
-                                                seed, peer, width, dtype, counts, clipped, capacity, sender_rows, direction
+                                                seed,
+                                                peer,
+                                                width,
+                                                dtype,
+                                                counts,
+                                                clipped,
+                                                capacity,
+                                                sender_rows,
+                                                direction,
                                             )
                                             exact &= np.asarray(shard.data)[0].tobytes() == expected.tobytes()
                                     branch_ok = all(
