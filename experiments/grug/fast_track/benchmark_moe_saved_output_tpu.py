@@ -29,8 +29,8 @@ from levanter.grug.sharding import compact_grug_mesh
 from experiments.grug.fast_track.belay_tpu import require_tpu_rounding
 from experiments.grug.fast_track.benchmark_moe_transport_tpu import _NAMES, _SPECS, evaluate, fixture, oracle
 from experiments.grug.fast_track.diagnose_kda_state_precision import errors
-from experiments.grug.fast_track.moe_saved_output import saved_output_routed_experts
 from experiments.grug.fast_track.moe_expert_residuals import saved_expert_backward, saved_expert_forward
+from experiments.grug.fast_track.moe_saved_output import saved_output_routed_experts
 
 _DISTRIBUTIONS = ("uniform", "sparse", "imbalanced", "empty", "zero-weight", "tiny-weight")
 
