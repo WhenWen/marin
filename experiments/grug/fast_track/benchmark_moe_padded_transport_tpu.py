@@ -1,7 +1,7 @@
 # Copyright The Marin Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Check and time padded transport with original accepted expert intervals."""
+"""Check and time transport candidates with original accepted expert intervals."""
 
 import argparse
 import hashlib
@@ -30,6 +30,7 @@ from experiments.grug.fast_track.moe_padded_transport_tpu import (
     padded_transport,
     peer_capacity,
 )
+from experiments.grug.fast_track.moe_transport_tpu import preshaped_transport
 
 DISTRIBUTIONS = ("uniform", "half-valid", "concentrated", "empty", "at-capacity", "over-capacity")
 
@@ -132,6 +133,9 @@ def mapped_transport(*arrays, mesh, implementation):
         if implementation == "reference":
             result = jax.lax.ragged_all_to_all(*values, axis_name="expert")
             overflow = jnp.asarray(False)
+        elif implementation == "pre-shaped":
+            result = preshaped_transport(*values, axis_name="expert")
+            overflow = jnp.asarray(False)
         elif implementation == "packed-only":
             capacity = peer_capacity(values[0].shape[0], values[1].shape[0], jax.lax.axis_size("expert"))
             overflow = overflowed(
@@ -154,9 +158,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--revision", required=True)
     parser.add_argument("--artifact-prefix", required=True)
+    parser.add_argument("--candidate", choices=("padded", "pre-shaped"), default="padded")
     parser.add_argument("--cpu-check", action="store_true")
     parser.add_argument("--cpu-packed-only", action="store_true")
     args = parser.parse_args()
+    if args.cpu_packed_only and args.candidate != "padded":
+        raise ValueError("The packed-only CPU preflight applies to padded transport")
     if args.cpu_packed_only and not args.cpu_check:
         raise ValueError("Packed-only preflight is CPU-only; TPU must validate the ragged fallback")
     if not args.cpu_check:
@@ -169,11 +176,13 @@ def main():
     if not args.artifact_prefix.startswith("gs://marin-us-central2/"):
         raise ValueError("Keep artifacts in us-central2")
     rank = jax.process_index()
-    folder = Path(os.environ.get("IRIS_OUTPUT_DIR", "outputs")) / f"padded-transport-rank-{rank}"
+    report_name = "padded-transport" if args.candidate == "padded" else "preshaped-transport"
+    folder = Path(os.environ.get("IRIS_OUTPUT_DIR", "outputs")) / f"{report_name}-rank-{rank}"
     folder.mkdir(parents=True, exist_ok=True)
     fs, prefix = fsspec.core.url_to_fs(f"{args.artifact_prefix}/rank-{rank}")
     report = dict(
         revision=args.revision,
+        candidate=args.candidate,
         rank=rank,
         status="running",
         cpu_packed_only=args.cpu_packed_only,
@@ -191,7 +200,7 @@ def main():
     )
 
     def save():
-        path = folder / "padded-transport.json"
+        path = folder / f"{report_name}.json"
         path.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
         fs.put_file(str(path), f"{prefix}/{path.name}")
 
@@ -285,7 +294,9 @@ def main():
                                         ).hexdigest()
                                     ),
                                 }
-                                implementations = ("packed-only",) if args.cpu_packed_only else ("reference", "padded")
+                                implementations = (
+                                    ("packed-only",) if args.cpu_packed_only else ("reference", args.candidate)
+                                )
                                 for implementation in implementations:
                                     key = (sender_rows, width, np.dtype(dtype).name, direction, implementation)
                                     if key not in cache:
@@ -306,6 +317,7 @@ def main():
                                     actual, branches = jax.block_until_ready(cache[key](*arrays))
                                     output_checked = not (args.cpu_packed_only and overflow)
                                     exact = True if output_checked else None
+                                    mismatched_elements = 0
                                     if output_checked:
                                         for shard in actual.addressable_shards:
                                             peer = shard.index[0].start
@@ -320,14 +332,21 @@ def main():
                                                 sender_rows,
                                                 direction,
                                             )
-                                            exact &= np.asarray(shard.data)[0].tobytes() == expected.tobytes()
+                                            value = np.ascontiguousarray(np.asarray(shard.data)[0])
+                                            bit_dtype = np.dtype(f"u{value.dtype.itemsize}")
+                                            mismatches = int(
+                                                np.count_nonzero(value.view(bit_dtype) != expected.view(bit_dtype))
+                                            )
+                                            mismatched_elements += mismatches
+                                            exact &= mismatches == 0
                                     branch_ok = all(
                                         bool(np.asarray(shard.data)[0])
-                                        == (False if implementation == "reference" else overflow)
+                                        == (False if implementation in ("reference", "pre-shaped") else overflow)
                                         for shard in branches.addressable_shards
                                     )
                                     result_row["implementations"][implementation] = dict(
                                         exact=bool(exact) if output_checked else None,
+                                        mismatched_elements=mismatched_elements if output_checked else None,
                                         output_checked=output_checked,
                                         branch_correct=branch_ok,
                                     )
@@ -340,12 +359,14 @@ def main():
                                     save()
                                     raise ValueError(f"Transport mismatch: {result_row}")
                                 if full and distribution == "uniform":
-                                    for name in ("reference", "padded"):
+                                    for name in ("reference", args.candidate):
                                         for _ in range(2):
                                             jax.block_until_ready(cache[(*key[:-1], name)](*arrays))
                                     for repeat in range(8):
                                         for name in (
-                                            ("reference", "padded") if repeat % 2 == 0 else ("padded", "reference")
+                                            ("reference", args.candidate)
+                                            if repeat % 2 == 0
+                                            else (args.candidate, "reference")
                                         ):
                                             multihost_utils.sync_global_devices(
                                                 f"{sender_rows}-{width}-{seed}-{chunk}-{direction}-{repeat}-{name}"

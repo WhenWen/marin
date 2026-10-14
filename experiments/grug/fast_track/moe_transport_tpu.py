@@ -1,13 +1,26 @@
 # Copyright The Marin Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Experimental physical MoE batching after unchanged logical capacity clipping."""
+"""Experimental MoE transport after unchanged logical capacity clipping."""
 
 from dataclasses import replace
 
+import jax
+import jax.numpy as jnp
 from levanter.grug._moe import ep_ragged_all_to_all as ragged
 
 _routed_experts = ragged._routed_experts
+
+
+def preshaped_transport(operand, output, input_offsets, send_sizes, output_offsets, recv_sizes, *, axis_name):
+    """Expose the TPU BF16 transport's two-part trailing shape before lowering."""
+    shape = output.shape
+    if operand.dtype == jnp.bfloat16 and operand.shape[-1] % 2 == 0:
+        operand = operand.reshape(operand.shape[0], 2, operand.shape[-1] // 2)
+        output = output.reshape(output.shape[0], 2, output.shape[-1] // 2)
+    return jax.lax.ragged_all_to_all(
+        operand, output, input_offsets, send_sizes, output_offsets, recv_sizes, axis_name=axis_name
+    ).reshape(shape)
 
 
 def coalesce_routing(routing: ragged._ExpertRouting, layout: ragged._ExpertLayout):
