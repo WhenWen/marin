@@ -142,9 +142,7 @@ def main() -> None:
             report["kda_xla_scan_impl"] = config.kda_xla_scan_impl
             report["inner_attention_remat"] = config.attn_res_remat_attention
             spec = P(("replica_dcn", "data", "expert"), None)
-            tokens = jax.sharding.reshard(
-                jax.random.randint(jax.random.key(1), (128, 4096), 0, config.vocab_size), spec
-            )
+            tokens = jax.sharding.reshard(jax.random.randint(jax.random.key(1), (128, 4096), 0, config.vocab_size), spec)
             segments = jax.sharding.reshard(jnp.broadcast_to(jnp.arange(4096) // 1024, tokens.shape), spec)
             batch = jax.vmap(GrugLmExample.causal)(tokens, segment_ids=segments)
             pending = jnp.zeros((config.num_layers, config.qb_num_experts))
