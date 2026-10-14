@@ -142,7 +142,9 @@ def main() -> None:
         "ema_start_step": 0 if args.ema_phase == "active" else trainer["num_train_steps"] - outer["ema_last_steps"],
         "ema_phase": args.ema_phase,
         "timing_protocol": "all-host barrier before each update; block all outputs; reporting outside timer",
-        "flop_convention": "base16 useful matrix/convolution training FLOPs; excludes recomputation and elementwise work",
+        "flop_convention": (
+            "base16 useful matrix/convolution training FLOPs; excludes recomputation and elementwise work"
+        ),
         "nominal_training_flop_breakdown": training_flops_per_token((1024,) * 4, batch_size=128),
         "peak_bf16_flops_per_chip": 275e12,
         "status": "initializing",
