@@ -6279,10 +6279,9 @@ def _selected_router_logits(logits: Float[Array, "T E"], selected: Int[Array, "T
 
 
 def _small_top_k(x: Float[Array, "T E"], k: int) -> tuple[Float[Array, "T k"], Int[Array, "T k"]]:
-    """``jax.lax.top_k`` over the last axis as ``k`` unrolled max/argmax passes (values stop-gradient).
+    """Top-k via k max/argmax passes, with stopped gradients and lowest-index ties.
 
-    On GPU, XLA lowers ``lax.top_k`` to a full sort: for the router (k = 9 of 384, 65k tokens per H100)
-    that is 1.12 ms against 0.35 ms here. Ties resolve to the lowest index, as in ``lax.top_k``.
+    For k=9 of 384, 65k tokens/H100, XLA's full sort takes 1.12 ms versus 0.35 ms here.
     """
     x = jax.lax.stop_gradient(x)
     iota = jax.lax.broadcasted_iota(jnp.int32, x.shape, x.ndim - 1)
