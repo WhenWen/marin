@@ -129,9 +129,7 @@ def main():
                             )
                         }
                 row["passed"] = all(
-                    baseline["finite"]
-                    and candidate["finite"]
-                    and candidate[metric] <= 1.25 * baseline[metric] + 1e-3
+                    baseline["finite"] and candidate["finite"] and candidate[metric] <= 1.25 * baseline[metric] + 1e-3
                     for key, baseline in row["errors"]["reference"].items()
                     for candidate in (row["errors"]["causal-prefix"][key],)
                     for metric in ("max_abs_error", "relative_l2")
@@ -159,7 +157,12 @@ def main():
                 )
                 hashes = [hashlib.sha256(np.asarray(x).tobytes()).hexdigest() for x in (q, k, v, band, ct)]
                 report["fixtures"].append(
-                    {"shape": shape, "seed": seed, "sha256_q_k_v_band_ct": hashes, "generator": "jax.random.normal; key(seed+offset), offset=0..4; bfloat16"}
+                    {
+                        "shape": shape,
+                        "seed": seed,
+                        "sha256_q_k_v_band_ct": hashes,
+                        "generator": "jax.random.normal; key(seed+offset), offset=0..4; bfloat16",
+                    }
                 )
                 for scenario in ("one-document", "packed1024"):
                     segments = jnp.zeros((batch, length), jnp.int32)
@@ -175,17 +178,25 @@ def main():
                             executable = fn.lower(*inputs).compile()
                             compiled[name] = executable
                             report["compilation"].append(
-                                {"shape": shape, "implementation": name, "seconds": time.monotonic() - start,
-                                 "temporary_bytes": executable.memory_analysis().temp_size_in_bytes,
-                                 "prefixes": list(range(1024, length + 1, 1024))}
+                                {
+                                    "shape": shape,
+                                    "implementation": name,
+                                    "seconds": time.monotonic() - start,
+                                    "temporary_bytes": executable.memory_analysis().temp_size_in_bytes,
+                                    "prefixes": list(range(1024, length + 1, 1024)),
+                                }
                             )
                             path = folder / f"b{batch}-s{length}-{name}-hlo.txt"
                             path.write_text(executable.as_text())
                             upload(path)
                         for repeat in range(2):
                             values = jax.block_until_ready(compiled[name](*inputs))
-                            finite = bool(jax.jit(lambda xs: jnp.stack([jnp.isfinite(x).all() for x in xs]).all())(values))
-                            report["warmups"].append({**case, "implementation": name, "repeat": repeat, "finite": finite})
+                            finite = bool(
+                                jax.jit(lambda xs: jnp.stack([jnp.isfinite(x).all() for x in xs]).all())(values)
+                            )
+                            report["warmups"].append(
+                                {**case, "implementation": name, "repeat": repeat, "finite": finite}
+                            )
                             save()
                             if not finite:
                                 raise ValueError(f"Nonfinite target outputs/gradients: {name}, {case}")
@@ -199,11 +210,18 @@ def main():
                             jax.block_until_ready(compiled[name](*inputs))
                             elapsed = time.monotonic() - start
                             samples[name].append(elapsed)
-                            report["timings"].append({**case, "implementation": name, "repeat": repeat, "seconds": elapsed})
+                            report["timings"].append(
+                                {**case, "implementation": name, "repeat": repeat, "seconds": elapsed}
+                            )
                         save()
                     medians = {name: statistics.median(values) for name, values in samples.items()}
                     reduction = 1 - medians["causal-prefix"] / medians["reference"]
-                    result = {**case, "medians": medians, "reduction": reduction, "passed": reduction >= (0.05 if length == 4096 else -0.05)}
+                    result = {
+                        **case,
+                        "medians": medians,
+                        "reduction": reduction,
+                        "passed": reduction >= (0.05 if length == 4096 else -0.05),
+                    }
                     report["performance"].append(result)
                     print(json.dumps(result), flush=True)
                     save()
