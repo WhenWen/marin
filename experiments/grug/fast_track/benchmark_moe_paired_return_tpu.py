@@ -9,6 +9,7 @@ import json
 import os
 import time
 from functools import partial
+from itertools import product
 from pathlib import Path
 
 import fsspec
@@ -215,7 +216,8 @@ def main():
                         counts, clipped, _dispatch, metadata, capacity, _overflow = transport_fixture(
                             seed, distribution, 16, rows, experts, chunk
                         )
-                        for width in widths:
+                        for width, payload_kind in product(widths, ("finite", "bits")):
+                            scalar_generator = payload if payload_kind == "finite" else scalar_payload
                             case = dict(
                                 rows=rows,
                                 experts=experts,
@@ -223,11 +225,12 @@ def main():
                                 seed=seed,
                                 distribution=distribution,
                                 chunk=chunk,
+                                payload_kind=payload_kind,
                             )
                             arrays = []
                             for generator, channels, dtype in (
                                 (payload, width, ml_dtypes.bfloat16),
-                                (scalar_payload, 1, np.float32),
+                                (scalar_generator, 1, np.float32),
                             ):
                                 for initial in (False, True):
                                     length = rows if initial else capacity
@@ -279,7 +282,8 @@ def main():
                                 ),
                                 "implementations": {},
                             }
-                            for implementation in ("reference", "paired"):
+                            implementations = ("reference", "paired") if payload_kind == "finite" else ("paired",)
+                            for implementation in implementations:
                                 key = (rows, width, implementation)
                                 if key not in cache:
                                     fn = jax.jit(partial(mapped_return, mesh=mesh, implementation=implementation))
@@ -300,7 +304,7 @@ def main():
                                 checks = []
                                 for value, generator, channels, dtype in (
                                     (actual[0], payload, width, ml_dtypes.bfloat16),
-                                    (actual[1], scalar_payload, 1, np.float32),
+                                    (actual[1], scalar_generator, 1, np.float32),
                                 ):
                                     shard_checks = []
                                     for shard in value.addressable_shards:
@@ -331,10 +335,12 @@ def main():
                                 for c in checks
                             )
                             report["numerics"].append(result_row)
+                            if not result_row["passed"]:
+                                report["status"] = "failed"
                             save()
                             if not result_row["passed"]:
                                 raise ValueError(f"Paired return mismatch: {result_row}")
-                            if full and distribution == "uniform":
+                            if full and distribution == "uniform" and payload_kind == "finite":
                                 for implementation in ("reference", "paired"):
                                     for _ in range(4):
                                         jax.block_until_ready(cache[(rows, width, implementation)](*arrays))
@@ -370,7 +376,7 @@ def main():
                                 }
                                 for label, generator, channels, dtype in (
                                     ("vector", payload, width, ml_dtypes.bfloat16),
-                                    ("scalar", scalar_payload, 1, np.float32),
+                                    ("scalar", scalar_generator, 1, np.float32),
                                 ):
                                     for initial in (False, True):
                                         length = rows if initial else capacity
