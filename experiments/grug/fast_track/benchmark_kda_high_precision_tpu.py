@@ -51,7 +51,11 @@ def main():
     folder.mkdir(parents=True, exist_ok=True)
     fs, prefix = fsspec.core.url_to_fs(args.artifact_prefix)
     sources = (
-        Path(__file__), Path(kda_state_tpu.__file__), Path(kda.__file__), Path(benchmark.__file__), Path(diagnostic.__file__)
+        Path(__file__),
+        Path(kda_state_tpu.__file__),
+        Path(kda.__file__),
+        Path(benchmark.__file__),
+        Path(diagnostic.__file__),
     )
     report = {
         "revision": args.revision,
@@ -121,7 +125,21 @@ def main():
                     **{
                         name: value.view(np.uint16) if i < 3 else value
                         for i, (name, value) in enumerate(
-                            zip(("q_bf16_bits", "k_bf16_bits", "v_bf16_bits", "g", "beta", "initial", "ct", "ft", "segments"), represented, strict=True)
+                            zip(
+                                (
+                                    "q_bf16_bits",
+                                    "k_bf16_bits",
+                                    "v_bf16_bits",
+                                    "g",
+                                    "beta",
+                                    "initial",
+                                    "ct",
+                                    "ft",
+                                    "segments",
+                                ),
+                                represented,
+                                strict=True,
+                            )
                         )
                     },
                 )
@@ -144,9 +162,7 @@ def main():
                     arm: {name: errors(a, b) for name, a, b in zip(NAMES, actual[arm], reference, strict=True)}
                     for arm in ARMS
                 }
-                passed = all(
-                    comparisons[arm][name]["finite"] for arm in ARMS for name in NAMES
-                ) and all(
+                passed = all(comparisons[arm][name]["finite"] for arm in ARMS for name in NAMES) and all(
                     comparisons["high"][name][metric] <= 1.25 * comparisons["highest"][name][metric] + 0.001
                     for name in NAMES
                     for metric in ("max_abs_error", "relative_l2")
@@ -208,7 +224,10 @@ def main():
                     }
                     report["timings"].append(row)
                     save()
-                    print(json.dumps({k: v for k, v in row.items() if k not in ("candidate_vs_reference", "samples")}), flush=True)
+                    print(
+                        json.dumps({k: v for k, v in row.items() if k not in ("candidate_vs_reference", "samples")}),
+                        flush=True,
+                    )
         report["passed"] = all(row["finite"] for row in report["timings"]) and all(
             row["speed_passed"] for row in report["timings"] if row["mode"] == "value_and_grad"
         )

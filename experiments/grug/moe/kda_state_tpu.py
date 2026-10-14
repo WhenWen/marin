@@ -118,7 +118,9 @@ def _forward_call(q, a, k, w, v, decay, initial, precision):
         out_specs=[_spec(c, d, chunks), _spec(d, d, chunks), _spec(c, d, chunks), _state_spec()],
         scratch_shapes=[pltpu.VMEM((d, d), jnp.float32)],
         compiler_params=pltpu.CompilerParams(dimension_semantics=("parallel", "arbitrary")),
-        cost_estimate=_cost(functools.partial(_chunk, precision=precision), chunk_shapes, groups * chunks, inputs, outputs),
+        cost_estimate=_cost(
+            functools.partial(_chunk, precision=precision), chunk_shapes, groups * chunks, inputs, outputs
+        ),
         name="kda_tpu_state_forward",
     )(*inputs)
 
