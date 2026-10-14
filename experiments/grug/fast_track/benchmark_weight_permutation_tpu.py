@@ -62,7 +62,8 @@ def fixture(seed, assignments, experts, distribution, width):
 def check(actual, expected):
     rows = []
     for value, oracle in zip(actual, expected, strict=True):
-        value = np.asarray(value)
+        value = np.ascontiguousarray(value)
+        oracle = np.ascontiguousarray(oracle)
         error = np.abs(value.astype(np.float32) - oracle.astype(np.float32))
         rows.append(
             dict(
