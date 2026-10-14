@@ -24,6 +24,7 @@ import numpy as np
 from levanter.grug.attention._core import AttentionMask, _blocked_inkling_math, _reference_attention_math
 from levanter.grug.attention._inkling_relpos import REL_BIAS_BLOCK, rel_extent_of_band
 
+from experiments.grug.fast_track import attention_mask_crop
 from experiments.grug.fast_track.belay_tpu import require_tpu_rounding
 from experiments.grug.fast_track.benchmark_inkling_flash_tpu import fixture, reference64, values_and_gradients
 from experiments.grug.fast_track.diagnose_kda_state_precision import errors
@@ -62,7 +63,8 @@ def attention(q, k, v, band, segments, *, implementation, sliding_window):
     return implementation(q, k, v, mask, band, block_size=REL_BIAS_BLOCK)
 
 
-def probe_functions(window):
+def probe_functions(window, candidate="block-inputs"):
+    implementation = block_inputs_attention if candidate == "block-inputs" else attention_mask_crop.mask_crop_attention
     return {
         name: jax.jit(
             partial(
@@ -70,7 +72,7 @@ def probe_functions(window):
                 attention=partial(attention, implementation=implementation, sliding_window=window),
             )
         )
-        for name, implementation in (("reference", _blocked_inkling_math), ("block-inputs", block_inputs_attention))
+        for name, implementation in (("reference", _blocked_inkling_math), (candidate, implementation))
     }
 
 
@@ -79,11 +81,11 @@ def finite_errors(actual, expected):
     return {key: None if isinstance(value, float) and not np.isfinite(value) else value for key, value in result.items()}
 
 
-def numerical_gate(row):
+def numerical_gate(row, candidate_name="block-inputs"):
     return all(
         baseline["finite"] and candidate["finite"] and candidate[metric] <= 1.25 * baseline[metric] + 1e-3
         for key, baseline in row["errors"]["reference"].items()
-        for candidate in (row["errors"]["block-inputs"][key],)
+        for candidate in (row["errors"][candidate_name][key],)
         for metric in ("max_abs_error", "relative_l2")
     )
 
@@ -93,7 +95,12 @@ def main():
     parser.add_argument("--revision", required=True)
     parser.add_argument("--artifact-prefix", required=True)
     parser.add_argument("--cpu-preflight", action="store_true")
+    parser.add_argument("--candidate", choices=("block-inputs", "mask-crop"), default="block-inputs")
     args = parser.parse_args()
+    candidate = args.candidate
+    crop = candidate == "mask-crop"
+    scenarios = attention_mask_crop.SCENARIOS if crop else ("one-document", "packed", "strong-logits")
+    make_fixture = attention_mask_crop.crop_fixture if crop else fixture
     cpu = jax.local_devices(backend="cpu")[0]
     if args.cpu_preflight:
         device = cpu
@@ -112,10 +119,13 @@ def main():
         Path("experiments/grug/fast_track/benchmark_inkling_block_inputs_tpu.py"),
         Path("experiments/grug/fast_track/benchmark_inkling_flash_tpu.py"),
         Path("lib/levanter/src/levanter/grug/attention/_core.py"),
+        Path("experiments/grug/fast_track/attention_mask_crop.py"),
     )
     report = {
         "issue_url": "https://github.com/WhenWen/astra-d8-research/issues/96",
-        "protocol_url": "https://github.com/WhenWen/astra-d8-research/issues/96#issuecomment-6171089614",
+        "protocol_url": (attention_mask_crop.PROTOCOL if crop else
+                         "https://github.com/WhenWen/astra-d8-research/issues/96#issuecomment-6171089614"),
+        "candidate": candidate,
         "revision": args.revision,
         "source_sha256": {str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in source_paths},
         "status": "running",
@@ -139,18 +149,27 @@ def main():
         fs.put_file(str(path), f"{prefix}/{path.name}")
 
     def save():
-        path = folder / "attention-block-inputs.json"
+        path = folder / f"attention-{candidate}.json"
         path.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
         upload(path)
 
     save()
     try:
+        if crop:
+            with jax.default_device(cpu):
+                report["support_checks"] = attention_mask_crop.support_check()
+            save()
+            if args.cpu_preflight:
+                report["status"] = "completed"
+                report["gate_pass"] = True
+                save()
+                return
         for length in (256, 1024, 2048):
             for window in (None, 129):
-                functions = probe_functions(window)
+                functions = probe_functions(window, candidate)
                 for seed in (0, 1, 2):
-                    for scenario in ("one-document", "packed", "strong-logits"):
-                        host = fixture(seed, length, scenario)
+                    for scenario in scenarios:
+                        host = make_fixture(seed, length, scenario)
                         path = folder / f"fixture-{seed}-{length}-{scenario}.npz"
                         if window is None:
                             np.savez(path, **dict(zip(INPUTS, host, strict=True)))
@@ -168,6 +187,8 @@ def main():
                         actuals = {}
                         with jax.default_device(device):
                             inputs = tuple(jax.device_put(x, device) for x in host)
+                            if crop:
+                                row["width_distribution"] = attention_mask_crop.width_distribution(inputs[4], window)
                             for name, fn in functions.items():
                                 values = jax.block_until_ready(fn(*inputs))
                                 actuals[name] = jax.device_get(values)
@@ -182,10 +203,10 @@ def main():
                         row["direct_errors"] = {
                             key: finite_errors(candidate, reference)
                             for key, candidate, reference in zip(
-                                TENSORS, actuals["block-inputs"], actuals["reference"], strict=True
+                                TENSORS, actuals[candidate], actuals["reference"], strict=True
                             )
                         }
-                        row["passed"] = numerical_gate(row)
+                        row["passed"] = numerical_gate(row, candidate)
                         report["numerics"].append(row)
                         save()
                         print(
@@ -199,7 +220,7 @@ def main():
                 for batch, length, heads, kv_heads in ((1, 1024, 2, 1), (8, 4096, 6, 6)):
                     shape = [batch, length, heads, kv_heads, 128]
                     for window in (None, 129 if length == 1024 else 2048):
-                        functions = probe_functions(window)
+                        functions = probe_functions(window, candidate)
                         compiled = {}
                         for seed in (10, 20, 30):
                             q, k, v, band, ct = (
@@ -218,14 +239,18 @@ def main():
                             report["fixtures"].append(
                                 {"shape": shape, "window": window, "seed": seed, "sha256_q_k_v_band_ct": hashes}
                             )
-                            for scenario in ("one-document", "packed1024"):
+                            for scenario in (("one-document", "packed1024", "mixed") if crop else ("one-document", "packed1024")):
                                 segments = jnp.zeros((batch, length), jnp.int32)
                                 if scenario == "packed1024":
                                     segments = jnp.broadcast_to(
                                         jnp.arange(length, dtype=jnp.int32) // 1024, (batch, length)
                                     )
+                                if scenario == "mixed":
+                                    segments = jnp.arange(length, dtype=jnp.int32)[None] // (257 + 137 * jnp.arange(batch, dtype=jnp.int32)[:, None])
                                 inputs = q, k, v, band, segments, ct
                                 case = {"shape": shape, "window": window, "seed": seed, "scenario": scenario}
+                                if crop:
+                                    case["width_distribution"] = attention_mask_crop.width_distribution(segments, window)
                                 for name, fn in functions.items():
                                     if name not in compiled:
                                         report["phase"] = {**case, "stage": "compiling", "implementation": name}
@@ -273,7 +298,7 @@ def main():
                                         )
                                     save()
                                 medians = {name: statistics.median(values) for name, values in samples.items()}
-                                reduction = 1 - medians["block-inputs"] / medians["reference"]
+                                reduction = 1 - medians[candidate] / medians["reference"]
                                 result = {
                                     **case,
                                     "medians": medians,
