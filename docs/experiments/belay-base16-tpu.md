@@ -167,10 +167,53 @@ Raw-source availability does not establish tokenized-cache equivalence.
 The remote execution host lacks credentials for the source
 CoreWeave S3-compatible store. A metadata-only CPU job submitted to
 `cw-us-east-02a` was rejected because this account is not admitted to that
-cluster; its source listing never ran. The pending choice is accessible original
-inputs or a separately labeled baseline with a new tokenizer and corpus.
-No replacement data or tokenizer has been selected, and no retokenization job
-has started.
+cluster; its source listing never ran. A separately labeled baseline with a new
+tokenizer and corpus is now authorized. Its data build and real-data TPU training
+have not yet completed.
+
+### New TPU data baseline
+
+`experiments.grug.fast_track.build_belay_tpu_data` samples the filtered
+`gs://marin-us-central2/datakit/store_8ac06c74` document store. It selects 12 GiB
+of UTF-8 text across the 40 cluster and five quality buckets, with byte quotas
+proportional to each bucket's source token count. A seeded permutation of
+64-document blocks chooses source rows without repeating a row. Decoded
+documents are capped at 32 KiB on a UTF-8 boundary. The decoder is
+`marin-community/marin-tokenizer` at revision
+`a5ca45f2feb6c959bd87b81689aa7279b5bdcaa2`; the source store names that tokenizer
+but does not record its revision. This is a newly defined decoded corpus.
+
+The builder excludes exact capped-text matches with any evaluation document
+before fitting a 16,384-token byte-level BPE on 256 MiB of the selected training
+text. This exact-match filter is not comprehensive contamination detection.
+Special tokens occupy IDs 0–7, and numeric pretokenization uses groups of one to
+three digits. The vocabulary is independently fitted; it does not reproduce the
+original hero tokenizer's nested merges.
+
+All 23 evaluation sets are rebuilt from the object versions in
+`retokenization-v1/eval-source-inventory.json`. Training documents are shuffled
+with seed 0 before writing the cache. The builder preserves BOS/EOS boundaries,
+checks token ranges, reads back up to 1,024 rows per cache, and requires at least
+1.6 billion training tokens before writing `baseline.json`. The frozen manifest
+records source metadata, sampling settings and code revision; sample manifests
+record source rows, byte counts and object identities. Tokenizer files carry
+SHA256 hashes. Large reads and writes remain in us-central2.
+
+Run the builder on a remote CPU worker in us-central2 with 16 CPUs, 128 GB RAM
+and a four-hour timeout. BPE fitting is data preparation and performs no neural
+model updates:
+
+```bash
+uv run --no-sync python -m experiments.grug.fast_track.build_belay_tpu_data \
+  --output gs://marin-us-central2/USER/belay-new-data-v1 --revision COMMIT
+```
+
+Pass the resulting `--data-baseline gs://marin-us-central2/USER/belay-new-data-v1/baseline.json`
+instead of `--cache-map` to the TPU launcher above. Every host verifies and stages
+the same tokenizer. Model, optimizer, global batch and 2,817-step schedule stay
+fixed. Losses from this baseline cannot be directly compared with Larry's
+original-tokenizer losses. Its acceptance run must retain raw training and
+validation losses, EMA evaluation, checkpoints and curves.
 
 ## Performance measurements
 

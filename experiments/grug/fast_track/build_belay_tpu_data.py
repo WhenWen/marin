@@ -261,15 +261,15 @@ def fit_tokenizer(config: BuildConfig, summaries, local: Path):
     wrapped = PreTrainedTokenizerFast(
         tokenizer_object=tokenizer, bos_token=SPECIALS[0], eos_token=SPECIALS[1], pad_token=SPECIALS[7]
     )
-    wrapped.save_pretrained(local)
+    saved_files = wrapped.save_pretrained(local)
     info = {
         "vocab_size": 16384,
         "fit_documents": len(texts),
         "fit_bytes": sum(len(text.encode("utf-8")) for text in texts),
         "files": {},
     }
-    for name in ("tokenizer.json", "tokenizer_config.json", "special_tokens_map.json"):
-        path = local / name
+    for filename in saved_files:
+        path = Path(filename)
         data = path.read_bytes()
         url = f"{config.output}/tokenizer/{path.name}"
         StoragePath(url).write_bytes(data)
