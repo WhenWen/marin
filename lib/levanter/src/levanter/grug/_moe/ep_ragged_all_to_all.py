@@ -611,17 +611,26 @@ def _routed_experts_fwd(sorted_x, weights, moe_w13_local, moe_w2_local, routing,
     return out, (weights, routing, chunk_residuals)
 
 
+def _restore_assignment_scalars(values, sorted_indices):
+    return values[jnp.argsort(sorted_indices)]
+
+
+def _restore_assignment_scalars_sort(values, sorted_indices):
+    """Restore one scalar per assignment by sorting the permutation and values together."""
+    return jax.lax.sort_key_val(sorted_indices, values)[1]
+
+
 def _routed_experts_bwd(layout, residuals, out_cotangent):
     weights, routing, chunk_residuals = residuals
     assignments = routing.sorted_indices.shape[0]
     out_dim = out_cotangent.shape[1]
     weights_f32 = weights.astype(jnp.float32)
-    positions = jnp.argsort(routing.sorted_indices)
     with jax.named_scope("combine"):
         # The combine's transpose: every accepted row's cotangent is its token's output cotangent
         # times its routing weight, rounded once, as the fused gather-sum's backward rounds it.
         # The transport reads only the accepted rows.
         if sonic_gather_sum_available():
+            positions = jnp.argsort(routing.sorted_indices)
             returned_cotangent = sonic_scatter_rows(  # [TK, O]
                 out_cotangent,
                 positions.reshape(weights.shape),
@@ -676,7 +685,7 @@ def _routed_experts_bwd(layout, residuals, out_cotangent):
             moe_w2_cotangents.append(w2_cotangent)
 
     with jax.named_scope("combine"):
-        assignment_output_dot = output_dot[:, 0][positions].reshape(weights.shape)
+        assignment_output_dot = _restore_assignment_scalars(output_dot[:, 0], routing.sorted_indices).reshape(weights.shape)
         # d/dw of w * <dout, y> is <dout, y> = <dy, y> / w. Dropped and padding assignments carry
         # no weight and get a zero gradient without the division.
         divisible = routing.accepted & (weights_f32 != 0)

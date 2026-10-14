@@ -16,6 +16,7 @@ import jax
 import jax.numpy as jnp
 import jaxlib
 import numpy as np
+from levanter.grug._moe.ep_ragged_all_to_all import _restore_assignment_scalars, _restore_assignment_scalars_sort
 
 IMPLEMENTATIONS = ("reference", "sort", "scatter")
 DISTRIBUTIONS = ("uniform_partial", "concentrated_invalid", "identity_accepted", "reverse_dropped")
@@ -23,9 +24,9 @@ DISTRIBUTIONS = ("uniform_partial", "concentrated_invalid", "identity_accepted",
 
 def restore_scalars(order, values, *, implementation):
     if implementation == "reference":
-        return values[jnp.argsort(order)]
+        return _restore_assignment_scalars(values, order)
     if implementation == "sort":
-        return jax.lax.sort_key_val(order, values)[1]
+        return _restore_assignment_scalars_sort(values, order)
     if implementation == "scatter":
         return jnp.zeros_like(values).at[order].set(values, unique_indices=True)
     raise ValueError(f"Unknown implementation: {implementation}")

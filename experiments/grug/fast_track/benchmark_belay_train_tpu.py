@@ -97,6 +97,7 @@ def main() -> None:
     parser.add_argument("--kda-state", choices=("production", "pallas"), default="production")
     parser.add_argument("--projection-weights", choices=("production", "gather"), default="production")
     parser.add_argument("--moe-dispatch", choices=("serialized", "overlap"), default="serialized")
+    parser.add_argument("--moe-scalar-permutation", choices=("production", "sort"), default="production")
     parser.add_argument("--qb-quantile", choices=("reference", "block128"), default="reference")
     parser.add_argument(
         "--job-completion",
@@ -157,6 +158,7 @@ def main() -> None:
         "kda_state": args.kda_state,
         "projection_weights": args.projection_weights,
         "moe_dispatch": args.moe_dispatch,
+        "moe_scalar_permutation": args.moe_scalar_permutation,
         "job_completion": args.job_completion,
         "kda_xla_scan_impl": config.kda_xla_scan_impl,
         "accepted_mask": args.accepted_mask,
@@ -252,6 +254,14 @@ def main() -> None:
                 )
             if args.moe_dispatch == "overlap":
                 contexts.enter_context(patch.object(ep_ragged_all_to_all, "_serialize_dispatch", _independent_dispatch))
+            if args.moe_scalar_permutation == "sort":
+                contexts.enter_context(
+                    patch.object(
+                        ep_ragged_all_to_all,
+                        "_restore_assignment_scalars",
+                        ep_ragged_all_to_all._restore_assignment_scalars_sort,
+                    )
+                )
             if args.projection_weights == "gather":
                 contexts.enter_context(patch.object(model_module, "_proj", gathered_projection))
             if args.kda_state == "pallas":
