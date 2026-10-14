@@ -685,7 +685,9 @@ def _routed_experts_bwd(layout, residuals, out_cotangent):
             moe_w2_cotangents.append(w2_cotangent)
 
     with jax.named_scope("combine"):
-        assignment_output_dot = _restore_assignment_scalars(output_dot[:, 0], routing.sorted_indices).reshape(weights.shape)
+        assignment_output_dot = _restore_assignment_scalars(output_dot[:, 0], routing.sorted_indices).reshape(
+            weights.shape
+        )
         # d/dw of w * <dout, y> is <dout, y> = <dy, y> / w. Dropped and padding assignments carry
         # no weight and get a zero gradient without the division.
         divisible = routing.accepted & (weights_f32 != 0)
