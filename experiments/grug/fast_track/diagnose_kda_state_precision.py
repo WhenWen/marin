@@ -17,7 +17,6 @@ import fsspec
 import jax
 import jax.numpy as jnp
 import numpy as np
-from jax.experimental import enable_x64
 
 from experiments.grug.fast_track.benchmark_kda_state_tpu import evaluate, tpu_recurrence
 from experiments.grug.moe import kda
@@ -134,7 +133,7 @@ def main():
                     compiled.append(jax.block_until_ready(executable(inputs, ct, ft, segments)))
                 outputs, (value, gradients) = compiled
                 values[implementation] = (*outputs, value, *gradients)
-        with enable_x64(), jax.default_device(cpu):
+        with jax.enable_x64(True), jax.default_device(cpu):
             cpu_inputs = tuple(jnp.asarray(np.asarray(jax.device_get(x), dtype=np.float64)) for x in inputs)
             cpu_ct = jnp.asarray(np.asarray(jax.device_get(ct), dtype=np.float64))
             cpu_ft = jnp.asarray(np.asarray(jax.device_get(ft), dtype=np.float64))
