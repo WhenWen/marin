@@ -244,7 +244,11 @@ def main():
                                         jax.block_until_ready(timed(inputs, rank))
                             if not args.cpu_check:
                                 for repeat in range(8):
-                                    order = ("reference", args.candidate) if repeat % 2 == 0 else (args.candidate, "reference")
+                                    order = (
+                                        ("reference", args.candidate)
+                                        if repeat % 2 == 0
+                                        else (args.candidate, "reference")
+                                    )
                                     for implementation in order:
                                         timed = compiled[(mesh_shape, tokens, implementation)][0]
                                         start = time.monotonic()
