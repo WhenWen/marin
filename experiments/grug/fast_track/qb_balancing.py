@@ -3,6 +3,8 @@
 
 """Sharded QB routing-bias estimation: each expert's threshold from a histogram of routing margins."""
 
+from typing import Literal
+
 import jax
 import jax.numpy as jnp
 from jax import shard_map
@@ -76,6 +78,41 @@ def hierarchical_histogram_crossing(counts, target_rank, *, block_bins):
     return block * block_bins + local_bin, ct, h
 
 
+def histogram_crossing(counts, rank, last_valid):
+    """Return the crossing bin, suffix count and bin height for each expert."""
+    cumulative = jnp.cumsum(counts[:, ::-1], axis=-1)[:, ::-1]
+    crossing = jnp.clip(jnp.sum(cumulative >= rank[:, None], axis=-1) - 1, 0, last_valid)
+    ct = jnp.take_along_axis(cumulative, crossing[:, None], axis=-1)[:, 0]
+    height = jnp.take_along_axis(counts, crossing[:, None], axis=-1)[:, 0]
+    return crossing, ct, height
+
+
+def two_stage_histogram_crossing(indices, rank, *, batch_axes, n_bins, group_size):
+    """Count coarse bins globally, then count only each expert's crossing block.
+
+    Integer collectives preserve exact counts. A second histogram excludes
+    unselected blocks with negative indices, whose high-digit one-hot is zero.
+    """
+    block_bins = 64
+    coarse_bins = (n_bins + block_bins - 1) // block_bins
+    coarse_indices = indices // block_bins
+    coarse_counts = jax.lax.psum(
+        factorized_expert_histogram(coarse_indices, coarse_bins, group_size, 16), batch_axes
+    ).astype(jnp.float32)
+    block, coarse_ct, coarse_height = histogram_crossing(coarse_counts, rank, coarse_bins - 1)
+    above = coarse_ct - coarse_height
+    selected = jnp.where(coarse_indices == block[None, :], indices % block_bins, -1)
+    fine_counts = jax.lax.psum(
+        factorized_expert_histogram(selected, block_bins, group_size, 8), batch_axes
+    ).astype(jnp.float32)
+    cumulative = jnp.cumsum(fine_counts[:, ::-1], axis=-1)[:, ::-1] + above[:, None]
+    last_valid = jnp.minimum(block_bins - 1, n_bins - 1 - block * block_bins)
+    local_bin = jnp.clip(jnp.sum(cumulative >= rank[:, None], axis=-1) - 1, 0, last_valid)
+    ct = jnp.take_along_axis(cumulative, local_bin[:, None], axis=-1)[:, 0]
+    height = jnp.take_along_axis(fine_counts, local_bin[:, None], axis=-1)[:, 0]
+    return block * block_bins + local_bin, ct, height
+
+
 def histogram_quantile(counts, target_rank, lo, bin_width, *, block_bins=None):
     """Interpolate the QB threshold; block extraction is an explicit experimental option."""
     if block_bins is None:
@@ -100,25 +137,33 @@ def bincount_upper_quantile(
     hi: jax.Array,
     target_rank: float | jax.Array,
     batch_axes: tuple[str, ...],
+    histogram_method: Literal["reference", "two-stage"] = "reference",
 ) -> jax.Array:
     """Per-expert (1-K/E) upper quantile of ``s_local`` via a histogram over ``[lo, hi]``.
 
     ``target_rank`` is the number of tokens at or above each expert's threshold: a scalar, or one per expert.
 
     Runs inside a ``shard_map``. Clip-to-edge bins build each expert's local histogram;
-    one integer ``psum`` pools it globally. Beta is read from the top-cumulative counts,
-    interpolated in the crossing bin. The measured TPU v4 shape uses integer matrix products.
+    integer reductions pool counts globally. Beta is interpolated in the crossing
+    bin. The experimental two-stage method counts only a selected fine block at
+    the tuned TPU v4 shape; other shapes retain the reference histogram.
     """
     bin_width = (hi - lo) / n_bins
     idx = jnp.clip(((s_local - lo) / bin_width).astype(jnp.int32), 0, n_bins - 1)
     device_kind = jax.local_devices()[0].device_kind
     tile = _HISTOGRAM_MATMUL_TILES.get((device_kind, s_local.shape[0], num_experts, n_bins))
+    target_rank = jnp.broadcast_to(jnp.asarray(target_rank, jnp.float32), (num_experts,))
+    if histogram_method == "two-stage" and tile == (64, 64):
+        crossing, ct, height = two_stage_histogram_crossing(
+            idx, target_rank, batch_axes=batch_axes, n_bins=n_bins, group_size=tile[0]
+        )
+        lower = lo + crossing.astype(jnp.float32) * bin_width
+        return lower + bin_width * (ct - target_rank) / jnp.maximum(height, 1.0)
     if tile is None:
         local_counts = local_expert_histogram(idx, n_bins)
     else:
         local_counts = factorized_expert_histogram(idx, n_bins, *tile)
     counts = jax.lax.psum(local_counts, axis_name=batch_axes).astype(jnp.float32)
-    target_rank = jnp.broadcast_to(jnp.asarray(target_rank, jnp.float32), (num_experts,))
     return histogram_quantile(counts, target_rank, lo, bin_width)
 
 

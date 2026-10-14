@@ -98,7 +98,7 @@ def main() -> None:
     parser.add_argument("--projection-weights", choices=("production", "gather"), default="production")
     parser.add_argument("--moe-dispatch", choices=("serialized", "overlap"), default="serialized")
     parser.add_argument("--moe-scalar-permutation", choices=("production", "sort"), default="production")
-    parser.add_argument("--qb-quantile", choices=("reference", "block128"), default="reference")
+    parser.add_argument("--qb-quantile", choices=("reference", "block128", "two-stage"), default="reference")
     parser.add_argument(
         "--job-completion",
         choices=("on-exit", "deferred"),
@@ -246,6 +246,14 @@ def main() -> None:
         print("Compiling native base16 train step", flush=True)
         start = time.monotonic()
         with ExitStack() as contexts:
+            if args.qb_quantile == "two-stage":
+                contexts.enter_context(
+                    patch.object(
+                        qb_balancing,
+                        "bincount_upper_quantile",
+                        partial(qb_balancing.bincount_upper_quantile, histogram_method="two-stage"),
+                    )
+                )
             if args.qb_quantile == "block128":
                 contexts.enter_context(
                     patch.object(

@@ -21,15 +21,11 @@ from jax.sharding import AxisType, Mesh, NamedSharding
 from jax.sharding import PartitionSpec as P
 
 from experiments.grug.fast_track.benchmark_qb_flat_histogram_tpu import fixture
-from experiments.grug.fast_track.qb_balancing import factorized_expert_histogram
-
-
-def crossing_details(counts, rank, last_valid):
-    cumulative = jnp.cumsum(counts[:, ::-1], axis=-1)[:, ::-1]
-    crossing = jnp.clip(jnp.sum(cumulative >= rank[:, None], axis=-1) - 1, 0, last_valid)
-    ct = jnp.take_along_axis(cumulative, crossing[:, None], axis=-1)[:, 0]
-    height = jnp.take_along_axis(counts, crossing[:, None], axis=-1)[:, 0]
-    return crossing, ct, height
+from experiments.grug.fast_track.qb_balancing import (
+    factorized_expert_histogram,
+    histogram_crossing,
+    two_stage_histogram_crossing,
+)
 
 
 def details(indices, rank, *, axes, bins, group, radix, implementation):
@@ -38,25 +34,11 @@ def details(indices, rank, *, axes, bins, group, radix, implementation):
     )
     if use_reference:
         counts = jax.lax.psum(factorized_expert_histogram(indices, bins, group, radix), axes).astype(jnp.float32)
-        crossing, ct, height = crossing_details(counts, rank, bins - 1)
+        crossing, ct, height = histogram_crossing(counts, rank, bins - 1)
     else:
-        block_bins = 64
-        coarse_bins = (bins + block_bins - 1) // block_bins
-        coarse_indices = indices // block_bins
-        coarse_counts = jax.lax.psum(factorized_expert_histogram(coarse_indices, coarse_bins, group, 16), axes).astype(
-            jnp.float32
+        crossing, ct, height = two_stage_histogram_crossing(
+            indices, rank, batch_axes=axes, n_bins=bins, group_size=group
         )
-        block, coarse_ct, coarse_height = crossing_details(coarse_counts, rank, coarse_bins - 1)
-        above = coarse_ct - coarse_height
-        selected = jnp.where(coarse_indices == block[None, :], indices % block_bins, -1)
-        # Negative high digits produce all-zero one-hots, excluding other blocks.
-        fine_counts = jax.lax.psum(factorized_expert_histogram(selected, block_bins, group, 8), axes).astype(jnp.float32)
-        cumulative = jnp.cumsum(fine_counts[:, ::-1], axis=-1)[:, ::-1] + above[:, None]
-        last_valid = jnp.minimum(block_bins - 1, bins - 1 - block * block_bins)
-        local_bin = jnp.clip(jnp.sum(cumulative >= rank[:, None], axis=-1) - 1, 0, last_valid)
-        ct = jnp.take_along_axis(cumulative, local_bin[:, None], axis=-1)[:, 0]
-        height = jnp.take_along_axis(fine_counts, local_bin[:, None], axis=-1)[:, 0]
-        crossing = block * block_bins + local_bin
     width = jnp.float32(4095) / bins
     lower = jnp.float32(-2048) + crossing.astype(jnp.float32) * width
     threshold = lower + width * (ct - rank) / jnp.maximum(height, 1.0)
