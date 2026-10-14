@@ -12,6 +12,7 @@ import ml_dtypes
 import numpy as np
 
 from experiments.grug.fast_track import benchmark_inkling_flash_tpu as probe
+from experiments.grug.fast_track.kv_head_gradient_tpu import expand_kv_fp32
 
 PROTOCOL = "https://github.com/WhenWen/astra-d8-research/issues/96#issuecomment-6177016537"
 FP32_SCALE_PROTOCOL = "https://github.com/WhenWen/astra-d8-research/issues/96#issuecomment-6179473106"
@@ -102,6 +103,20 @@ def values_and_gradients(q, k, v, band, segments, cotangent, *, precision, windo
         return probe.values_and_gradients(
             q, k, v, band, segments, cotangent, attention=partial(attention, window=window, query_scaling=query_scaling)
         )
+
+
+def attention_fp32_head_gradients(q, k, v, band, segments, *, window):
+    """Experimental FP32 query scaling and shared-KV gradient accumulation."""
+    if q.shape[1] != k.shape[1] or q.shape[-1] != BLOCK:
+        raise ValueError("This chip-local probe requires self-attention with head dimension 128")
+    output = probe.flash_core(
+        q.astype(jnp.float32) * (1 / math.sqrt(q.shape[-1])),
+        expand_kv_fp32(k, q.shape[2]),
+        expand_kv_fp32(v, q.shape[2]),
+        block_bias(band.astype(jnp.float32), band.shape[-1], window),
+        segments,
+    )
+    return output.astype(q.dtype)
 
 
 @partial(jax.jit, static_argnums=(2, 3))
