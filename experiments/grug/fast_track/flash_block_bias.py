@@ -14,6 +14,7 @@ import numpy as np
 from experiments.grug.fast_track import benchmark_inkling_flash_tpu as probe
 
 PROTOCOL = "https://github.com/WhenWen/astra-d8-research/issues/96#issuecomment-6177016537"
+FP32_SCALE_PROTOCOL = "https://github.com/WhenWen/astra-d8-research/issues/96#issuecomment-6179473106"
 BLOCK = 128
 
 
@@ -75,10 +76,16 @@ def block_bias_bwd(width, window, residual, gradient):
 block_bias.defvjp(block_bias_fwd, block_bias_bwd)
 
 
-def attention(q, k, v, band, segments, *, window):
+def attention(q, k, v, band, segments, *, window, query_scaling="bf16"):
     if q.shape[1] != k.shape[1] or q.shape[-1] != BLOCK:
         raise ValueError("This chip-local probe requires self-attention with head dimension 128")
-    scaled_q = (q * (1 / math.sqrt(q.shape[-1]))).astype(q.dtype).astype(jnp.float32)
+    scale = 1 / math.sqrt(q.shape[-1])
+    if query_scaling == "bf16":
+        scaled_q = (q * scale).astype(q.dtype).astype(jnp.float32)
+    elif query_scaling == "fp32":
+        scaled_q = q.astype(jnp.float32) * scale
+    else:
+        raise ValueError(f"Unknown query scaling: {query_scaling}")
     output = probe.flash_core(
         scaled_q,
         k.astype(jnp.float32),
@@ -89,11 +96,11 @@ def attention(q, k, v, band, segments, *, window):
     return output.astype(q.dtype)
 
 
-def values_and_gradients(q, k, v, band, segments, cotangent, *, precision, window):
+def values_and_gradients(q, k, v, band, segments, cotangent, *, precision, window, query_scaling="bf16"):
     """Set matrix precision while tracing both the primal and its custom VJP."""
     with jax.default_matmul_precision(precision):
         return probe.values_and_gradients(
-            q, k, v, band, segments, cotangent, attention=partial(attention, window=window)
+            q, k, v, band, segments, cotangent, attention=partial(attention, window=window, query_scaling=query_scaling)
         )
 
 

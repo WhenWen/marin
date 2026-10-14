@@ -64,6 +64,12 @@ def attention(q, k, v, band, segments, *, implementation, sliding_window):
 
 
 def probe_functions(window, candidate="block-inputs"):
+    if candidate == "flash-fp32-scale":
+        functions = probe_functions(window, "flash-highest")
+        functions[candidate] = jax.jit(
+            partial(flash_block_bias.values_and_gradients, precision="highest", window=window, query_scaling="fp32")
+        )
+        return functions
     if candidate in ("flash-high", "flash-highest"):
         return {
             "reference": jax.jit(
@@ -107,13 +113,18 @@ def main():
     parser.add_argument("--revision", required=True)
     parser.add_argument("--artifact-prefix", required=True)
     parser.add_argument("--cpu-preflight", action="store_true")
+    parser.add_argument("--numerics-only", action="store_true")
     parser.add_argument(
-        "--candidate", choices=("block-inputs", "mask-crop", "flash-high", "flash-highest"), default="block-inputs"
+        "--candidate",
+        choices=("block-inputs", "mask-crop", "flash-high", "flash-highest", "flash-fp32-scale"),
+        default="block-inputs",
     )
     args = parser.parse_args()
     candidate = args.candidate
     crop = candidate == "mask-crop"
-    flash = candidate in ("flash-high", "flash-highest")
+    flash = candidate in ("flash-high", "flash-highest", "flash-fp32-scale")
+    if candidate == "flash-fp32-scale" and not args.numerics_only:
+        parser.error("The FP32 query-scaling protocol authorizes numerical screening only")
     expanded_fixtures = crop or flash
     scenarios = attention_mask_crop.SCENARIOS if expanded_fixtures else ("one-document", "packed", "strong-logits")
     make_fixture = attention_mask_crop.crop_fixture if expanded_fixtures else fixture
@@ -141,7 +152,7 @@ def main():
     report = {
         "issue_url": "https://github.com/WhenWen/astra-d8-research/issues/96",
         "protocol_url": (
-            flash_block_bias.PROTOCOL
+            (flash_block_bias.FP32_SCALE_PROTOCOL if candidate == "flash-fp32-scale" else flash_block_bias.PROTOCOL)
             if flash
             else (
                 attention_mask_crop.PROTOCOL
@@ -154,6 +165,7 @@ def main():
         "source_sha256": {str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in source_paths},
         "status": "running",
         "cpu_preflight": args.cpu_preflight,
+        "numerics_only": args.numerics_only,
         "jax_version": jax.__version__,
         "jaxlib_version": jaxlib.__version__,
         "device_type": device.device_kind,
@@ -256,6 +268,8 @@ def main():
                             )
                         }
                         row["passed"] = numerical_gate(row, candidate)
+                        if candidate == "flash-fp32-scale":
+                            row["bf16_scaling_control_passed"] = numerical_gate(row, "flash-highest")
                         report["numerics"].append(row)
                         save()
                         print(
@@ -264,6 +278,12 @@ def main():
                         )
         if not all(row["passed"] for row in report["numerics"]):
             raise ValueError("Independent FP64 numerical gate failed")
+        if args.numerics_only:
+            report["gate_pass"] = True
+            report["status"] = "completed"
+            report["qualification"] = "numerics-pass; control reproduction requires independent analysis"
+            save()
+            return
         if not args.cpu_preflight:
             with jax.default_device(device):
                 for batch, length, heads, kv_heads in ((1, 1024, 2, 1), (8, 4096, 6, 6)):
