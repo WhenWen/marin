@@ -56,11 +56,17 @@ This port does not include later experimental KDA state reshaping or OKLS.
 
 ## Data and launch
 
-Prepare a JSON cache map with exactly the component names in the frozen
-configuration. Every value must point to the corresponding cache in
-`gs://marin-us-central2/`. Preserve tokenizer, token order, cache metadata and
-validation coverage; a similarly named cache is not proof of equivalence.
+Prepare a JSON cache map with exactly the `data.components` names in
+`experiments/grug/fast_track/belay_base15_d512.json`. Each entry maps a
+component name to its cache URL. Every value must point to the corresponding cache in
+`gs://marin-us-central2/`. Reproducing the original data requires preserving
+tokenizer, token order, cache metadata and validation coverage; a similarly
+named cache is not proof of equivalence. Fresh retokenization must record its
+tokenizer files, source objects, document sampling/capping and shuffle settings.
+Label any changed tokenizer or corpus as a separate data baseline.
 No cache is copied or retokenized by this launcher.
+The execution commands require an accessible, verified cache map; data
+preparation is still pending as described below.
 
 Resolve the configuration without starting training:
 
@@ -71,8 +77,9 @@ uv run --package marin-levanter --extra tpu python -m experiments.grug.fast_trac
   --output outputs/belay-base16-v4-s0
 ```
 
-Submit from the repository root on a remote execution host. The cache map must
-be included in the Iris workspace bundle. Use a unique run ID and output prefix
+Submit from the repository root on a remote execution host. Place
+`cache-map.json` in that root and ensure it is not gitignored; Iris bundles
+tracked and unignored untracked files. Use a unique run ID and output prefix
 for each new run; automatic restart/resume is disabled.
 
 ```bash
@@ -91,8 +98,10 @@ The command has a four-hour operational ceiling, not a measured duration.
 Reaching that ceiling is an interrupted result, not a completed comparison.
 Each attempt writes `resolved-config.yaml`, `provenance.json`, and per-rank
 `metrics.jsonl` under `IRIS_OUTPUT_DIR`; checkpoints use the supplied GCS path.
-Collect the attempt archive when available and export the Iris job logs; archive
-capture is not guaranteed on every worker or cancellation path. Plot the raw
+Find each attempt archive with `iris --cluster marin attempt describe /USER/JOB/0:0`
+(replace the task index and attempt number for each worker), and export logs with
+`iris --cluster marin job logs /USER/JOB --max-lines 1000000 > job-logs.txt`.
+Archive capture is not guaranteed on every worker or cancellation path. Plot the raw
 train/validation losses before reporting an experiment. Preserve partial logs
 from failures and interruptions.
 
@@ -145,12 +154,23 @@ took about 434.6 seconds. This validates forward/backward at the original
 batch size. Complete native train-step measurements are reported below;
 real-data loss curves and equivalence to the GPU run remain unmeasured.
 
-The entry point and numerical validation are implemented. Training is blocked
-until verified us-central2 mirrors of the original 16k-token caches are
-available. The remote execution host lacks credentials for the source
+The entry point and numerical validation are implemented. Fresh-cache
+retokenization is authorized, but the original tokenizer and training inputs
+remain inaccessible. The [original data build](https://github.com/marin-community/marin/issues/9188#issuecomment-5707888411)
+published `hero_bpe_tokenizers/v16384` and the document-capped model-training
+corpus `hero_text_capped` under `s3://marin-us-east-02a/marin/datakit/`.
+Neither path was found in the seven configured GCS regions. All 23 evaluation
+source globs resolve in us-central2: 578 objects with sizes, generations and
+MD5 hashes recorded in the [retokenization inventory](https://github.com/WhenWen/astra-d8-research/issues/96#issuecomment-6158156421).
+Raw-source availability does not establish tokenized-cache equivalence.
+
+The remote execution host lacks credentials for the source
 CoreWeave S3-compatible store. A metadata-only CPU job submitted to
 `cw-us-east-02a` was rejected because this account is not admitted to that
-cluster; its source listing never ran. No replacement data was used.
+cluster; its source listing never ran. The pending choice is accessible original
+inputs or a separately labeled baseline with a new tokenizer and corpus.
+No replacement data or tokenizer has been selected, and no retokenization job
+has started.
 
 ## Performance measurements
 
@@ -536,6 +556,19 @@ storage was 14.991 GB/device (+64.06%); runtime peak memory was not measured.
 These are single-trial timings. The failed candidate was removed. Its reports, HLO,
 profiles and loss curves remain under
 `gs://marin-us-central2/kaiyue/belay-base16-tpu/native-saved-barrier-v1/`.
+
+The QB histogram reduce-scatter diagnostic at `5bf6750d9`,
+`native-qb-scatter-active35-v1`, matched all 35 scalar losses of
+`native-stride-active-35-v1` exactly, with finite final parameters, optimizer
+and EMA buffers on all four hosts. It partitions histogram counts by expert,
+computes thresholds on each partition and gathers those thresholds.
+The maximum host median over 32 timed updates was 1.20181 seconds versus
+1.20744 seconds for the reference, a 0.47% reduction in this single trial.
+Compiler temporary storage rose from 9.138 to 9.817 GB/device.
+The candidate missed the frozen 1% performance gate and was removed without
+launching the conditional control trial. Production retains all-reduce.
+Reports, raw losses, curves, HLO and profiles remain under
+`gs://marin-us-central2/kaiyue/belay-base16-tpu/native-qb-scatter-active35-v1/`.
 
 ## Fixed-state gradient localization
 

@@ -14,7 +14,7 @@ import math
 import os
 import statistics
 import time
-from contextlib import ExitStack
+from contextlib import nullcontext
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from unittest.mock import patch
@@ -36,7 +36,6 @@ from levanter.grug._moe import ep_ragged_all_to_all
 from levanter.grug.sharding import compact_grug_mesh
 from levanter.optim.config import OptimizerConfig
 
-from experiments.grug.fast_track import qb_balancing
 from experiments.grug.fast_track.belay_tpu import SOURCE_CONFIG, base16_model_config, require_tpu_rounding
 from experiments.grug.fast_track.model import AttnResLayerBackward
 from experiments.grug.fast_track.train import _flat_train_step, _make_train_step, _router_ties_active, initial_state
@@ -79,7 +78,6 @@ def main() -> None:
         "--kda-scan", choices=("production", "reference", "stacked", "stacked-split"), default="production"
     )
     parser.add_argument("--accepted-mask", choices=("production", "reference", "inverse-direct"), default="production")
-    parser.add_argument("--qb-collective", choices=("production", "reduce-scatter"), default="production")
     parser.add_argument("--artifact-prefix", required=True)
     args = parser.parse_args()
     if args.steps < 1 or not args.artifact_prefix.startswith("gs://marin-us-central2/"):
@@ -128,7 +126,6 @@ def main() -> None:
         "kda_scan": args.kda_scan,
         "kda_xla_scan_impl": config.kda_xla_scan_impl,
         "accepted_mask": args.accepted_mask,
-        "qb_collective": args.qb_collective,
         "git_sha": args.revision,
         "seed": trainer["seed"],
         "data_seed": 1,
@@ -207,20 +204,15 @@ def main() -> None:
         router_ties = _router_ties_active(config, 0)
         print("Compiling native base16 train step", flush=True)
         start = time.monotonic()
-        with ExitStack() as context:
-            if args.accepted_mask != "production":
-                implementation = (
-                    ep_ragged_all_to_all._accepted_assignments_inverse
-                    if args.accepted_mask == "inverse-direct"
-                    else ep_ragged_all_to_all._accepted_assignments_scatter
-                )
-                context.enter_context(patch.object(ep_ragged_all_to_all, "_accepted_assignments", implementation))
-            if args.qb_collective == "reduce-scatter":
-                context.enter_context(
-                    patch.object(
-                        qb_balancing, "_reduce_histogram_quantile", qb_balancing._reduce_scatter_histogram_quantile
-                    )
-                )
+        context = nullcontext()
+        if args.accepted_mask != "production":
+            implementation = (
+                ep_ragged_all_to_all._accepted_assignments_inverse
+                if args.accepted_mask == "inverse-direct"
+                else ep_ragged_all_to_all._accepted_assignments_scatter
+            )
+            context = patch.object(ep_ragged_all_to_all, "_accepted_assignments", implementation)
+        with context:
             compiled = step_fn.lower(leaves, batch, loop_active=None, router_tie_active=router_ties).compile()
         report["compile_time"] = time.monotonic() - start
         memory = compiled.memory_analysis()
