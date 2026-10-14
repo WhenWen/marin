@@ -91,7 +91,9 @@ def main():
                 for distribution in ("uniform_partial", "concentrated_invalid", "all_dropped", "all_accepted"):
                     host, expected_mask, expected_inverse = fixture(seed, assignments, experts, distribution)
                     path = folder / f"fixture-{assignments}-{seed}-{distribution}.npz"
-                    np.savez(path, selected=host[0], order=host[1], sizes=host[2], accepted_sizes=host[3], mask=expected_mask)
+                    np.savez(
+                        path, selected=host[0], order=host[1], sizes=host[2], accepted_sizes=host[3], mask=expected_mask
+                    )
                     fs.put_file(str(path), f"{prefix}/{path.name}")
                     arrays = tuple(jax.device_put(a, device) for a in host)
                     for reuse in (False, True):
@@ -116,9 +118,10 @@ def main():
                             executable, compile_time = compiled[key]
                             actual = jax.block_until_ready(executable(*arrays))
                             expected = (expected_mask, expected_inverse) if reuse else expected_mask
-                            mismatch = [int(np.count_nonzero(np.asarray(a) != b)) for a, b in zip(
-                                jax.tree.leaves(actual), jax.tree.leaves(expected), strict=True
-                            )]
+                            mismatch = [
+                                int(np.count_nonzero(np.asarray(a) != b))
+                                for a, b in zip(jax.tree.leaves(actual), jax.tree.leaves(expected), strict=True)
+                            ]
                             row["implementations"][name] = {
                                 "mismatches": mismatch,
                                 "compile_seconds": compile_time,
@@ -131,11 +134,13 @@ def main():
                                 executable, _ = compiled[(assignments, experts, reuse, name)]
                                 start = time.monotonic()
                                 jax.block_until_ready(executable(*arrays))
-                                row["samples"].append({"implementation": name, "repeat": repeat,
-                                                       "seconds": time.monotonic() - start})
-                        row["median_seconds"] = {name: statistics.median(
-                            r["seconds"] for r in row["samples"] if r["implementation"] == name
-                        ) for name in ("reference", "cutoff")}
+                                row["samples"].append(
+                                    {"implementation": name, "repeat": repeat, "seconds": time.monotonic() - start}
+                                )
+                        row["median_seconds"] = {
+                            name: statistics.median(r["seconds"] for r in row["samples"] if r["implementation"] == name)
+                            for name in ("reference", "cutoff")
+                        }
                         row["passed_exact"] = all(not any(r["mismatches"]) for r in row["implementations"].values())
                         report["records"].append(row)
                         save()
