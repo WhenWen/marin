@@ -76,9 +76,7 @@ def _reduce_histogram_quantile(local_counts, target_rank, lo, bin_width, batch_a
 def _reduce_scatter_histogram_quantile(local_counts, target_rank, lo, bin_width, batch_axes):
     """Diagnostic partitioned quantile; production retains replicated counts."""
     counts = jax.lax.psum_scatter(local_counts, batch_axes, scatter_dimension=0, tiled=True)
-    rank = jax.lax.dynamic_slice_in_dim(
-        target_rank, jax.lax.axis_index(batch_axes) * counts.shape[0], counts.shape[0]
-    )
+    rank = jax.lax.dynamic_slice_in_dim(target_rank, jax.lax.axis_index(batch_axes) * counts.shape[0], counts.shape[0])
     thresholds = _histogram_quantile(counts, rank, lo, bin_width)
     return jax.lax.all_gather(thresholds, batch_axes, axis=0, tiled=True, to="invarying")
 
