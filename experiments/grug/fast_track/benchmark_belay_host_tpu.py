@@ -76,6 +76,10 @@ def main() -> None:
 
     def on_step(self, *, tree, step, force=False):
         nonlocal previous_end, window_start
+        if "jax_enable_pgle" not in report:
+            report["jax_enable_pgle"] = jax.config.jax_enable_pgle
+            if args.experiment == "pipeline" and report["jax_enable_pgle"] is not False:
+                raise RuntimeError("The TPU pipeline comparison requires PGLE disabled")
         started = time.perf_counter()
         original_on_step(self, tree=tree, step=step, force=force)
         ended = time.perf_counter()
