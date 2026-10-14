@@ -144,7 +144,9 @@ def main():
                         values = jax.block_until_ready(fn(*inputs))
                         row["implementations"][name] = {
                             key: errors(actual, expected)
-                            for key, actual, expected in zip(("output", "dq", "dk", "dv", "dband"), values, oracle, strict=True)
+                            for key, actual, expected in zip(
+                                ("output", "dq", "dk", "dv", "dband"), values, oracle, strict=True
+                            )
                         }
                     passed = True
                     for key in ("output", "dq", "dk", "dv", "dband"):
