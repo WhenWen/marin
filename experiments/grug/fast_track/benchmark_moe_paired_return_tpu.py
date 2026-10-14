@@ -76,7 +76,27 @@ def bit_check(actual, expected):
     assert actual.shape == expected.shape and actual.dtype == expected.dtype
     dtype = np.dtype(f"u{actual.dtype.itemsize}")
     different = actual.view(dtype) ^ expected.view(dtype)
-    return dict(mismatched_elements=int(np.count_nonzero(different)), max_xor_bits=int(different.max(initial=0)))
+    result = dict(mismatched_elements=int(np.count_nonzero(different)), max_xor_bits=int(different.max(initial=0)))
+    if actual.dtype == np.float32:
+        bits = expected.view(np.uint32)
+        exponent = bits & np.uint32(0x7F800000)
+        fraction = bits & np.uint32(0x007FFFFF)
+        classes = {
+            "nan": (exponent == 0x7F800000) & (fraction != 0),
+            "infinity": (exponent == 0x7F800000) & (fraction == 0),
+            "subnormal": (exponent == 0) & (fraction != 0),
+            "zero": (exponent == 0) & (fraction == 0),
+            "normal": (exponent != 0) & (exponent != 0x7F800000),
+        }
+        result["mismatch_classes"] = {
+            label: int(np.count_nonzero(mask & (different != 0))) for label, mask in classes.items()
+        }
+        indices = np.flatnonzero(different)[:16]
+        result["examples"] = [
+            dict(index=int(i), expected_bits=hex(int(bits.flat[i])), actual_bits=hex(int(actual.view(np.uint32).flat[i])))
+            for i in indices
+        ]
+    return result
 
 
 def cpu_packing_checks():
@@ -299,6 +319,7 @@ def main():
                                         dict(
                                             mismatched_elements=sum(c["mismatched_elements"] for c in shard_checks),
                                             max_xor_bits=max(c["max_xor_bits"] for c in shard_checks),
+                                            shards=shard_checks,
                                         )
                                     )
                                 result_row["implementations"][implementation] = checks
