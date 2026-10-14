@@ -63,7 +63,10 @@ def fixture(seed, experts, bins, distribution):
     # Independent integer search, including the clipped out-of-range cases.
     suffix = np.flip(np.cumsum(np.flip(counts.astype(np.int64), axis=-1), axis=-1), axis=-1)
     crossing = np.array(
-        [max(0, int(indices[-1])) if len(indices := np.flatnonzero(row >= rank)) else 0 for row, rank in zip(suffix, ranks)]
+        [
+            int(indices[-1]) if len(indices := np.flatnonzero(row >= rank)) else 0
+            for row, rank in zip(suffix, ranks, strict=True)
+        ]
     )
     oracle = (crossing, suffix[np.arange(experts), crossing], counts[np.arange(experts), crossing])
     return counts, ranks, oracle
@@ -128,7 +131,9 @@ def main():
                             "block_bins": block_bins,
                             "beta_mismatches": int(np.count_nonzero(actual.view(np.uint32) != expected.view(np.uint32))),
                             "max_abs_error": float(np.max(np.abs(actual - expected))),
-                            "discrete_mismatches": [int(np.count_nonzero(a != b)) for a, b in zip(indices, oracle)],
+                            "discrete_mismatches": [
+                                int(np.count_nonzero(a != b)) for a, b in zip(indices, oracle, strict=True)
+                            ],
                             "finite": bool(np.all(np.isfinite(actual))),
                         }
                         report["numerics"].append(row)
