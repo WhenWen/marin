@@ -318,6 +318,7 @@ def _blocked_inkling_math(
     rel_bias: jax.Array,
     *,
     block_size: int,
+    query_block_batch_size: int | None = None,
 ) -> jax.Array:
     """Bound score/bias storage by query blocks; rematerialize their backward."""
     batch, length, heads, _ = q.shape
@@ -343,7 +344,7 @@ def _blocked_inkling_math(
             )
         return _reference_attention_math(queries, k, v, tile_mask, bias, logits_dtype=jnp.float32)
 
-    blocks = jax.lax.map(block, jnp.arange(length // block_size))
+    blocks = jax.lax.map(block, jnp.arange(length // block_size), batch_size=query_block_batch_size)
     return blocks.transpose(1, 0, 2, 3, 4).reshape(batch, length, heads, v.shape[-1])
 
 
