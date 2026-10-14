@@ -23,6 +23,7 @@ from rigging.filesystem.storage_path import StoragePath
 
 from experiments.grug.fast_track.belay_tpu_execution import (
     QUALIFICATION,
+    SCHEDULING_QUALIFICATION,
     SELECTED,
     selected_execution,
     selected_model_config,
@@ -153,6 +154,7 @@ def build_config(
         if chips != 16 or microbatches != 1:
             raise ValueError("The selected Belay profile requires v4-32 and one microbatch")
         model = selected_model_config(model)
+        outer["pipeline_depth"] = SELECTED["pipeline_depth"]
     elif execution_profile != "reference":
         raise ValueError(f"Unknown execution profile: {execution_profile}")
     decoded_trainer = draccus.decode(GrugTrainerConfig, outer)
@@ -272,6 +274,7 @@ def main() -> None:
         "execution_profile": args.execution_profile,
         "execution_settings": SELECTED if args.execution_profile == "selected" else {},
         "throughput_qualification": QUALIFICATION if args.execution_profile == "selected" else None,
+        "scheduling_qualification": SCHEDULING_QUALIFICATION if args.execution_profile == "selected" else None,
         "resume": args.resume,
     }
     (args.output / "provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")

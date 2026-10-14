@@ -21,7 +21,9 @@ from experiments.grug.fast_track.router_lookup import unrolled_router_logits
 from experiments.grug.moe import kda
 
 QUALIFICATION = "https://github.com/WhenWen/astra-d8-research/issues/96#issuecomment-6176472787"
+SCHEDULING_QUALIFICATION = "https://github.com/WhenWen/astra-d8-research/issues/96#issuecomment-6180399090"
 SELECTED = {
+    "pipeline_depth": 1,
     "layer_backward": "save",
     "attention_remat": "off",
     "kda_state": "pallas",

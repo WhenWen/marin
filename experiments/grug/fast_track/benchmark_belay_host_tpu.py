@@ -68,9 +68,11 @@ def main() -> None:
         config = original_build(**kwargs)
         if kwargs["execution_profile"] != "selected" or kwargs["seed"] != 0 or kwargs["resume"]:
             raise ValueError("Use selected execution, seed 0 and a fresh run")
-        trainer = replace(config.trainer, completion_marker_path=f"{kwargs['checkpoint_path']}/training_done.json")
-        if args.experiment == "pipeline":
-            trainer = replace(trainer, pipeline_depth=int(args.arm == "candidate"))
+        trainer = replace(
+            config.trainer,
+            completion_marker_path=f"{kwargs['checkpoint_path']}/training_done.json",
+            pipeline_depth=int(args.experiment == "pipeline" and args.arm == "candidate"),
+        )
         report["pipeline_depth"] = trainer.pipeline_depth
         return replace(config, stop_after_steps=updates, eval=None, trainer=trainer)
 
