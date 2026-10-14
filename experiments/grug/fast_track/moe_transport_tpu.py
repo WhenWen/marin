@@ -16,14 +16,19 @@ def pack_return_buffers(vector, scalar):
     """Append an FP32 scalar's bits to each BF16 row without numerical conversion."""
     assert vector.dtype == jnp.bfloat16 and scalar.dtype == jnp.float32
     assert scalar.shape == (vector.shape[0], 1)
-    lanes = jax.lax.bitcast_convert_type(scalar[:, 0], jnp.bfloat16)
-    packed = jnp.concatenate((vector, lanes), axis=-1)
-    return jnp.pad(packed, ((0, 0), (0, -packed.shape[-1] % 128)))
+    # BF16 concatenation can canonicalize NaN payloads in encoded scalar lanes.
+    lanes = jax.lax.bitcast_convert_type(scalar[:, 0], jnp.uint16)
+    vector_bits = jax.lax.bitcast_convert_type(vector, jnp.uint16)
+    packed = jnp.concatenate((vector_bits, lanes), axis=-1)
+    packed = jnp.pad(packed, ((0, 0), (0, -packed.shape[-1] % 128)))
+    return jax.lax.bitcast_convert_type(packed, jnp.bfloat16)
 
 
 def unpack_return_buffers(packed, width):
-    scalar = jax.lax.bitcast_convert_type(packed[:, width : width + 2], jnp.float32)
-    return packed[:, :width], scalar[:, None]
+    bits = jax.lax.bitcast_convert_type(packed, jnp.uint16)
+    scalar = jax.lax.bitcast_convert_type(bits[:, width : width + 2], jnp.float32)
+    vector = jax.lax.bitcast_convert_type(bits[:, :width], jnp.bfloat16)
+    return vector, scalar[:, None]
 
 
 def paired_return_transport(vector, vector_output, scalar, scalar_output, *metadata, axis_name):
