@@ -127,7 +127,12 @@ def freeze(config: BuildConfig):
         parent_url = f"{config.reuse_samples_from}/frozen.json"
         parent = read_json(parent_url)
         execution_fields = {
-            "output", "revision", "reuse_samples_from", "reuse_tokenizer_from", "tokenizer_threads", "checkpoint_documents"
+            "output",
+            "revision",
+            "reuse_samples_from",
+            "reuse_tokenizer_from",
+            "tokenizer_threads",
+            "checkpoint_documents",
         }
         data_config = {key: value for key, value in asdict(config).items() if key not in execution_fields}
         parent_config = {key: value for key, value in parent["config"].items() if key not in execution_fields}
@@ -392,7 +397,9 @@ def write_cache(url, texts, tokenizer, seed=None, *, tokenizer_digest=None, chec
                 batch.clear()
                 LOGGER.info("checkpointed %s: %d documents", url, len(documents))
         if batch:
-            documents.extend(tokenized_chunk(f"{url}/tokenization/{len(documents):09d}", batch, tokenizer, tokenizer_digest))
+            documents.extend(
+                tokenized_chunk(f"{url}/tokenization/{len(documents):09d}", batch, tokenizer, tokenizer_digest)
+            )
     else:
         for text in texts:
             batch.append({"text": text})
@@ -443,7 +450,11 @@ def build(config: BuildConfig, local: Path):
         train_stats = read_json(f"{train}/validated.json")
     else:
         train_stats = write_cache(
-            train, (text for summary in summaries for text in raw_texts(summary)), tokenizer, config.seed, **cache_options
+            train,
+            (text for summary in summaries for text in raw_texts(summary)),
+            tokenizer,
+            config.seed,
+            **cache_options,
         )
     if train_stats["tokens"] < 1_600_000_000:
         raise ValueError("Cache must exceed the full 1,476,919,296-token run budget with margin")
