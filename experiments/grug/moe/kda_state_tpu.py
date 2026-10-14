@@ -17,7 +17,8 @@ from jax.experimental.pallas import tpu as pltpu
 
 
 def _dot(a, b):
-    return jnp.matmul(a, b, precision=jax.lax.Precision.DEFAULT, preferred_element_type=jnp.float32)
+    precision = jax.lax.Precision.HIGHEST if a.dtype == jnp.float32 else jax.lax.Precision.DEFAULT
+    return jnp.matmul(a, b, precision=precision, preferred_element_type=jnp.float32)
 
 
 def _intra(a, b):
@@ -54,7 +55,9 @@ def _chunk_backward(q, a, k, w, decay, state, vn, dout, ds):
         _dot(vn, ds.T),
         -_dot(dv, state.T),
         dv,
-        jnp.sum(state * ds, axis=1)[None, :],
+        # Reduce over sublanes so the result already occupies lanes. The
+        # opposite layout needs a sublane gather unavailable on TPU v4.
+        jnp.sum((state * ds).T, axis=0)[None, :],
         before,
     )
 
