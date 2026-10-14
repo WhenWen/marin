@@ -93,7 +93,9 @@ def bit_check(actual, expected):
         }
         indices = np.flatnonzero(different)[:16]
         result["examples"] = [
-            dict(index=int(i), expected_bits=hex(int(bits.flat[i])), actual_bits=hex(int(actual.view(np.uint32).flat[i])))
+            dict(
+                index=int(i), expected_bits=hex(int(bits.flat[i])), actual_bits=hex(int(actual.view(np.uint32).flat[i]))
+            )
             for i in indices
         ]
     return result
