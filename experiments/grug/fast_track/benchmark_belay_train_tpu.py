@@ -49,6 +49,7 @@ from experiments.grug.fast_track.benchmark_kda_state_tpu import tpu_recurrence
 from experiments.grug.fast_track.benchmark_projection_tpu import gathered_projection
 from experiments.grug.fast_track.column_sharded_embedding import column_sharded_embedding
 from experiments.grug.fast_track.model import AttnResLayerBackward
+from experiments.grug.fast_track.moe_saved_output import saved_output_routed_experts
 from experiments.grug.fast_track.router_lookup import unrolled_router_logits
 from experiments.grug.fast_track.train import _flat_train_step, _make_train_step, _router_ties_active, initial_state
 from experiments.grug.moe import kda
@@ -131,6 +132,7 @@ def main() -> None:
     parser.add_argument("--moe-dispatch", choices=("serialized", "overlap"), default="serialized")
     parser.add_argument("--moe-scalar-permutation", choices=("production", "sort"), default="production")
     parser.add_argument("--moe-weight-permutation", choices=("reference", "sort"), default="reference")
+    parser.add_argument("--moe-weight-gradient", choices=("expert", "saved-output"), default="expert")
     parser.add_argument("--qb-quantile", choices=("reference", "block128", "two-stage"), default="reference")
     parser.add_argument("--router-lookup", choices=("reference", "unrolled"), default="reference")
     parser.add_argument("--cross-entropy", choices=("reference", "pallas512"), default="reference")
@@ -208,6 +210,7 @@ def main() -> None:
         "moe_dispatch": args.moe_dispatch,
         "moe_scalar_permutation": args.moe_scalar_permutation,
         "moe_weight_permutation": args.moe_weight_permutation,
+        "moe_weight_gradient": args.moe_weight_gradient,
         "job_completion": args.job_completion,
         "kda_xla_scan_impl": config.kda_xla_scan_impl,
         "accepted_mask": args.accepted_mask,
@@ -251,8 +254,8 @@ def main() -> None:
             linewidth=2,
             markersize=4,
             label=(
-                f"base16, CE {args.cross_entropy}, embedding {args.second_embedding}, "
-                f"seed {trainer['seed']}, EMA {args.ema_phase}"
+                f"base16, CE {args.cross_entropy}, embedding {args.second_embedding}\n"
+                f"MoE {args.moe_weight_gradient}, seed {trainer['seed']}, EMA {args.ema_phase}"
             ),
         )
         ax.set(xlabel="Optimizer update", ylabel="Random-token training loss")
@@ -299,6 +302,8 @@ def main() -> None:
         print("Compiling native base16 train step", flush=True)
         start = time.monotonic()
         with ExitStack() as contexts:
+            if args.moe_weight_gradient == "saved-output":
+                contexts.enter_context(patch.object(ep_ragged_all_to_all, "_routed_experts", saved_output_routed_experts))
             if args.second_embedding == "column":
                 contexts.enter_context(patch.object(model_module, "_replicated_fp32_gather", _column_embedding_gather))
             if args.cross_entropy == "pallas512":
