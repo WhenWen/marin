@@ -80,15 +80,11 @@ def make_arrays(shape, seed, fixture_arrays, mesh):
     column_terms = 3 * np.arange(width, dtype=np.int32)[None, :]
 
     def table_values(index):
-        return (((row_terms[index[0]] + column_terms[:, index[1]]) % 257 - 128) / 128).astype(
-            ml_dtypes.bfloat16
-        )
+        return (((row_terms[index[0]] + column_terms[:, index[1]]) % 257 - 128) / 128).astype(ml_dtypes.bfloat16)
 
     def output_values(index):
         selected = row_terms[ids[index[0], index[1]], 0]
-        return (((selected[..., None] + column_terms[:, index[2]]) % 257 - 128) / 128).astype(
-            ml_dtypes.bfloat16
-        )
+        return (((selected[..., None] + column_terms[:, index[2]]) % 257 - 128) / 128).astype(ml_dtypes.bfloat16)
 
     def cotangent_values(index):
         if shape == SHAPES[0]:
@@ -133,8 +129,7 @@ def numerical_metrics(result, expected):
     return dict(
         forward_bit_mismatches=jnp.sum(bits != expected_bits),
         finite=jnp.all(jnp.isfinite(output)) & jnp.all(jnp.isfinite(gradient)),
-        relative_l2=jnp.sqrt(jnp.sum(difference**2))
-        / jnp.maximum(jnp.sqrt(jnp.sum(expected_gradient**2)), 1e-30),
+        relative_l2=jnp.sqrt(jnp.sum(difference**2)) / jnp.maximum(jnp.sqrt(jnp.sum(expected_gradient**2)), 1e-30),
         max_abs_error=jnp.max(jnp.abs(difference)),
     )
 
@@ -202,7 +197,11 @@ def main():
     folder.mkdir(parents=True, exist_ok=True)
     fs, prefix = fsspec.core.url_to_fs(f"{args.artifact_prefix}/{name}")
     fs.makedirs(prefix, exist_ok=True)
-    paths = [Path(__file__), Path(__file__).with_name("column_sharded_embedding.py"), Path(__file__).with_name("model.py")]
+    paths = [
+        Path(__file__),
+        Path(__file__).with_name("column_sharded_embedding.py"),
+        Path(__file__).with_name("model.py"),
+    ]
     report = dict(
         issue_url="https://github.com/WhenWen/astra-d8-research/issues/96",
         protocol_url="https://github.com/WhenWen/astra-d8-research/issues/96#issuecomment-6172765675",
@@ -232,8 +231,10 @@ def main():
         compiled = {}
         table_spec = P(_FSDP_AXES, None)
         token_spec = P(_BATCH_AXES, None, None)
-        output_spec = (token_spec, table_spec) if component == "complete" else (
-            token_spec if component == "forward" else table_spec
+        output_spec = (
+            (token_spec, table_spec)
+            if component == "complete"
+            else (token_spec if component == "forward" else table_spec)
         )
         for implementation, core in IMPLEMENTATIONS.items():
             label = f"{shape[0]}-{component}-{implementation}"
@@ -299,8 +300,10 @@ def main():
                     save()
                     print(json.dumps(dict(case=label, numerical_pass=case["numerical_pass"])), flush=True)
     report["numerical_pass"] = all(c["numerical_pass"] for c in report["cases"])
-    report["timing_pass"] = None if args.cpu_preflight else all(
-        c["timing_pass"] for c in report["cases"] if c["shape"] == SHAPES[1] and c["distribution"] == "uniform"
+    report["timing_pass"] = (
+        None
+        if args.cpu_preflight
+        else all(c["timing_pass"] for c in report["cases"] if c["shape"] == SHAPES[1] and c["distribution"] == "uniform")
     )
     report["status"] = "completed"
     save()
