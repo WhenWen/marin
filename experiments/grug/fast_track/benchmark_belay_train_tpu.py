@@ -19,6 +19,7 @@ from contextlib import ExitStack
 from dataclasses import asdict, dataclass, replace
 from functools import partial
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import draccus
@@ -35,7 +36,9 @@ from levanter.callbacks.watch import WatchConfig
 from levanter.data.text.examples import GrugLmExample
 from levanter.distributed import DistributedConfig, _finalize_iris_jax_after_clean_exit, _unregister_iris_exit_handler
 from levanter.grug._moe import ep_ragged_all_to_all
+from levanter.grug.loss import fused_linear_softmax_cross_entropy_loss
 from levanter.grug.sharding import compact_grug_mesh
+from levanter.kernels.pallas.fused_cross_entropy_loss.config import BlockSizes
 from levanter.optim.config import OptimizerConfig
 
 from experiments.grug.fast_track import model as model_module
@@ -65,6 +68,31 @@ class StepMeasurement:
 
 def _independent_dispatch(source: jax.Array, previous_residuals: tuple[jax.Array, ...]) -> jax.Array:
     return source
+
+
+def _pallas_cross_entropy(
+    hidden: jax.Array,
+    lm_head: jax.Array,
+    labels: jax.Array,
+    *,
+    implementation: str,
+    block_sizes: BlockSizes,
+    **kwargs: Any,
+) -> jax.Array:
+    if (
+        implementation != "xla_fast_bwd"
+        or block_sizes != model_module._CE_BLOCK_SIZES
+        or lm_head.shape != (512, 16384)
+    ):
+        raise ValueError("The Pallas CE comparison requires the frozen base16 head")
+    return fused_linear_softmax_cross_entropy_loss(
+        hidden,
+        lm_head,
+        labels,
+        implementation="pallas_tpu",
+        block_sizes=BlockSizes(1024, 512, 512),
+        **kwargs,
+    )
 
 
 def main() -> None:
@@ -102,6 +130,7 @@ def main() -> None:
     parser.add_argument("--moe-weight-permutation", choices=("reference", "sort"), default="reference")
     parser.add_argument("--qb-quantile", choices=("reference", "block128", "two-stage"), default="reference")
     parser.add_argument("--router-lookup", choices=("reference", "unrolled"), default="reference")
+    parser.add_argument("--cross-entropy", choices=("reference", "pallas512"), default="reference")
     parser.add_argument(
         "--job-completion",
         choices=("on-exit", "deferred"),
@@ -113,6 +142,9 @@ def main() -> None:
     if args.steps < 1 or not args.artifact_prefix.startswith("gs://marin-us-central2/"):
         parser.error("Use positive steps and a unique us-central2 GCS artifact prefix")
     require_tpu_rounding()
+    for name in ("LEVANTER_CE_XLA_FAST_BWD", "LEVANTER_PALLAS_TPU_BWD_USE_XLA_STREAMING_BENCH"):
+        if name in os.environ:
+            raise ValueError(f"Unset {name} to preserve the selected cross-entropy backend")
     source = json.loads(SOURCE_CONFIG.read_text())
     outer = source["trainer"]
     trainer = outer["trainer"]
@@ -157,6 +189,13 @@ def main() -> None:
         "attn_res_remat_attention": config.attn_res_remat_attention,
         "qb_quantile": args.qb_quantile,
         "router_lookup": args.router_lookup,
+        "cross_entropy": args.cross_entropy,
+        "cross_entropy_block_sizes": asdict(
+            BlockSizes(1024, 512, 512) if args.cross_entropy == "pallas512" else model_module._CE_BLOCK_SIZES
+        ),
+        "source_recipe": json.loads(SOURCE_CONFIG.read_text()),
+        "resolved_model": draccus.encode(config),
+        "resolved_optimizer": source["optimizer"],
         "attn_res_remat_attention_save_all": config.attn_res_remat_attention_save_all,
         "kda_scan": args.kda_scan,
         "kda_state": args.kda_state,
@@ -206,7 +245,7 @@ def main() -> None:
             marker="o",
             linewidth=2,
             markersize=4,
-            label=f"base16, seed {trainer['seed']}, EMA {args.ema_phase}",
+            label=f"base16, CE {args.cross_entropy}, seed {trainer['seed']}, EMA {args.ema_phase}",
         )
         ax.set(xlabel="Optimizer update", ylabel="Random-token training loss")
         ax.grid(color="#B0B0B0", linestyle="--", alpha=0.65)
@@ -245,12 +284,17 @@ def main() -> None:
             grad_accum_microbatches=outer["grad_accum_microbatches"],
         )
         leaves, treedef = jax.tree.flatten(state)
+        report["state_leaves"] = [{"shape": list(leaf.shape), "dtype": str(leaf.dtype)} for leaf in leaves]
         del state
         step_fn = _flat_train_step(step_fn, treedef)
         router_ties = _router_ties_active(config, 0)
         print("Compiling native base16 train step", flush=True)
         start = time.monotonic()
         with ExitStack() as contexts:
+            if args.cross_entropy == "pallas512":
+                contexts.enter_context(
+                    patch.object(model_module, "fused_linear_softmax_cross_entropy_loss", _pallas_cross_entropy)
+                )
             if args.router_lookup == "unrolled":
                 contexts.enter_context(patch.object(model_module, "_selected_router_logits", unrolled_router_logits))
             if args.qb_quantile == "two-stage":
