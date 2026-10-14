@@ -40,9 +40,9 @@ def value_and_gradients(x, order, weights, accepted, cotangent, *, combine):
     return output, *pullback(cotangent)
 
 
-def fixture(seed, width, scenario):
+def fixture(seed, width, scenario, *, tokens=32):
     rng = np.random.default_rng(seed)
-    tokens, topk = 32, 8
+    topk = 8
     order = rng.permutation(tokens * topk).astype(np.int32)
     rows = rng.normal(size=(tokens, topk, width)).astype(ml_dtypes.bfloat16)
     weights = rng.uniform(size=(tokens, topk)).astype(np.float32)
