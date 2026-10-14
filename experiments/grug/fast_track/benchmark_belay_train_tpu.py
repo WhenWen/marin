@@ -45,6 +45,7 @@ from experiments.grug.fast_track.belay_tpu import SOURCE_CONFIG, base16_model_co
 from experiments.grug.fast_track.benchmark_kda_state_tpu import tpu_recurrence
 from experiments.grug.fast_track.benchmark_projection_tpu import gathered_projection
 from experiments.grug.fast_track.model import AttnResLayerBackward
+from experiments.grug.fast_track.router_lookup import unrolled_router_logits
 from experiments.grug.fast_track.train import _flat_train_step, _make_train_step, _router_ties_active, initial_state
 from experiments.grug.moe import kda
 
@@ -99,6 +100,7 @@ def main() -> None:
     parser.add_argument("--moe-dispatch", choices=("serialized", "overlap"), default="serialized")
     parser.add_argument("--moe-scalar-permutation", choices=("production", "sort"), default="production")
     parser.add_argument("--qb-quantile", choices=("reference", "block128", "two-stage"), default="reference")
+    parser.add_argument("--router-lookup", choices=("reference", "unrolled"), default="reference")
     parser.add_argument(
         "--job-completion",
         choices=("on-exit", "deferred"),
@@ -153,6 +155,7 @@ def main() -> None:
         "attn_res_layer_backward": config.attn_res_layer_backward.value,
         "attn_res_remat_attention": config.attn_res_remat_attention,
         "qb_quantile": args.qb_quantile,
+        "router_lookup": args.router_lookup,
         "attn_res_remat_attention_save_all": config.attn_res_remat_attention_save_all,
         "kda_scan": args.kda_scan,
         "kda_state": args.kda_state,
@@ -246,6 +249,8 @@ def main() -> None:
         print("Compiling native base16 train step", flush=True)
         start = time.monotonic()
         with ExitStack() as contexts:
+            if args.router_lookup == "unrolled":
+                contexts.enter_context(patch.object(model_module, "_selected_router_logits", unrolled_router_logits))
             if args.qb_quantile == "two-stage":
                 contexts.enter_context(
                     patch.object(

@@ -4500,7 +4500,7 @@ class MoEMLP(eqx.Module):
                 out_specs=P(_BATCH_AXES, None),
             )(table, flat_ids)
         # Sigmoid combine weights on unbiased logits for selected experts.
-        unbiased_topk = jnp.take_along_axis(router_logits, selected_experts, axis=-1)
+        unbiased_topk = _selected_router_logits(router_logits, selected_experts)
         renorm_sum = self.cfg.routing_renorm_sum if self.routing_sum is None else self.routing_sum.astype(jnp.float32)
         if self.cfg.router_combine == RouterCombine.SOFTMAX_RENORM:
             combine_weights_f = renorm_sum * jax.nn.softmax(unbiased_topk, axis=-1)
@@ -6272,6 +6272,10 @@ def _soft_capped(logits: jax.Array, cap: float | tuple[float, float, float] | No
         a, b, c = cap
         return a * jax.nn.sigmoid((logits + b) / c)
     return cap * jnp.tanh(logits / cap)
+
+
+def _selected_router_logits(logits: Float[Array, "T E"], selected: Int[Array, "T K"]) -> Float[Array, "T K"]:
+    return jnp.take_along_axis(logits, selected, axis=-1)
 
 
 def _small_top_k(x: Float[Array, "T E"], k: int) -> tuple[Float[Array, "T k"], Int[Array, "T k"]]:
