@@ -79,7 +79,11 @@ def main():
         xla_flags=os.environ.get("XLA_FLAGS", ""),
         source_hashes={
             filename: hashlib.sha256(Path(__file__).with_name(filename).read_bytes()).hexdigest()
-            for filename in ("moe_saved_output.py", "benchmark_moe_saved_output_tpu.py", "benchmark_moe_transport_tpu.py")
+            for filename in (
+                "moe_saved_output.py",
+                "benchmark_moe_saved_output_tpu.py",
+                "benchmark_moe_transport_tpu.py",
+            )
         },
     )
 
@@ -103,7 +107,9 @@ def main():
                         host[1][:, ::2] *= 2.0**-20
                     if rank == 0:
                         path = folder / f"fixture-{seed}-{distribution}-{width}.npz"
-                        np.savez(path, **dict(zip(("x", "weights", "valid", "up", "down", "selected", "cotangent"), host)))
+                        np.savez(
+                            path, **dict(zip(("x", "weights", "valid", "up", "down", "selected", "cotangent"), host))
+                        )
                         fs.put_file(str(path), f"{prefix}/{path.name}")
                     for capacity in (0.5, 1.05):
                         expected, expected_drops = oracle(*host, capacity, 16)
@@ -124,7 +130,9 @@ def main():
                                 np.asarray(multihost_utils.process_allgather(a, tiled=True)) for a in result
                             )
                             row["arms"][arm] = dict(
-                                tensors={key: errors(a, b) for key, a, b in zip(_NAMES, outputs[arm], expected, strict=True)},
+                                tensors={
+                                    key: errors(a, b) for key, a, b in zip(_NAMES, outputs[arm], expected, strict=True)
+                                },
                                 drops=int(drops.sender_dropped),
                                 receiver_drops=int(drops.receiver_dropped),
                             )
@@ -151,7 +159,18 @@ def main():
                         )
                         report["numerics"].append(row)
                         save()
-                        print(json.dumps(dict(seed=seed, distribution=distribution, width=width, capacity=capacity, passed=row["passed"])), flush=True)
+                        print(
+                            json.dumps(
+                                dict(
+                                    seed=seed,
+                                    distribution=distribution,
+                                    width=width,
+                                    capacity=capacity,
+                                    passed=row["passed"],
+                                )
+                            ),
+                            flush=True,
+                        )
         if not all(row["passed"] for row in report["numerics"]):
             report["status"] = "numerical-screen-failed"
             save()
@@ -162,7 +181,15 @@ def main():
             save()
             return
         for width in (256, 512):
-            shapes = ((524288, 256), (524288, 8), (524288,), (512, 256, 384), (512, 384, width), (524288, 8), (524288, width))
+            shapes = (
+                (524288, 256),
+                (524288, 8),
+                (524288,),
+                (512, 256, 384),
+                (512, 384, width),
+                (524288, 8),
+                (524288, width),
+            )
             dtypes = (jnp.bfloat16, jnp.float32, jnp.bool_, jnp.float32, jnp.float32, jnp.int32, jnp.bfloat16)
             for seed in (0, 1, 2):
                 arrays = []
@@ -173,10 +200,14 @@ def main():
                     elif index == 1:
                         a = jnp.full(shape, 1 / 8, dtype, out_sharding=sharding)
                     elif index == 5:
-                        ids = ((np.arange(shape[0])[:, None] * 17 + np.arange(8)[None, :] * 31 + seed * 13) % 512).astype(np.int32)
+                        ids = (
+                            (np.arange(shape[0])[:, None] * 17 + np.arange(8)[None, :] * 31 + seed * 13) % 512
+                        ).astype(np.int32)
                         a = jax.make_array_from_callback(shape, sharding, lambda index, ids=ids: ids[index])
                     else:
-                        a = jax.random.normal(jax.random.key(seed * 100 + 10 + index), shape, dtype, out_sharding=sharding)
+                        a = jax.random.normal(
+                            jax.random.key(seed * 100 + 10 + index), shape, dtype, out_sharding=sharding
+                        )
                         if index in (3, 4):
                             a = a / np.sqrt(shape[1])
                     arrays.append(a)
@@ -184,7 +215,14 @@ def main():
                     if arm not in compiled:
                         start = time.monotonic()
                         compiled[arm] = compile_operator(arrays, mesh, 1.05, arm)
-                        report.setdefault("compilation", []).append(dict(width=width, arm=arm, seconds=time.monotonic()-start, compiler_temporary_bytes=compiled[arm].memory_analysis().temp_size_in_bytes))
+                        report.setdefault("compilation", []).append(
+                            dict(
+                                width=width,
+                                arm=arm,
+                                seconds=time.monotonic() - start,
+                                compiler_temporary_bytes=compiled[arm].memory_analysis().temp_size_in_bytes,
+                            )
+                        )
                         if rank == 0:
                             path = folder / f"width-{width}-{arm}-hlo.txt"
                             path.write_text(compiled[arm].as_text())
@@ -192,18 +230,38 @@ def main():
                     for _ in range(2):
                         result, drops = jax.block_until_ready(compiled[arm](*arrays))
                     finite = bool(jax.jit(lambda xs: jnp.stack([jnp.isfinite(a).all() for a in xs]).all())(result))
-                    report["full_shape_checks"].append(dict(width=width, seed=seed, arm=arm, finite=finite, drops=int(drops.sender_dropped), receiver_drops=int(drops.receiver_dropped)))
+                    report["full_shape_checks"].append(
+                        dict(
+                            width=width,
+                            seed=seed,
+                            arm=arm,
+                            finite=finite,
+                            drops=int(drops.sender_dropped),
+                            receiver_drops=int(drops.receiver_dropped),
+                        )
+                    )
                 for repeat in range(8):
                     for arm in (_IMPLEMENTATIONS if repeat % 2 == 0 else _IMPLEMENTATIONS[::-1]):
                         multihost_utils.sync_global_devices(f"saved-output-{width}-{seed}-{repeat}-{arm}")
                         start = time.monotonic()
                         jax.block_until_ready(compiled[arm](*arrays))
-                        report["timings"].append(dict(width=width, seed=seed, arm=arm, repeat=repeat, seconds=time.monotonic()-start))
+                        report["timings"].append(
+                            dict(width=width, seed=seed, arm=arm, repeat=repeat, seconds=time.monotonic() - start)
+                        )
                 save()
             compiled.clear()
         report["median_seconds"] = [
-            dict(width=width, seed=seed, arm=arm, seconds=statistics.median(r["seconds"] for r in report["timings"] if (r["width"],r["seed"],r["arm"])==(width,seed,arm)))
-            for width in (256,512) for seed in (0,1,2) for arm in _IMPLEMENTATIONS
+            dict(
+                width=width,
+                seed=seed,
+                arm=arm,
+                seconds=statistics.median(
+                    r["seconds"] for r in report["timings"] if (r["width"], r["seed"], r["arm"]) == (width, seed, arm)
+                ),
+            )
+            for width in (256, 512)
+            for seed in (0, 1, 2)
+            for arm in _IMPLEMENTATIONS
         ]
         report["status"] = "completed"
         save()
