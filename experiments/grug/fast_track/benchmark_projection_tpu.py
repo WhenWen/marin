@@ -39,9 +39,7 @@ def gathered_projection(cfg, x, w, out_sharding=None):
 
 
 def projection_and_gradients(x, w, cotangent, *, projection, config):
-    output, pullback = jax.vjp(
-        lambda a, b: projection(config, a, b.astype(a.dtype), out_sharding=_BATCH_SPEC), x, w
-    )
+    output, pullback = jax.vjp(lambda a, b: projection(config, a, b.astype(a.dtype), out_sharding=_BATCH_SPEC), x, w)
     dx, dw = pullback(cotangent)
     return output, dx, dw
 
@@ -163,7 +161,9 @@ def main():
                     for r in report["timings"]
                     if r["weight_sharding"] == sharding_name and r["implementation"] == name
                 ]
-                print(json.dumps({"sharding": sharding_name, "implementation": name, "median": statistics.median(samples)}))
+                print(
+                    json.dumps({"sharding": sharding_name, "implementation": name, "median": statistics.median(samples)})
+                )
         report["status"] = "completed"
         save()
 
