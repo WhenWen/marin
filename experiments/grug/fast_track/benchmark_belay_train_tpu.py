@@ -130,7 +130,7 @@ def main() -> None:
     source["optimizer"]["type"] = "grug_fast_track_muonh_v1"
     optimizer = draccus.decode(OptimizerConfig, source["optimizer"]).build(trainer["num_train_steps"])
     rank = jax.process_index()
-    output = Path(os.environ.get("IRIS_OUTPUT_DIR", "outputs")) / f"native-rank-{rank}"
+    output = Path(os.environ.get("IRIS_OUTPUT_DIR", "outputs")) / Path(args.artifact_prefix).name / f"native-rank-{rank}"
     output.mkdir(parents=True, exist_ok=True)
     fs, prefix = fsspec.core.url_to_fs(f"{args.artifact_prefix}/rank-{rank}")
     rows: list[StepMeasurement] = []
