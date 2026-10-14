@@ -107,9 +107,8 @@ def main():
                         host[1][:, ::2] *= 2.0**-20
                     if rank == 0:
                         path = folder / f"fixture-{seed}-{distribution}-{width}.npz"
-                        np.savez(
-                            path, **dict(zip(("x", "weights", "valid", "up", "down", "selected", "cotangent"), host))
-                        )
+                        names = ("x", "weights", "valid", "up", "down", "selected", "cotangent")
+                        np.savez(path, **dict(zip(names, host, strict=True)))
                         fs.put_file(str(path), f"{prefix}/{path.name}")
                     for capacity in (0.5, 1.05):
                         expected, expected_drops = oracle(*host, capacity, 16)
