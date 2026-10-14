@@ -119,6 +119,14 @@ def attention_fp32_head_gradients(q, k, v, band, segments, *, window):
     return output.astype(q.dtype)
 
 
+def values_and_gradients_fp32_heads(q, k, v, band, segments, cotangent, *, window):
+    """Trace the complete experimental forward and backward at HIGHEST precision."""
+    with jax.default_matmul_precision("highest"):
+        return probe.values_and_gradients(
+            q, k, v, band, segments, cotangent, attention=partial(attention_fp32_head_gradients, window=window)
+        )
+
+
 @partial(jax.jit, static_argnums=(2, 3))
 def layout_values(band, cotangent, width, window):
     expanded = expand_band(band, width, window)

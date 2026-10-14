@@ -24,7 +24,7 @@ import numpy as np
 from levanter.grug.attention._core import AttentionMask, _blocked_inkling_math, _reference_attention_math
 from levanter.grug.attention._inkling_relpos import REL_BIAS_BLOCK, rel_extent_of_band
 
-from experiments.grug.fast_track import attention_mask_crop, flash_block_bias
+from experiments.grug.fast_track import attention_mask_crop, flash_block_bias, kv_head_gradient_screen
 from experiments.grug.fast_track.belay_tpu import require_tpu_rounding
 from experiments.grug.fast_track.benchmark_inkling_flash_tpu import fixture, reference64, values_and_gradients
 from experiments.grug.fast_track.diagnose_kda_state_precision import errors
@@ -64,6 +64,10 @@ def attention(q, k, v, band, segments, *, implementation, sliding_window):
 
 
 def probe_functions(window, candidate="block-inputs"):
+    if candidate == "flash-fp32-head-gradients":
+        functions = probe_functions(window, "flash-fp32-scale")
+        functions[candidate] = jax.jit(partial(flash_block_bias.values_and_gradients_fp32_heads, window=window))
+        return functions
     if candidate == "flash-fp32-scale":
         functions = probe_functions(window, "flash-highest")
         functions[candidate] = jax.jit(
@@ -114,17 +118,21 @@ def main():
     parser.add_argument("--artifact-prefix", required=True)
     parser.add_argument("--cpu-preflight", action="store_true")
     parser.add_argument("--numerics-only", action="store_true")
+    parser.add_argument("--head-gradient-fixtures", help="Archived rounding-audit directory for the KV-gradient screen")
     parser.add_argument(
         "--candidate",
-        choices=("block-inputs", "mask-crop", "flash-high", "flash-highest", "flash-fp32-scale"),
+        choices=("block-inputs", "mask-crop", "flash-high", "flash-highest", "flash-fp32-scale", "flash-fp32-head-gradients"),
         default="block-inputs",
     )
     args = parser.parse_args()
     candidate = args.candidate
     crop = candidate == "mask-crop"
-    flash = candidate in ("flash-high", "flash-highest", "flash-fp32-scale")
-    if candidate == "flash-fp32-scale" and not args.numerics_only:
-        parser.error("The FP32 query-scaling protocol authorizes numerical screening only")
+    head_gradients = candidate == "flash-fp32-head-gradients"
+    flash = candidate in ("flash-high", "flash-highest", "flash-fp32-scale", "flash-fp32-head-gradients")
+    if (candidate == "flash-fp32-scale" or head_gradients) and not args.numerics_only:
+        parser.error("The FP32 attention protocols authorize numerical screening only")
+    if head_gradients and not args.head_gradient_fixtures:
+        parser.error("The KV-gradient screen requires --head-gradient-fixtures")
     expanded_fixtures = crop or flash
     scenarios = attention_mask_crop.SCENARIOS if expanded_fixtures else ("one-document", "packed", "strong-logits")
     make_fixture = attention_mask_crop.crop_fixture if expanded_fixtures else fixture
@@ -136,6 +144,11 @@ def main():
         device = jax.local_devices(backend="tpu")[0]
         if device.device_kind != "TPU v4" or not args.artifact_prefix.startswith("gs://marin-us-central2/"):
             raise ValueError("Use TPU v4 and us-central2 artifacts")
+        if head_gradients:
+            if not args.head_gradient_fixtures.startswith("gs://marin-us-central2/"):
+                raise ValueError("The archived gradient fixtures must be in us-central2")
+            if jax.__version__ != "0.11.1" or jaxlib.__version__ != "0.11.1" or jax.config.jax_enable_pgle:
+                raise ValueError("The gradient-screen protocol requires JAX/JAXLIB 0.11.1 with PGLE disabled")
     folder = Path(os.environ.get("IRIS_OUTPUT_DIR", "/tmp/belay-attention-block-inputs")) / (
         "cpu" if args.cpu_preflight else "tpu"
     )
@@ -148,6 +161,8 @@ def main():
         Path("lib/levanter/src/levanter/grug/attention/_core.py"),
         Path("experiments/grug/fast_track/attention_mask_crop.py"),
         Path("experiments/grug/fast_track/flash_block_bias.py"),
+        Path("experiments/grug/fast_track/kv_head_gradient_tpu.py"),
+        Path("experiments/grug/fast_track/kv_head_gradient_screen.py"),
     )
     report = {
         "issue_url": "https://github.com/WhenWen/astra-d8-research/issues/96",
@@ -180,6 +195,9 @@ def main():
         "timings": [],
         "performance": [],
     }
+    if head_gradients:
+        report["protocol_url"] = kv_head_gradient_screen.PROTOCOL
+        report["head_gradient_fixtures"] = args.head_gradient_fixtures
 
     def upload(path):
         fs.put_file(str(path), f"{prefix}/{path.name}")
@@ -191,6 +209,18 @@ def main():
 
     save()
     try:
+        if head_gradients:
+            report["phase"] = {"stage": "head-gradient-isolation"}
+            report["isolation"] = []
+            save()
+            with jax.default_device(device):
+                for row, paths in kv_head_gradient_screen.isolation_checks(args.head_gradient_fixtures, device, folder):
+                    for path in paths:
+                        upload(path)
+                    report["isolation"].append(row)
+                    save()
+            if not all(row["passed"] for row in report["isolation"]) or len(report["isolation"]) != 10:
+                raise ValueError("Head-gradient isolation or control reproduction failed")
         if flash:
             report["layout_checks"] = []
             report["phase"] = {"stage": "layout-checks"}
@@ -245,14 +275,44 @@ def main():
                             )
                             oracle = tuple(np.asarray(x) for x in jax.device_get(oracle_fn(*inputs64)))
                         row = {"seed": seed, "length": length, "window": window, "scenario": scenario, "errors": {}}
+                        capture = head_gradients and kv_head_gradient_screen.fixture_identity(row) in (
+                            kv_head_gradient_screen.FP32_FAILURES
+                        )
+                        if capture:
+                            row["artifacts"] = {}
+                            key = f"full-{seed}-{length}-{window}-{scenario}"
+                            path = folder / f"{key}-oracle.npz"
+                            np.savez(path, **dict(zip(TENSORS, oracle, strict=True)))
+                            upload(path)
+                            row["artifacts"][path.name] = hashlib.sha256(path.read_bytes()).hexdigest()
                         actuals = {}
                         with jax.default_device(device):
                             inputs = tuple(jax.device_put(x, device) for x in host)
                             if crop:
                                 row["width_distribution"] = attention_mask_crop.width_distribution(inputs[4], window)
                             for name, fn in functions.items():
-                                values = jax.block_until_ready(fn(*inputs))
+                                if capture:
+                                    executable = fn.lower(*inputs).compile()
+                                    path = folder / f"{key}-{name}.hlo.txt"
+                                    path.write_text(executable.as_text())
+                                    upload(path)
+                                    row["artifacts"][path.name] = hashlib.sha256(path.read_bytes()).hexdigest()
+                                    values = jax.block_until_ready(executable(*inputs))
+                                else:
+                                    values = jax.block_until_ready(fn(*inputs))
                                 actuals[name] = jax.device_get(values)
+                                if capture:
+                                    path = folder / f"{key}-{name}.npz"
+                                    # FP32 retains every represented BF16 value and remains portable in NPZ readers.
+                                    np.savez(
+                                        path,
+                                        **{
+                                            tensor: np.asarray(value).astype(np.float32)
+                                            for tensor, value in zip(TENSORS, actuals[name], strict=True)
+                                        },
+                                    )
+                                    upload(path)
+                                    row["artifacts"][path.name] = hashlib.sha256(path.read_bytes()).hexdigest()
                                 row["errors"][name] = {
                                     key: finite_errors(actual, expected)
                                     for key, actual, expected in zip(TENSORS, values, oracle, strict=True)
@@ -268,20 +328,31 @@ def main():
                             )
                         }
                         row["passed"] = numerical_gate(row, candidate)
-                        if candidate == "flash-fp32-scale":
+                        if candidate == "flash-fp32-scale" or head_gradients:
                             row["bf16_scaling_control_passed"] = numerical_gate(row, "flash-highest")
+                        if head_gradients:
+                            row["fp32_scaling_control_passed"] = numerical_gate(row, "flash-fp32-scale")
                         report["numerics"].append(row)
                         save()
                         print(
                             json.dumps({k: row[k] for k in ("seed", "length", "window", "scenario", "passed")}),
                             flush=True,
                         )
+        if head_gradients:
+            report["control_reproduction"] = kv_head_gradient_screen.control_reproduction(report["numerics"])
+            save()
+            if not all(result["passed"] for result in report["control_reproduction"].values()):
+                raise ValueError("The attention controls did not reproduce their prior failure identities")
         if not all(row["passed"] for row in report["numerics"]):
             raise ValueError("Independent FP64 numerical gate failed")
         if args.numerics_only:
             report["gate_pass"] = True
             report["status"] = "completed"
-            report["qualification"] = "numerics-pass; control reproduction requires independent analysis"
+            report["qualification"] = (
+                "numerics-and-controls-pass; performance untested"
+                if head_gradients
+                else "numerics-pass; control reproduction requires independent analysis"
+            )
             save()
             return
         if not args.cpu_preflight:
