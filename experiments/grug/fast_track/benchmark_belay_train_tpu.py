@@ -79,11 +79,7 @@ def _pallas_cross_entropy(
     block_sizes: BlockSizes,
     **kwargs: Any,
 ) -> jax.Array:
-    if (
-        implementation != "xla_fast_bwd"
-        or block_sizes != model_module._CE_BLOCK_SIZES
-        or lm_head.shape != (512, 16384)
-    ):
+    if implementation != "xla_fast_bwd" or block_sizes != model_module._CE_BLOCK_SIZES or lm_head.shape != (512, 16384):
         raise ValueError("The Pallas CE comparison requires the frozen base16 head")
     return fused_linear_softmax_cross_entropy_loss(
         hidden,
