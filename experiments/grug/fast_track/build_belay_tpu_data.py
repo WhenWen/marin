@@ -20,6 +20,7 @@ from levanter.data.text.formats import TextLmDatasetFormat
 from levanter.store.cache import TreeCache
 from levanter.store.jagged_array import set_jagged_array_read_cache_bytes
 from levanter.tokenizers import load_tokenizer
+from levanter.utils.thread_utils import blocking_wait
 from rigging.filesystem.buckets import filesystem_for
 from rigging.filesystem.storage_path import StoragePath
 from tokenizers import Regex, Tokenizer, decoders, pre_tokenizers, trainers
@@ -60,6 +61,7 @@ class BuildConfig:
     document_bytes: int = 32768
     sample_block_documents: int = 1024
     seed: int = 0
+    reuse_samples_from: str | None = None
 
 
 def read_json(url):
@@ -117,6 +119,15 @@ def freeze(config: BuildConfig):
         "issue_url": "https://github.com/WhenWen/astra-d8-research/issues/96",
         "baseline_kind": "new tokenizer and corpus; not an original Belay data reproduction",
     }
+    if config.reuse_samples_from is not None:
+        parent_url = f"{config.reuse_samples_from}/frozen.json"
+        parent = read_json(parent_url)
+        execution_fields = {"output", "revision", "reuse_samples_from"}
+        data_config = {key: value for key, value in asdict(config).items() if key not in execution_fields}
+        parent_config = {key: value for key, value in parent["config"].items() if key not in execution_fields}
+        if data_config != parent_config or any(parent[key] != value for key, value in manifest.items() if key != "config"):
+            raise ValueError("Reused samples must have identical frozen data inputs and selection")
+        manifest["sample_parent"] = object_identity(parent_url)
     if StoragePath(manifest_path).exists():
         if read_json(manifest_path) != manifest:
             raise ValueError("Frozen inputs/config changed; use a new output prefix")
@@ -150,6 +161,18 @@ def sample(config: BuildConfig, manifest):
         if StoragePath(done).exists():
             summaries.append(read_json(done))
             continue
+        if config.reuse_samples_from is not None:
+            parent_done = f"{config.reuse_samples_from}/sample/{name}.json"
+            if StoragePath(parent_done).exists():
+                summary = read_json(parent_done)
+                for identity in (summary["raw"], summary["ledger_identity"]):
+                    if object_identity(identity["url"]) != identity:
+                        raise ValueError(f"Reused sample changed: {identity['url']}")
+                summary["reused_from"] = object_identity(parent_done)
+                write_json(done, summary)
+                summaries.append(summary)
+                LOGGER.info("Reused completed sample %s", name)
+                continue
         quota = max(1, math.ceil(config.corpus_bytes * cell["total_tokens"] / total))
         cache = TreeCache.load(cell["path"], EXEMPLAR)
         if len(cache) != cell["total_elements"]:
@@ -166,18 +189,24 @@ def sample(config: BuildConfig, manifest):
         rows, selected_bytes, excluded = [], 0, 0
         for step in range(blocks):
             base = ((start + step * stride) % blocks) * block_documents
-            indices = range(base, min(base + block_documents, len(cache)))
-            for index, item in zip(indices, cache.get_batch_sync(indices), strict=True):
-                text = capped(
-                    source_tokenizer.decode(item["input_ids"].tolist(), skip_special_tokens=True), config.document_bytes
-                )
-                if not text or text_digest(text) in holdouts:
-                    excluded += 1
-                    continue
-                rows.append({"source_row": index, "text": text})
-                selected_bytes += len(text.encode("utf-8"))
-                if selected_bytes >= quota:
-                    break
+            stop = min(base + block_documents, len(cache))
+            while base < stop and selected_bytes < quota:
+                # The permutation block stays fixed. Bound speculative reads near
+                # the quota, where sparse cells may have only one row per shard.
+                read_count = max(16, math.ceil((quota - selected_bytes) / config.document_bytes))
+                indices = range(base, min(base + read_count, stop))
+                for index, item in zip(indices, blocking_wait(cache.get_batch(indices)), strict=True):
+                    text = capped(
+                        source_tokenizer.decode(item["input_ids"].tolist(), skip_special_tokens=True), config.document_bytes
+                    )
+                    if not text or text_digest(text) in holdouts:
+                        excluded += 1
+                        continue
+                    rows.append({"source_row": index, "text": text})
+                    selected_bytes += len(text.encode("utf-8"))
+                    if selected_bytes >= quota:
+                        break
+                base = indices.stop
             if selected_bytes >= quota:
                 break
             if step % 10 == 0:
@@ -320,6 +349,8 @@ def write_cache(url, texts, tokenizer, seed=None):
 def build(config: BuildConfig, local: Path):
     if not config.output.startswith(REGION_PREFIX) or not config.source_store.startswith(REGION_PREFIX):
         raise ValueError("All large reads and writes must stay in us-central2")
+    if config.reuse_samples_from is not None and not config.reuse_samples_from.startswith(REGION_PREFIX):
+        raise ValueError("Reused samples must be in us-central2")
     set_jagged_array_read_cache_bytes(256_000_000)
     manifest = freeze(config)
     summaries = sample(config, manifest)
@@ -372,10 +403,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", required=True)
     parser.add_argument("--revision", required=True)
+    parser.add_argument("--reuse-samples-from")
     parser.add_argument("--local-tokenizer", type=Path, default=Path("/tmp/belay-tpu-tokenizer"))
     args = parser.parse_args()
     args.local_tokenizer.mkdir(parents=True, exist_ok=True)
-    build(BuildConfig(output=args.output, revision=args.revision), args.local_tokenizer)
+    build(
+        BuildConfig(output=args.output, revision=args.revision, reuse_samples_from=args.reuse_samples_from),
+        args.local_tokenizer,
+    )
 
 
 if __name__ == "__main__":
