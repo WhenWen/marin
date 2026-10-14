@@ -59,6 +59,10 @@ class StepMeasurement:
     useful_matrix_flops_per_token: float
 
 
+def _independent_dispatch(source: jax.Array, previous_residuals: tuple[jax.Array, ...]) -> jax.Array:
+    return source
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--steps", type=int, default=4, help="Timed steps after two warmup steps and one profiled step.")
@@ -87,6 +91,7 @@ def main() -> None:
     parser.add_argument("--accepted-mask", choices=("production", "reference", "inverse-direct"), default="production")
     parser.add_argument("--kda-state", choices=("production", "pallas"), default="production")
     parser.add_argument("--projection-weights", choices=("production", "gather"), default="production")
+    parser.add_argument("--moe-dispatch", choices=("serialized", "overlap"), default="serialized")
     parser.add_argument("--artifact-prefix", required=True)
     args = parser.parse_args()
     if args.steps < 1 or not args.artifact_prefix.startswith("gs://marin-us-central2/"):
@@ -135,6 +140,7 @@ def main() -> None:
         "kda_scan": args.kda_scan,
         "kda_state": args.kda_state,
         "projection_weights": args.projection_weights,
+        "moe_dispatch": args.moe_dispatch,
         "kda_xla_scan_impl": config.kda_xla_scan_impl,
         "accepted_mask": args.accepted_mask,
         "git_sha": args.revision,
@@ -221,6 +227,8 @@ def main() -> None:
         print("Compiling native base16 train step", flush=True)
         start = time.monotonic()
         with ExitStack() as contexts:
+            if args.moe_dispatch == "overlap":
+                contexts.enter_context(patch.object(ep_ragged_all_to_all, "_serialize_dispatch", _independent_dispatch))
             if args.projection_weights == "gather":
                 contexts.enter_context(patch.object(model_module, "_proj", gathered_projection))
             if args.kda_state == "pallas":

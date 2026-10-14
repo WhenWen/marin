@@ -498,6 +498,10 @@ def _dispatch_chunk(sorted_x: Float[Array, "TK H"], plan: _ChunkPlan, layout: _E
     return jax.lax.ragged_all_to_all(sorted_x, dispatch_init, *plan.dispatch_params, axis_name="expert")
 
 
+def _serialize_dispatch(source: jax.Array, previous_residuals: tuple[jax.Array, ...]) -> jax.Array:
+    return jax.lax.optimization_barrier((source, previous_residuals))[0]
+
+
 def _routed_experts_forward(
     sorted_x: Float[Array, "TK H"],
     weights: Float[Array, "Tlocal K"],
@@ -529,7 +533,7 @@ def _routed_experts_forward(
                 # need the return, so a recompute for the backward drops it and must not be held
                 # to it. (Dispatching chunk c+1 during chunk c's MLP measured 3 ms per layer
                 # slower in a rematted four-GPU layer scan.)
-                source, _ = jax.lax.optimization_barrier((sorted_x, chunk_residuals[-1].expert_mlp))
+                source = _serialize_dispatch(sorted_x, chunk_residuals[-1].expert_mlp)
             x_dispatch = _dispatch_chunk(source, plan, layout)  # [C, H]
             experts = slice(chunk_index * layout.chunk_experts, (chunk_index + 1) * layout.chunk_experts)
             out_dispatch, expert_mlp_residuals = layout.expert_mlp.forward(  # [C, H]
