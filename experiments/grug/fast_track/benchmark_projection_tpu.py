@@ -26,8 +26,8 @@ from jax.sharding import PartitionSpec as P
 from levanter.distributed import DistributedConfig
 from levanter.grug.sharding import compact_grug_mesh
 
-from experiments.grug.fast_track.belay_tpu_ops import gathered_projection
 from experiments.grug.fast_track.belay_tpu import base16_model_config, require_tpu_rounding
+from experiments.grug.fast_track.belay_tpu_ops import gathered_projection
 from experiments.grug.fast_track.diagnose_kda_state_precision import errors
 from experiments.grug.fast_track.model import _proj as production_projection
 

@@ -290,10 +290,14 @@ def main() -> None:
                     patch.object(ep_ragged_all_to_all, "_routed_experts", saved_output_routed_experts)
                 )
             if args.second_embedding == "column":
-                contexts.enter_context(patch.object(model_module, "_replicated_fp32_gather", belay_tpu_ops.column_embedding_gather))
+                contexts.enter_context(
+                    patch.object(model_module, "_replicated_fp32_gather", belay_tpu_ops.column_embedding_gather)
+                )
             if args.cross_entropy == "pallas512":
                 contexts.enter_context(
-                    patch.object(model_module, "fused_linear_softmax_cross_entropy_loss", belay_tpu_ops.pallas_cross_entropy)
+                    patch.object(
+                        model_module, "fused_linear_softmax_cross_entropy_loss", belay_tpu_ops.pallas_cross_entropy
+                    )
                 )
             if args.router_lookup == "unrolled":
                 contexts.enter_context(patch.object(model_module, "_selected_router_logits", unrolled_router_logits))
@@ -334,7 +338,9 @@ def main() -> None:
             if args.kda_state == "pallas":
                 precision = jax.lax.Precision.HIGH if args.kda_state_precision == "high" else jax.lax.Precision.HIGHEST
                 contexts.enter_context(
-                    patch.object(kda, "_parallel_chunk_recurrence", partial(belay_tpu_ops.tpu_recurrence, precision=precision))
+                    patch.object(
+                        kda, "_parallel_chunk_recurrence", partial(belay_tpu_ops.tpu_recurrence, precision=precision)
+                    )
                 )
             if args.accepted_mask != "production":
                 implementation = {

@@ -41,7 +41,9 @@ def main() -> None:
     parser.add_argument("--profile-steps", type=int, default=0)
     parser.add_argument("--execution-profile", choices=("reference", "selected"), default="reference")
     parser.add_argument("--segments", choices=("packed", "reused"), default="packed")
-    parser.add_argument("--dropless-eval", action="store_true", help="Validate unreduced loss on the expert-collapsed mesh.")
+    parser.add_argument(
+        "--dropless-eval", action="store_true", help="Validate unreduced loss on the expert-collapsed mesh."
+    )
     parser.add_argument("--job-completion", choices=("on-exit", "deferred"), default="on-exit")
     parser.add_argument(
         "--training-objective", action="store_true", help="Use recorded trainer JAX flags and loss terms."

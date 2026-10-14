@@ -16,9 +16,9 @@ import jax
 import jax.numpy as jnp
 import jaxlib
 
+from experiments.grug.fast_track.belay_tpu_ops import tpu_recurrence
 from experiments.grug.fast_track.benchmark_kda_parameter_scan_tpu import compare
 from experiments.grug.moe import kda
-from experiments.grug.fast_track.belay_tpu_ops import tpu_recurrence
 
 
 def evaluate(inputs, cotangent, final_cotangent, segments, *, mode):

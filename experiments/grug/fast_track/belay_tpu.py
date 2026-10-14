@@ -216,7 +216,9 @@ def main() -> None:
     parser.add_argument("--microbatches", type=int, default=1)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--execution-profile", choices=("reference", "selected"), default="reference")
-    parser.add_argument("--resume", action="store_true", help="Restore only from this run's checkpoint prefix if present.")
+    parser.add_argument(
+        "--resume", action="store_true", help="Restore only from this run's checkpoint prefix if present."
+    )
     parser.add_argument("--artifact-prefix", help="Regional path for per-attempt configuration and live raw metrics.")
     parser.add_argument("--output", type=Path, default=Path(os.environ.get("IRIS_OUTPUT_DIR", "outputs")))
     parser.add_argument("--run", action="store_true", help="Execute; otherwise write the resolved configuration.")

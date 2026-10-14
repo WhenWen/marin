@@ -19,8 +19,8 @@ import jax.numpy as jnp
 import jaxlib
 import numpy as np
 
-from experiments.grug.fast_track import benchmark_kda_state_tpu as benchmark
 from experiments.grug.fast_track import belay_tpu_ops
+from experiments.grug.fast_track import benchmark_kda_state_tpu as benchmark
 from experiments.grug.fast_track import diagnose_kda_state_precision as diagnostic
 from experiments.grug.fast_track.diagnose_kda_state_precision import errors, fixture_inputs, oracle
 from experiments.grug.moe import kda, kda_state_tpu
@@ -92,7 +92,11 @@ def main():
             start = time.monotonic()
             # The partial passed into Pallas carries precision in its cache key.
             with (
-                patch.object(kda, "_parallel_chunk_recurrence", functools.partial(belay_tpu_ops.tpu_recurrence, precision=precision)),
+                patch.object(
+                    kda,
+                    "_parallel_chunk_recurrence",
+                    functools.partial(belay_tpu_ops.tpu_recurrence, precision=precision),
+                ),
             ):
                 compiled[key] = fn.lower(*arguments).compile()
             duration = time.monotonic() - start
