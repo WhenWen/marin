@@ -86,9 +86,10 @@ def cpu_packing_checks():
             for seed in (0, 1, 2):
                 vector = payload(seed, 0, 0, rows, width, ml_dtypes.bfloat16)
                 scalar = scalar_payload(seed, 0, 0, rows, 1, np.float32)
-                expected = np.zeros((rows, 128 * ((width + 129) // 128)), dtype=np.uint16)
+                expected = np.zeros((rows, 128 * ((width + 131) // 128)), dtype=np.uint16)
                 expected[:, :width] = vector.view(np.uint16)
-                expected[:, width : width + 2] = np.ascontiguousarray(scalar).view(np.uint16).reshape(rows, 2)
+                scalar_bytes = np.ascontiguousarray(scalar).view(np.uint8).reshape(rows, 4)
+                expected[:, width : width + 4] = scalar_bytes.astype(np.uint16) | np.uint16(0x3F00)
                 packed = jax.jit(pack_return_buffers)(jnp.asarray(vector), jnp.asarray(scalar))
                 permutation = np.random.default_rng(seed + rows).permutation(rows)
                 restored = jax.jit(partial(unpack_return_buffers, width=width))(packed[permutation])
