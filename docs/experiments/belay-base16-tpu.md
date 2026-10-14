@@ -536,3 +536,29 @@ storage was 14.991 GB/device (+64.06%); runtime peak memory was not measured.
 These are single-trial timings. The failed candidate was removed. Its reports, HLO,
 profiles and loss curves remain under
 `gs://marin-us-central2/kaiyue/belay-base16-tpu/native-saved-barrier-v1/`.
+## Fixed-state gradient localization
+
+Run `experiments.grug.fast_track.diagnose_belay_gradients_tpu` on v4-32 with
+`--revision COMMIT --artifact-prefix gs://marin-us-central2/USER/RUN` and
+`XLA_FLAGS=--xla_allow_excess_precision=false`. It uses the native loss and
+quantile-based router-bias helpers at identical
+initial weights and packed inputs, without optimizer updates. An exact, finite
+reference repeat must pass before the saved-pullback candidate is evaluated.
+The reference recomputes each layer during backward; the candidate saves its
+pullback during forward. Both use the frozen base16 recipe defined above.
+The worker records per-parameter and per-layer gradient comparisons and both
+optimized HLOs. Materializing gradients changes the compilation boundary, so
+this diagnostic cannot certify fused training-step parity.
+
+At `ebc10497e`, `gradient-localization-v1` passed the reference control on all
+four hosts. Reference and candidate scalar objectives both equaled
+9.835014343261719, but 72 of 137 gradient tensors differed. All gradients were
+finite and within `atol=rtol=1e-5`; the maximum absolute difference was
+5.7220458984375e-6. Layers 4 and 5 (zero-based) had differences in MLP gated
+normalization and short-convolution gradients; layer 5 also differed in its
+attention gated-normalization up-projection. The output projection and final
+normalization gradients matched exactly. These findings do not identify the
+first divergent operation or resolve the native failure to match all seven
+`native-stride-default-v1` update losses exactly. The launcher
+remains on RECOMPUTE. Reports, objective evaluations and optimized HLOs are under
+`gs://marin-us-central2/kaiyue/belay-base16-tpu/gradient-localization-v1/`.
