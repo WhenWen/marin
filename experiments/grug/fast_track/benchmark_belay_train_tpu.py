@@ -36,6 +36,7 @@ from levanter.grug._moe import ep_ragged_all_to_all
 from levanter.grug.sharding import compact_grug_mesh
 from levanter.optim.config import OptimizerConfig
 
+from experiments.grug.fast_track.belay_flops import training_flops_per_token
 from experiments.grug.fast_track.belay_tpu import SOURCE_CONFIG, base16_model_config, require_tpu_rounding
 from experiments.grug.fast_track.model import AttnResLayerBackward
 from experiments.grug.fast_track.train import _flat_train_step, _make_train_step, _router_ties_active, initial_state
@@ -50,6 +51,8 @@ class StepMeasurement:
     phase: str
     loss: float
     seconds: float
+    dropped_assignments: tuple[int, ...]
+    useful_matrix_flops_per_token: float
 
 
 def main() -> None:
@@ -139,6 +142,9 @@ def main() -> None:
         "ema_start_step": 0 if args.ema_phase == "active" else trainer["num_train_steps"] - outer["ema_last_steps"],
         "ema_phase": args.ema_phase,
         "timing_protocol": "all-host barrier before each update; block all outputs; reporting outside timer",
+        "flop_convention": "base16 useful matrix/convolution training FLOPs; excludes recomputation and elementwise work",
+        "nominal_training_flop_breakdown": training_flops_per_token((1024,) * 4, batch_size=128),
+        "peak_bf16_flops_per_chip": 275e12,
         "status": "initializing",
         "error": None,
     }
@@ -239,7 +245,16 @@ def main() -> None:
             leaves, metrics, watch = jax.block_until_ready(compiled(leaves, batch))
             elapsed = time.monotonic() - start
             loss = float(metrics["train/loss"])
-            row = StepMeasurement(step=len(rows) + 1, phase=phase, loss=loss, seconds=elapsed)
+            dropped = tuple(int(n) for n in jax.device_get(metrics["moe/dropped_assignments"]))
+            flops = training_flops_per_token((1024,) * 4, batch_size=128, dropped_assignments=dropped)
+            row = StepMeasurement(
+                step=len(rows) + 1,
+                phase=phase,
+                loss=loss,
+                seconds=elapsed,
+                dropped_assignments=dropped,
+                useful_matrix_flops_per_token=sum(flops.values()),
+            )
             rows.append(row)
             print(json.dumps({"rank": rank, **asdict(row)}), flush=True)
             if not math.isfinite(loss):
