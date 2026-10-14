@@ -98,14 +98,9 @@ def main() -> None:
                 raise RuntimeError("Nonfinite parameter, optimizer or EMA state")
 
     def run_training(config):
-        if args.job_completion == "deferred":
-            _unregister_iris_exit_handler()
-            atexit.register(_finalize_iris_jax_after_clean_exit)
         rank = jax.process_index()
         report.update(rank=rank, status="preflight", started_at=time.time())
-        artifact = StoragePath(
-            f"{args.report_prefix}/attempts/{os.environ['IRIS_ATTEMPT_UID']}/rank-{rank}"
-        )
+        artifact = StoragePath(f"{args.report_prefix}/attempts/{os.environ['IRIS_ATTEMPT_UID']}/rank-{rank}")
         try:
             validate_broadcast()
             report["broadcast_cases"] = jax.process_count() * 4 * 2
@@ -118,6 +113,9 @@ def main() -> None:
             report.update(status="failed", error=repr(error))
             raise
         finally:
+            if args.job_completion == "deferred":
+                _unregister_iris_exit_handler()
+                atexit.register(_finalize_iris_jax_after_clean_exit)
             checkpoint.broadcast_one_to_all = original_broadcast
             checkpoint.Checkpointer.on_step = original_on_step
             report["finished_at"] = time.time()
