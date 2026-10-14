@@ -30,7 +30,7 @@ from experiments.grug.fast_track.moe_padded_transport_tpu import (
     padded_transport,
     peer_capacity,
 )
-from experiments.grug.fast_track.moe_transport_tpu import preshaped_transport
+from experiments.grug.fast_track.moe_transport_tpu import preshaped_transport, uint32_transport
 
 DISTRIBUTIONS = ("uniform", "half-valid", "concentrated", "empty", "at-capacity", "over-capacity")
 
@@ -136,6 +136,9 @@ def mapped_transport(*arrays, mesh, implementation):
         elif implementation == "pre-shaped":
             result = preshaped_transport(*values, axis_name="expert")
             overflow = jnp.asarray(False)
+        elif implementation == "uint32":
+            result = uint32_transport(*values, axis_name="expert")
+            overflow = jnp.asarray(False)
         elif implementation == "packed-only":
             capacity = peer_capacity(values[0].shape[0], values[1].shape[0], jax.lax.axis_size("expert"))
             overflow = overflowed(
@@ -158,7 +161,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--revision", required=True)
     parser.add_argument("--artifact-prefix", required=True)
-    parser.add_argument("--candidate", choices=("padded", "pre-shaped"), default="padded")
+    parser.add_argument("--candidate", choices=("padded", "pre-shaped", "uint32"), default="padded")
     parser.add_argument("--cpu-check", action="store_true")
     parser.add_argument("--cpu-packed-only", action="store_true")
     args = parser.parse_args()
@@ -176,7 +179,11 @@ def main():
     if not args.artifact_prefix.startswith("gs://marin-us-central2/"):
         raise ValueError("Keep artifacts in us-central2")
     rank = jax.process_index()
-    report_name = "padded-transport" if args.candidate == "padded" else "preshaped-transport"
+    report_name = {
+        "padded": "padded-transport",
+        "pre-shaped": "preshaped-transport",
+        "uint32": "uint32-transport",
+    }[args.candidate]
     folder = Path(os.environ.get("IRIS_OUTPUT_DIR", "outputs")) / f"{report_name}-rank-{rank}"
     folder.mkdir(parents=True, exist_ok=True)
     fs, prefix = fsspec.core.url_to_fs(f"{args.artifact_prefix}/rank-{rank}")
@@ -344,7 +351,7 @@ def main():
                                             exact &= mismatches == 0
                                     branch_ok = all(
                                         bool(np.asarray(shard.data)[0])
-                                        == (False if implementation in ("reference", "pre-shaped") else overflow)
+                                        == (False if implementation in ("reference", "pre-shaped", "uint32") else overflow)
                                         for shard in branches.addressable_shards
                                     )
                                     result_row["implementations"][implementation] = dict(

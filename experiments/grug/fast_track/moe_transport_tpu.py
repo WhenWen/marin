@@ -12,6 +12,26 @@ from levanter.grug._moe import ep_ragged_all_to_all as ragged
 _routed_experts = ragged._routed_experts
 
 
+def pack_bf16_pairs(value):
+    """Represent adjacent BF16 channels as one uint32 without arithmetic."""
+    assert value.dtype == jnp.bfloat16 and value.shape[-1] % 2 == 0
+    return jax.lax.bitcast_convert_type(value.reshape(*value.shape[:-1], value.shape[-1] // 2, 2), jnp.uint32)
+
+
+def unpack_bf16_pairs(value):
+    return jax.lax.bitcast_convert_type(value, jnp.bfloat16).reshape(*value.shape[:-1], value.shape[-1] * 2)
+
+
+def uint32_transport(operand, output, *metadata, axis_name):
+    """Keep accepted row intervals while transporting raw BF16 pairs as uint32."""
+    if operand.dtype != jnp.bfloat16:
+        return jax.lax.ragged_all_to_all(operand, output, *metadata, axis_name=axis_name)
+    result = jax.lax.ragged_all_to_all(
+        pack_bf16_pairs(operand), pack_bf16_pairs(output), *metadata, axis_name=axis_name
+    )
+    return unpack_bf16_pairs(result)
+
+
 def pack_return_buffers(vector, scalar):
     """Append an FP32 scalar's bits to each BF16 row without numerical conversion."""
     assert vector.dtype == jnp.bfloat16 and scalar.dtype == jnp.float32
