@@ -21,6 +21,7 @@ from unittest.mock import patch
 import fsspec
 import jax
 import jax.numpy as jnp
+import jaxlib
 import ml_dtypes
 import numpy as np
 from jax.experimental import multihost_utils
@@ -33,7 +34,7 @@ from levanter.grug.sharding import compact_grug_mesh
 
 from experiments.grug.fast_track.belay_tpu import require_tpu_rounding
 from experiments.grug.fast_track.diagnose_kda_state_precision import errors
-from experiments.grug.fast_track.moe_transport_tpu import coalesced_routed_experts
+from experiments.grug.fast_track.moe_transport_tpu import coalesced_routed_experts, trimmed_chunk_plans
 
 _NAMES = ("output", "dx", "dweights", "dup", "ddown")
 _SPECS = (P("expert", None), P("expert", None), P("expert"), P("expert", None, None), P("expert", None, None))
@@ -144,8 +145,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--revision", required=True)
     parser.add_argument("--artifact-prefix", required=True)
+    parser.add_argument("--candidate", choices=("coalesced", "trimmed"), default="coalesced")
     args = parser.parse_args()
+    names = ("reference", args.candidate)
     require_tpu_rounding()
+    if args.candidate == "trimmed" and (
+        (jax.__version__, jaxlib.__version__) != ("0.11.1", "0.11.1") or jax.config.jax_enable_pgle
+    ):
+        raise ValueError("The trimmed screen requires JAX/JAXLIB 0.11.1 and PGLE disabled")
     DistributedConfig().initialize()
     if len(jax.devices()) != 16 or any(d.device_kind != "TPU v4" for d in jax.devices()):
         raise ValueError("Use a v4-32 slice")
@@ -163,9 +170,12 @@ def main():
         "timings": [],
         "full_shape_checks": [],
         "jax_version": jax.__version__,
+        "jaxlib_version": jaxlib.__version__,
+        "jax_enable_pgle": jax.config.jax_enable_pgle,
         "xla_flags": os.environ.get("XLA_FLAGS", ""),
         "logical_chunks": 2,
-        "physical_chunks": {"reference": 2, "coalesced": 1},
+        "physical_chunks": {"reference": 2, args.candidate: 1 if args.candidate == "coalesced" else 2},
+        "candidate": args.candidate,
     }
 
     def save():
@@ -173,8 +183,14 @@ def main():
         path.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
         fs.put_file(str(path), f"{prefix}/{path.name}")
 
-    def compile_fn(arrays, capacity_factor, coalesced):
-        context = patch.object(ragged, "_routed_experts", coalesced_routed_experts) if coalesced else nullcontext()
+    def compile_fn(arrays, capacity_factor, candidate):
+        context = nullcontext()
+        if candidate:
+            context = (
+                patch.object(ragged, "_routed_experts", coalesced_routed_experts)
+                if args.candidate == "coalesced"
+                else patch.object(ragged, "_chunk_plans", trimmed_chunk_plans)
+            )
         fn = jax.jit(partial(evaluate, mesh=mesh, capacity_factor=capacity_factor))
         with context:
             return fn.lower(*arrays).compile()
@@ -211,12 +227,19 @@ def main():
                             "expected_drops": dropped,
                             "implementations": {},
                         }
-                        for name in ("reference", "coalesced"):
+                        reference_values = None
+                        for name in names:
                             cache_key = (output_width, capacity, name)
                             if cache_key not in small_compiled:
-                                small_compiled[cache_key] = compile_fn(arrays, capacity, name == "coalesced")
+                                small_compiled[cache_key] = compile_fn(arrays, capacity, name != "reference")
                             result, drops = jax.block_until_ready(small_compiled[cache_key](*arrays))
                             gathered = tuple(multihost_utils.process_allgather(a, tiled=True) for a in result)
+                            if name == "reference":
+                                reference_values = gathered
+                            else:
+                                row["exact_match"] = all(
+                                    np.array_equal(a, b) for a, b in zip(gathered, reference_values, strict=True)
+                                )
                             row["implementations"][name] = {
                                 "tensors": {
                                     key: errors(a, b) for key, a, b in zip(_NAMES, gathered, expected, strict=True)
@@ -224,7 +247,7 @@ def main():
                                 "drops": int(drops.sender_dropped),
                                 "receiver_drops": int(drops.receiver_dropped),
                             }
-                        a, b = (row["implementations"][name] for name in ("reference", "coalesced"))
+                        a, b = (row["implementations"][name] for name in names)
                         row["passed"] = (
                             a["drops"] == b["drops"] == dropped and a["receiver_drops"] == b["receiver_drops"] == 0
                         )
@@ -237,6 +260,8 @@ def main():
                             )
                             for key in _NAMES
                         )
+                        if args.candidate == "trimmed":
+                            row["passed"] &= row["exact_match"]
                         report["numerics"].append(row)
                         save()
                         print(json.dumps(row), flush=True)
@@ -272,19 +297,36 @@ def main():
                         a = a / np.sqrt(shape[1])
                 arrays.append(a)
             compiled = {}
-            for name in ("reference", "coalesced"):
+            reference_result = reference_drops = None
+            for name in names:
                 start = time.monotonic()
-                compiled[name] = compile_fn(arrays, 1.05, name == "coalesced")
+                compiled[name] = compile_fn(arrays, 1.05, name != "reference")
                 elapsed = time.monotonic() - start
                 for _ in range(2):
                     result, drops = jax.block_until_ready(compiled[name](*arrays))
                 finite = bool(jax.jit(lambda xs: jnp.stack([jnp.isfinite(a).all() for a in xs]).all())(result))
+                if name == "reference":
+                    reference_result, reference_drops = result, drops
+                    exact_match = True
+                    drops_match = True
+                else:
+                    exact_match = bool(
+                        jax.jit(lambda xs, ys: jnp.stack([jnp.array_equal(x, y) for x, y in zip(xs, ys)]).all())(
+                            result, reference_result
+                        )
+                    )
+                    drops_match = int(drops.sender_dropped) == int(reference_drops.sender_dropped) and int(
+                        drops.receiver_dropped
+                    ) == int(reference_drops.receiver_dropped)
                 report["full_shape_checks"].append(
                     {
                         "output_width": output_width,
                         "implementation": name,
                         "finite": finite,
+                        "exact_match": exact_match,
+                        "drops_match": drops_match,
                         "drops": int(drops.sender_dropped),
+                        "receiver_drops": int(drops.receiver_dropped),
                         "compile_seconds": elapsed,
                         "compiler_temporary_bytes": compiled[name].memory_analysis().temp_size_in_bytes,
                     }
@@ -294,8 +336,13 @@ def main():
                     path.write_text(compiled[name].as_text())
                     fs.put_file(str(path), f"{prefix}/{path.name}")
                 save()
+                if not finite:
+                    raise ValueError("Nonfinite full-size output or gradient")
+                if args.candidate == "trimmed" and not (exact_match and drops_match):
+                    raise ValueError("Trimmed full-size output/gradient or dropped-route mismatch")
+            del reference_result, reference_drops
             for repeat in range(8):
-                for name in (("reference", "coalesced") if repeat % 2 == 0 else ("coalesced", "reference")):
+                for name in (names if repeat % 2 == 0 else names[::-1]):
                     multihost_utils.sync_global_devices(f"moe-{output_width}-{repeat}-{name}")
                     start = time.monotonic()
                     jax.block_until_ready(compiled[name](*arrays))
@@ -313,7 +360,7 @@ def main():
                 name: statistics.median(
                     r["seconds"] for r in report["timings"] if r["output_width"] == width and r["implementation"] == name
                 )
-                for name in ("reference", "coalesced")
+                for name in names
             }
             for width in (256, 512)
         }

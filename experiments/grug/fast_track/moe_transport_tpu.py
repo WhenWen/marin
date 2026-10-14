@@ -10,6 +10,25 @@ import jax.numpy as jnp
 from levanter.grug._moe import ep_ragged_all_to_all as ragged
 
 _routed_experts = ragged._routed_experts
+_chunk_plans = ragged._chunk_plans
+
+
+def trimmed_chunk_plans(routing, layout):
+    """Keep each chunk's expert entries within every peer's transfer block."""
+    plans = []
+    for index, plan in enumerate(_chunk_plans(routing, layout)):
+        experts = slice(index * layout.chunk_experts, (index + 1) * layout.chunk_experts)
+
+        def trim(value):
+            return value.reshape(layout.ep_size, layout.local_experts)[:, experts].reshape(-1)
+
+        plans.append(
+            plan._replace(
+                dispatch_params=jax.tree.map(trim, plan.dispatch_params),
+                return_params=jax.tree.map(trim, plan.return_params),
+            )
+        )
+    return tuple(plans)
 
 
 def pack_bf16_pairs(value):
