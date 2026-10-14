@@ -24,7 +24,7 @@ import numpy as np
 from levanter.grug.attention._core import AttentionMask, _blocked_inkling_math, _reference_attention_math
 from levanter.grug.attention._inkling_relpos import REL_BIAS_BLOCK, rel_extent_of_band
 
-from experiments.grug.fast_track import attention_mask_crop
+from experiments.grug.fast_track import attention_mask_crop, flash_block_bias
 from experiments.grug.fast_track.belay_tpu import require_tpu_rounding
 from experiments.grug.fast_track.benchmark_inkling_flash_tpu import fixture, reference64, values_and_gradients
 from experiments.grug.fast_track.diagnose_kda_state_precision import errors
@@ -64,6 +64,18 @@ def attention(q, k, v, band, segments, *, implementation, sliding_window):
 
 
 def probe_functions(window, candidate="block-inputs"):
+    if candidate in ("flash-high", "flash-highest"):
+        return {
+            "reference": jax.jit(
+                partial(
+                    values_and_gradients,
+                    attention=partial(attention, implementation=_blocked_inkling_math, sliding_window=window),
+                )
+            ),
+            candidate: jax.jit(
+                partial(flash_block_bias.values_and_gradients, precision=candidate.removeprefix("flash-"), window=window)
+            ),
+        }
     implementation = block_inputs_attention if candidate == "block-inputs" else attention_mask_crop.mask_crop_attention
     return {
         name: jax.jit(
@@ -95,12 +107,14 @@ def main():
     parser.add_argument("--revision", required=True)
     parser.add_argument("--artifact-prefix", required=True)
     parser.add_argument("--cpu-preflight", action="store_true")
-    parser.add_argument("--candidate", choices=("block-inputs", "mask-crop"), default="block-inputs")
+    parser.add_argument("--candidate", choices=("block-inputs", "mask-crop", "flash-high", "flash-highest"), default="block-inputs")
     args = parser.parse_args()
     candidate = args.candidate
     crop = candidate == "mask-crop"
-    scenarios = attention_mask_crop.SCENARIOS if crop else ("one-document", "packed", "strong-logits")
-    make_fixture = attention_mask_crop.crop_fixture if crop else fixture
+    flash = candidate in ("flash-high", "flash-highest")
+    expanded_fixtures = crop or flash
+    scenarios = attention_mask_crop.SCENARIOS if expanded_fixtures else ("one-document", "packed", "strong-logits")
+    make_fixture = attention_mask_crop.crop_fixture if expanded_fixtures else fixture
     cpu = jax.local_devices(backend="cpu")[0]
     if args.cpu_preflight:
         device = cpu
@@ -120,13 +134,16 @@ def main():
         Path("experiments/grug/fast_track/benchmark_inkling_flash_tpu.py"),
         Path("lib/levanter/src/levanter/grug/attention/_core.py"),
         Path("experiments/grug/fast_track/attention_mask_crop.py"),
+        Path("experiments/grug/fast_track/flash_block_bias.py"),
     )
     report = {
         "issue_url": "https://github.com/WhenWen/astra-d8-research/issues/96",
         "protocol_url": (
-            attention_mask_crop.PROTOCOL
-            if crop
-            else "https://github.com/WhenWen/astra-d8-research/issues/96#issuecomment-6171089614"
+            flash_block_bias.PROTOCOL if flash else (
+                attention_mask_crop.PROTOCOL
+                if crop
+                else "https://github.com/WhenWen/astra-d8-research/issues/96#issuecomment-6171089614"
+            )
         ),
         "candidate": candidate,
         "revision": args.revision,
@@ -158,6 +175,23 @@ def main():
 
     save()
     try:
+        if flash:
+            report["layout_checks"] = []
+            report["phase"] = {"stage": "layout-checks"}
+            save()
+            for row, arrays in flash_block_bias.layout_checks(device):
+                report["layout_checks"].append(row)
+                if row["window"] is None:
+                    name = f"layout-{row['backend']}-{row['length']}-{row['width']}-{row['seed']}-{row['dtype']}.npz"
+                    path = folder / name
+                    np.savez(path, **arrays)
+                    upload(path)
+                save()
+            if args.cpu_preflight:
+                report["status"] = "completed"
+                report["gate_pass"] = True
+                save()
+                return
         if crop:
             with jax.default_device(cpu):
                 report["support_checks"] = attention_mask_crop.support_check()
@@ -172,6 +206,8 @@ def main():
                 functions = probe_functions(window, candidate)
                 for seed in (0, 1, 2):
                     for scenario in scenarios:
+                        report["phase"] = {"stage": "numerics", "length": length, "window": window, "seed": seed, "scenario": scenario}
+                        save()
                         host = make_fixture(seed, length, scenario)
                         path = folder / f"fixture-{seed}-{length}-{scenario}.npz"
                         if window is None:
@@ -243,7 +279,7 @@ def main():
                                 {"shape": shape, "window": window, "seed": seed, "sha256_q_k_v_band_ct": hashes}
                             )
                             for scenario in (
-                                ("one-document", "packed1024", "mixed") if crop else ("one-document", "packed1024")
+                                ("one-document", "packed1024", "mixed") if expanded_fixtures else ("one-document", "packed1024")
                             ):
                                 segments = jnp.zeros((batch, length), jnp.int32)
                                 if scenario == "packed1024":
