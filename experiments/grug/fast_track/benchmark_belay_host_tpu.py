@@ -9,9 +9,11 @@ import json
 import os
 import sys
 import time
+from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import equinox as eqx
 import jax
@@ -49,7 +51,6 @@ def main() -> None:
 
     original_build = belay_tpu.build_config
     original_run = belay_tpu._run_grug_local
-    original_broadcast = checkpoint.broadcast_one_to_all
     original_on_step = checkpoint.Checkpointer.on_step
     output = Path(os.environ["IRIS_OUTPUT_DIR"])
     output.mkdir(parents=True, exist_ok=True)
@@ -72,9 +73,6 @@ def main() -> None:
             trainer = replace(trainer, pipeline_depth=int(args.arm == "candidate"))
         report["pipeline_depth"] = trainer.pipeline_depth
         return replace(config, stop_after_steps=updates, eval=None, trainer=trainer)
-
-    def control_broadcast(value, is_source=None):
-        return original_broadcast(jnp.asarray(value), is_source=is_source)
 
     def on_step(self, *, tree, step, force=False):
         nonlocal previous_end, window_start
@@ -118,13 +116,17 @@ def main() -> None:
         try:
             validate_broadcast()
             report["broadcast_cases"] = jax.process_count() * 4 * 2
-            # Hold checkpoint flag placement fixed while testing the existing pipeline scheduler.
-            checkpoint.broadcast_one_to_all = (
-                control_broadcast if args.experiment == "pipeline" or args.arm != "candidate" else original_broadcast
-            )
             checkpoint.Checkpointer.on_step = on_step
             report["status"] = "training"
-            original_run(config)
+            # Checkpointer uses jnp only to construct the two decision flags.
+            # Keep CPU placement confined to this diagnostic; pipeline arms use the default.
+            flag_scope = (
+                patch.object(checkpoint, "jnp", np)
+                if args.experiment == "checkpoint" and args.arm == "candidate"
+                else nullcontext()
+            )
+            with flag_scope:
+                original_run(config)
             report["status"] = "completed"
         except BaseException as error:
             report.update(status="failed", error=repr(error))
@@ -133,7 +135,6 @@ def main() -> None:
             if args.job_completion == "deferred":
                 _unregister_iris_exit_handler()
                 atexit.register(_finalize_iris_jax_after_clean_exit)
-            checkpoint.broadcast_one_to_all = original_broadcast
             checkpoint.Checkpointer.on_step = original_on_step
             report["finished_at"] = time.time()
             payload = json.dumps(report, indent=2, allow_nan=False) + "\n"
