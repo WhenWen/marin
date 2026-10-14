@@ -303,7 +303,9 @@ def main() -> None:
         start = time.monotonic()
         with ExitStack() as contexts:
             if args.moe_weight_gradient == "saved-output":
-                contexts.enter_context(patch.object(ep_ragged_all_to_all, "_routed_experts", saved_output_routed_experts))
+                contexts.enter_context(
+                    patch.object(ep_ragged_all_to_all, "_routed_experts", saved_output_routed_experts)
+                )
             if args.second_embedding == "column":
                 contexts.enter_context(patch.object(model_module, "_replicated_fp32_gather", _column_embedding_gather))
             if args.cross_entropy == "pallas512":
