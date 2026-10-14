@@ -57,6 +57,32 @@ def local_expert_histogram(indices: jax.Array, n_bins: int, group_size: int | No
     return counts.reshape(experts, n_bins)
 
 
+def _histogram_quantile(counts, target_rank, lo, bin_width):
+    counts = counts.astype(jnp.float32)
+    n_bins = counts.shape[-1]
+    cum_from_top = jnp.cumsum(counts[:, ::-1], axis=-1)[:, ::-1]
+    bstar = jnp.clip(jnp.sum((cum_from_top >= target_rank[:, None]).astype(jnp.int32), axis=-1) - 1, 0, n_bins - 1)
+    ct_b = jnp.take_along_axis(cum_from_top, bstar[:, None], axis=-1)[:, 0]
+    h_b = jnp.take_along_axis(counts, bstar[:, None], axis=-1)[:, 0]
+    lower_edge = lo + bstar.astype(jnp.float32) * bin_width
+    return lower_edge + bin_width * (ct_b - target_rank) / jnp.maximum(h_b, 1.0)
+
+
+def _reduce_histogram_quantile(local_counts, target_rank, lo, bin_width, batch_axes):
+    counts = jax.lax.psum(local_counts, axis_name=batch_axes)
+    return _histogram_quantile(counts, target_rank, lo, bin_width)
+
+
+def _reduce_scatter_histogram_quantile(local_counts, target_rank, lo, bin_width, batch_axes):
+    """Diagnostic partitioned quantile; production retains replicated counts."""
+    counts = jax.lax.psum_scatter(local_counts, batch_axes, scatter_dimension=0, tiled=True)
+    rank = jax.lax.dynamic_slice_in_dim(
+        target_rank, jax.lax.axis_index(batch_axes) * counts.shape[0], counts.shape[0]
+    )
+    thresholds = _histogram_quantile(counts, rank, lo, bin_width)
+    return jax.lax.all_gather(thresholds, batch_axes, axis=0, tiled=True, to="invarying")
+
+
 def bincount_upper_quantile(
     s_local: jax.Array,
     *,
@@ -83,14 +109,8 @@ def bincount_upper_quantile(
         local_counts = local_expert_histogram(idx, n_bins)
     else:
         local_counts = factorized_expert_histogram(idx, n_bins, *tile)
-    counts = jax.lax.psum(local_counts, axis_name=batch_axes).astype(jnp.float32)
-    cum_from_top = jnp.cumsum(counts[:, ::-1], axis=-1)[:, ::-1]  # #{margins in bins >= b}
     target_rank = jnp.broadcast_to(jnp.asarray(target_rank, jnp.float32), (num_experts,))
-    bstar = jnp.clip(jnp.sum((cum_from_top >= target_rank[:, None]).astype(jnp.int32), axis=-1) - 1, 0, n_bins - 1)
-    ct_b = jnp.take_along_axis(cum_from_top, bstar[:, None], axis=-1)[:, 0]
-    h_b = jnp.take_along_axis(counts, bstar[:, None], axis=-1)[:, 0]
-    lower_edge = lo + bstar.astype(jnp.float32) * bin_width
-    return lower_edge + bin_width * (ct_b - target_rank) / jnp.maximum(h_b, 1.0)
+    return _reduce_histogram_quantile(local_counts, target_rank, lo, bin_width, batch_axes)
 
 
 def qb_beta_hist(
