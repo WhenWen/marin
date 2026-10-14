@@ -141,7 +141,9 @@ def main():
                                 start = time.monotonic()
                                 executable = run.lower(inputs, rank).compile()
                                 compiled[key] = (executable, time.monotonic() - start)
-                                histogram = partial(flat_histogram, axes=axes) if name == "flat" else factorized_expert_histogram
+                                histogram = (
+                                    partial(flat_histogram, axes=axes) if name == "flat" else factorized_expert_histogram
+                                )
                                 checker = jax.jit(
                                     jax.shard_map(
                                         partial(histogram, **kwargs),
