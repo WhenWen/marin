@@ -121,7 +121,14 @@ def main():
     parser.add_argument("--head-gradient-fixtures", help="Archived rounding-audit directory for the KV-gradient screen")
     parser.add_argument(
         "--candidate",
-        choices=("block-inputs", "mask-crop", "flash-high", "flash-highest", "flash-fp32-scale", "flash-fp32-head-gradients"),
+        choices=(
+            "block-inputs",
+            "mask-crop",
+            "flash-high",
+            "flash-highest",
+            "flash-fp32-scale",
+            "flash-fp32-head-gradients",
+        ),
         default="block-inputs",
     )
     args = parser.parse_args()

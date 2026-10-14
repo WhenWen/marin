@@ -24,7 +24,7 @@ FP32_FAILURES = (
     (0, 2048, 129, "one-document"),
     (0, 2048, 129, "packed"),
 )
-BF16_FAILURES = FP32_FAILURES + ((0, 256, None, "one-document"), (0, 1024, 129, "packed"))
+BF16_FAILURES = (*FP32_FAILURES, (0, 256, None, "one-document"), (0, 1024, 129, "packed"))
 
 
 def fixture_identity(row):
@@ -106,9 +106,7 @@ def control_reproduction(rows):
                 actual = row["errors"][name][tensor]
                 for metric in ("max_abs_error", "relative_l2"):
                     if not (
-                        reference["finite"]
-                        and actual["finite"]
-                        and actual[metric] <= 1.25 * reference[metric] + 0.001
+                        reference["finite"] and actual["finite"] and actual[metric] <= 1.25 * reference[metric] + 0.001
                     ):
                         failures.add((*fixture_identity(row), tensor, metric))
         expected_failures = {(*identity, "dv", "max_abs_error") for identity in expected}
