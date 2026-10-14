@@ -181,17 +181,24 @@ def main():
                                 executable = fn.lower(*arrays).compile()
                                 compiled[key] = executable
                                 report["compilation"].append(
-                                    dict(tokens=tokens, experts=experts, implementation=name, mode=mode,
-                                         seconds=time.monotonic() - start,
-                                         temporary_bytes=executable.memory_analysis().temp_size_in_bytes)
+                                    dict(
+                                        tokens=tokens,
+                                        experts=experts,
+                                        implementation=name,
+                                        mode=mode,
+                                        seconds=time.monotonic() - start,
+                                        temporary_bytes=executable.memory_analysis().temp_size_in_bytes,
+                                    )
                                 )
                                 if tokens == 32768:
                                     path = folder / f"hlo-{name}-{mode}.txt"
                                     path.write_text(executable.as_text())
                                     fs.put_file(str(path), f"{prefix}/{path.name}")
                             values = jax.block_until_ready(compiled[key](*arrays))
-                            row["implementations"][name] = check(values, expected[:len(values)])
-                        row["passed"] = all(m["exact"] and m["finite"] for ms in row["implementations"].values() for m in ms)
+                            row["implementations"][name] = check(values, expected[: len(values)])
+                        row["passed"] = all(
+                            m["exact"] and m["finite"] for ms in row["implementations"].values() for m in ms
+                        )
                         report["numerics"].append(row)
                         save()
                         print(json.dumps(case | {"mode": mode, "passed": row["passed"]}), flush=True)
@@ -205,7 +212,12 @@ def main():
                             for name in names:
                                 start = time.monotonic()
                                 jax.block_until_ready(compiled[(tokens, experts, name, mode)](*arrays))
-                                report["timings"].append(case | dict(mode=mode, implementation=name, repeat=repeat, seconds=time.monotonic() - start))
+                                report["timings"].append(
+                                    case
+                                    | dict(
+                                        mode=mode, implementation=name, repeat=repeat, seconds=time.monotonic() - start
+                                    )
+                                )
                         save()
     report["numerical_gate"] = all(r["passed"] for r in report["numerics"])
     report["qualification"] = {}
@@ -214,11 +226,36 @@ def main():
             cases = []
             for seed in (0, 1, 2):
                 for mode in ("forward", "forward-backward"):
-                    medians = {implementation: statistics.median(r["seconds"] for r in report["timings"] if r["seed"] == seed and r["distribution"] == "uniform" and r["mode"] == mode and r["implementation"] == implementation) for implementation in ("reference", name)}
+                    medians = {
+                        implementation: statistics.median(
+                            r["seconds"]
+                            for r in report["timings"]
+                            if r["seed"] == seed
+                            and r["distribution"] == "uniform"
+                            and r["mode"] == mode
+                            and r["implementation"] == implementation
+                        )
+                        for implementation in ("reference", name)
+                    }
                     ratio = medians[name] / medians["reference"]
-                    cases.append(dict(seed=seed, mode=mode, medians=medians, ratio=ratio, passed=ratio <= (0.95 if mode == "forward" else 1.01)))
-            numerics_passed = all(m["exact"] and m["finite"] for r in report["numerics"] for impl in ("reference", name) for m in r["implementations"][impl])
-            report["qualification"][name] = dict(passed=numerics_passed and all(r["passed"] for r in cases), numerical_gate=numerics_passed, cases=cases)
+                    cases.append(
+                        dict(
+                            seed=seed,
+                            mode=mode,
+                            medians=medians,
+                            ratio=ratio,
+                            passed=ratio <= (0.95 if mode == "forward" else 1.01),
+                        )
+                    )
+            numerics_passed = all(
+                m["exact"] and m["finite"]
+                for r in report["numerics"]
+                for impl in ("reference", name)
+                for m in r["implementations"][impl]
+            )
+            report["qualification"][name] = dict(
+                passed=numerics_passed and all(r["passed"] for r in cases), numerical_gate=numerics_passed, cases=cases
+            )
     report["status"] = "completed"
     save()
     print(json.dumps({"numerical_gate": report["numerical_gate"], "qualification": report["qualification"]}), flush=True)
