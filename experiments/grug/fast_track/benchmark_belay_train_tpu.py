@@ -8,6 +8,7 @@ watch metrics. It excludes data loading, checkpoints and held-out evaluation.
 """
 
 import argparse
+import atexit
 import gc
 import json
 import math
@@ -31,7 +32,7 @@ from jax.sharding import PartitionSpec as P
 from levanter.callbacks.profiler import ProfileOptionsConfig
 from levanter.callbacks.watch import WatchConfig
 from levanter.data.text.examples import GrugLmExample
-from levanter.distributed import DistributedConfig
+from levanter.distributed import DistributedConfig, _finalize_iris_jax_after_clean_exit, _unregister_iris_exit_handler
 from levanter.grug._moe import ep_ragged_all_to_all
 from levanter.grug.sharding import compact_grug_mesh
 from levanter.optim.config import OptimizerConfig
@@ -92,6 +93,12 @@ def main() -> None:
     parser.add_argument("--kda-state", choices=("production", "pallas"), default="production")
     parser.add_argument("--projection-weights", choices=("production", "gather"), default="production")
     parser.add_argument("--moe-dispatch", choices=("serialized", "overlap"), default="serialized")
+    parser.add_argument(
+        "--job-completion",
+        choices=("on-exit", "deferred"),
+        default="on-exit",
+        help="Defer Iris job completion to a later process in a benchmark sequence; still shut down distributed JAX.",
+    )
     parser.add_argument("--artifact-prefix", required=True)
     args = parser.parse_args()
     if args.steps < 1 or not args.artifact_prefix.startswith("gs://marin-us-central2/"):
@@ -103,6 +110,9 @@ def main() -> None:
     for key, value in trainer["jax_config"].items():
         jax.config.update(key, value)
     DistributedConfig().initialize()
+    if args.job_completion == "deferred":
+        _unregister_iris_exit_handler()
+        atexit.register(_finalize_iris_jax_after_clean_exit)
     devices = jax.devices()
     if len(devices) != 16 or any(d.platform != "tpu" or "v4" not in d.device_kind for d in devices):
         raise RuntimeError("This frozen full-batch benchmark requires 16 TPU v4 chips")
@@ -141,6 +151,7 @@ def main() -> None:
         "kda_state": args.kda_state,
         "projection_weights": args.projection_weights,
         "moe_dispatch": args.moe_dispatch,
+        "job_completion": args.job_completion,
         "kda_xla_scan_impl": config.kda_xla_scan_impl,
         "accepted_mask": args.accepted_mask,
         "git_sha": args.revision,
