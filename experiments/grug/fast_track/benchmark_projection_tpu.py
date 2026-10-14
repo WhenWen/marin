@@ -99,6 +99,7 @@ def main():
         path.write_text(json.dumps(report, indent=2) + "\n")
         fs.put_file(str(path), f"{prefix}/{path.name}")
 
+    save()
     config = base16_model_config()
     mesh = compact_grug_mesh(expert_axis_size=16, replica_axis_size=1)
     if args.family == "auxiliary":
@@ -126,7 +127,7 @@ def main():
                 oracle = (
                     x64 @ w64,
                     ct64 @ w64.T,
-                    x64.reshape(-1, width).T @ ct64.reshape(-1, 512),
+                    x64.reshape(-1, width).T @ ct64.reshape(-1, output_width),
                 )
                 for sharding_name, weight_spec in weight_specs:
                     arrays = tuple(
