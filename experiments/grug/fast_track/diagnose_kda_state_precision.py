@@ -74,6 +74,27 @@ def errors(actual, reference):
     }
 
 
+def fixture_inputs(seed, fixture, shape, document_length):
+    """Generate represented inputs and cotangents for the FP64 oracle grid."""
+    keys = jax.random.split(jax.random.key(seed), 7)
+    q, k, v = (jax.random.normal(key, shape, jnp.bfloat16) for key in keys[:3])
+    if fixture == "repeated":
+        k = jnp.broadcast_to(k[..., :1, :], shape)
+    scale = 5.0 if fixture == "strong-decay" else 0.05
+    inputs = (
+        q,
+        k,
+        v,
+        -scale * jax.nn.sigmoid(jax.random.normal(keys[3], shape)),
+        jax.nn.sigmoid(jax.random.normal(keys[4], shape[:-1])),
+        0.01 * jax.random.normal(keys[5], (*shape[:2], 128, 128)),
+    )
+    ct = jax.random.normal(keys[6], shape)
+    ft = jax.random.normal(jax.random.key(seed + 8), inputs[-1].shape)
+    segments = jnp.arange(shape[-2]) // document_length
+    return inputs, ct, ft, segments
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--revision", required=True)
@@ -105,22 +126,7 @@ def main():
         ("uninterrupted", (1, 1, 256, 128), 256),
     ):
         with jax.default_device(tpu):
-            keys = jax.random.split(jax.random.key(args.seed), 7)
-            q, k, v = (jax.random.normal(key, shape, jnp.bfloat16) for key in keys[:3])
-            if fixture == "repeated":
-                k = jnp.broadcast_to(k[..., :1, :], shape)
-            scale = 5.0 if fixture == "strong-decay" else 0.05
-            inputs = (
-                q,
-                k,
-                v,
-                -scale * jax.nn.sigmoid(jax.random.normal(keys[3], shape)),
-                jax.nn.sigmoid(jax.random.normal(keys[4], shape[:-1])),
-                0.01 * jax.random.normal(keys[5], (*shape[:2], 128, 128)),
-            )
-            ct = jax.random.normal(keys[6], shape)
-            ft = jax.random.normal(jax.random.key(args.seed + 8), inputs[-1].shape)
-            segments = jnp.arange(shape[-2]) // document_length
+            inputs, ct, ft, segments = fixture_inputs(args.seed, fixture, shape, document_length)
             values = {}
             for implementation in ("production", "pallas_state"):
                 compiled = []
