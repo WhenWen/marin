@@ -217,7 +217,16 @@ def main():
                                     direction=direction,
                                 )
 
-                                def callback(index, *, initial):
+                                def callback(
+                                    index,
+                                    *,
+                                    initial,
+                                    seed=seed,
+                                    target_rows=target_rows,
+                                    source_rows=source_rows,
+                                    width=width,
+                                    dtype=dtype,
+                                ):
                                     return np.stack(
                                         [
                                             payload(
