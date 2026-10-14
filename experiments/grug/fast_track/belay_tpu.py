@@ -10,6 +10,7 @@ import logging
 import os
 import time
 from contextlib import nullcontext
+from dataclasses import replace
 from pathlib import Path
 
 import draccus
@@ -154,11 +155,17 @@ def build_config(
         model = selected_model_config(model)
     elif execution_profile != "reference":
         raise ValueError(f"Unknown execution profile: {execution_profile}")
+    decoded_trainer = draccus.decode(GrugTrainerConfig, outer)
+    # JsonAtom decoding coerces booleans to strings; JAX treats "False" as true.
+    # Preserve the typed JSON settings, including the TPU PGLE override above.
+    decoded_trainer = replace(
+        decoded_trainer, trainer=replace(decoded_trainer.trainer, jax_config=dict(trainer["jax_config"]))
+    )
     return GrugRunConfig(
         model=model,
         optimizer=draccus.decode(OptimizerConfig, source["optimizer"]),
         data=draccus.decode(LmDataConfig, data),
-        trainer=draccus.decode(GrugTrainerConfig, outer),
+        trainer=decoded_trainer,
         eval=draccus.decode(GrugEvalConfig, evaluation),
         resources=ResourceConfig.with_tpu(f"v4-{chips * 2}"),
         tensorstore_cache_bytes=source["tensorstore_cache_bytes"],
