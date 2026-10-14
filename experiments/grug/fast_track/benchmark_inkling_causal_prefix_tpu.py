@@ -19,9 +19,7 @@ def prefix_block(q, k, v, band, segments, start, *, prefix, logits_dtype):
     query_segments = jax.lax.dynamic_slice_in_dim(segments, start, REL_BIAS_BLOCK, axis=1)
     causal = jnp.arange(prefix)[None, :] <= (start + jnp.arange(REL_BIAS_BLOCK))[:, None]
     mask = causal[None] & (query_segments[:, :, None] == segments[:, None, :prefix])
-    return _reference_attention_math(
-        queries, k[:, :prefix], v[:, :prefix], mask, bias, logits_dtype=logits_dtype
-    )
+    return _reference_attention_math(queries, k[:, :prefix], v[:, :prefix], mask, bias, logits_dtype=logits_dtype)
 
 
 def causal_prefix_attention(q, k, v, band, segments, *, quantum=1024, logits_dtype=jnp.float32):
