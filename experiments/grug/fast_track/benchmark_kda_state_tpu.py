@@ -24,7 +24,10 @@ from experiments.grug.moe.kda_state_tpu import state_pass
 def tpu_recurrence(prep, state, mm, lead, dk, dv, *, scan_impl):
     """Diagnostic adapter; the caller places all arrays on one explicit device."""
     n, c = prep.kw.shape[-3:-1]
-    flatten = lambda x: x.reshape(-1, n, *x.shape[-2:])
+
+    def flatten(x):
+        return x.reshape(-1, n, *x.shape[-2:])
+
     out, final = state_pass(
         flatten(prep.q_inflate),
         flatten(prep.attn),
@@ -40,7 +43,10 @@ def tpu_recurrence(prep, state, mm, lead, dk, dv, *, scan_impl):
 def evaluate(inputs, cotangent, final_cotangent, segments, *, mode):
     def outputs(xs):
         return kda.chunk_kda(
-            *xs[:5], initial_state=xs[5], chunk_size=16, segment_ids=segments,
+            *xs[:5],
+            initial_state=xs[5],
+            chunk_size=16,
+            segment_ids=segments,
             scan_impl="parallel_stacked_split",
         )
 
@@ -90,21 +96,36 @@ def main():
                 reference = None
                 for name in ("production", "pallas_state"):
                     row = {
-                        "kernel": "chunk_kda", "implementation": name, "fixture": fixture,
-                        "shape": shape, "pass_mode": mode, "dtype": "qkv=bf16, gates/state=fp32",
-                        "backend": "tpu", "device_type": device.device_kind, "device_count": 1,
+                        "kernel": "chunk_kda",
+                        "implementation": name,
+                        "fixture": fixture,
+                        "shape": shape,
+                        "pass_mode": mode,
+                        "dtype": "qkv=bf16, gates/state=fp32",
+                        "backend": "tpu",
+                        "device_type": device.device_kind,
+                        "device_count": 1,
                         "block_sizes": {"chunk": 16, "state": [128, 128]},
-                        "git_sha": args.revision, "seed": 0, "document_length": document_length,
-                        "jax_version": jax.__version__, "jaxlib_version": jaxlib.__version__,
+                        "git_sha": args.revision,
+                        "seed": 0,
+                        "document_length": document_length,
+                        "jax_version": jax.__version__,
+                        "jaxlib_version": jaxlib.__version__,
                         "xla_flags": os.environ.get("XLA_FLAGS", ""),
                         "backend_env": {"LIBTPU_INIT_ARGS": os.environ.get("LIBTPU_INIT_ARGS", "")},
-                        "compile_time": None, "steady_state_time": None, "error": None,
-                        "atol": 1e-5, "rtol": 1e-5,
-                        "leaf_order": ["output", "final_state"] if mode == "forward" else
-                        ["objective", "dq", "dk", "dv", "dg", "dbeta", "dinitial"],
+                        "compile_time": None,
+                        "steady_state_time": None,
+                        "error": None,
+                        "atol": 1e-5,
+                        "rtol": 1e-5,
+                        "leaf_order": (
+                            ["output", "final_state"]
+                            if mode == "forward"
+                            else ["objective", "dq", "dk", "dv", "dg", "dbeta", "dinitial"]
+                        ),
                     }
                     try:
-                        fn = jax.jit(lambda xs, ct, ft, seg: evaluate(xs, ct, ft, seg, mode=mode))
+                        fn = jax.jit(lambda xs, ct, ft, seg, mode=mode: evaluate(xs, ct, ft, seg, mode=mode))
                         start = time.monotonic()
                         if name == "pallas_state":
                             with patch.object(kda, "_parallel_chunk_recurrence", tpu_recurrence):

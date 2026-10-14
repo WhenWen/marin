@@ -64,9 +64,7 @@ def _backward(qr, ar, kr, wr, dr, hr, vnr, dor, dstr, dqr, dar, dkr, dwr, dvr, d
     def initialize():
         scratch[...] = dstr[...]
 
-    grads = _chunk_backward(
-        qr[...], ar[...], kr[...], wr[...], dr[...], hr[...], vnr[...], dor[...], scratch[...]
-    )
+    grads = _chunk_backward(qr[...], ar[...], kr[...], wr[...], dr[...], hr[...], vnr[...], dor[...], scratch[...])
     for ref, value in zip((dqr, dar, dkr, dwr, dvr, ddr, ds0r), grads, strict=True):
         ref[...] = value
     scratch[...] = grads[-1]
@@ -86,7 +84,9 @@ def _state_spec():
 def _cost(body, operands, grid_size, inputs, outputs):
     cost = pl.estimate_cost(body, *operands)
     io = sum(math.prod(x.shape) * jnp.dtype(x.dtype).itemsize for x in (*inputs, *outputs))
-    return pl.CostEstimate(flops=cost.flops * grid_size, transcendentals=cost.transcendentals * grid_size, bytes_accessed=io)
+    return pl.CostEstimate(
+        flops=cost.flops * grid_size, transcendentals=cost.transcendentals * grid_size, bytes_accessed=io
+    )
 
 
 def _forward_call(q, a, k, w, v, decay, initial):
@@ -98,7 +98,10 @@ def _forward_call(q, a, k, w, v, decay, initial):
     if jax.default_backend() != "tpu":
         raise ValueError("TPU state prototype requires a TPU backend")
     inputs = (q, a, k, w, v, decay, initial)
-    shape = lambda dims: jax.ShapeDtypeStruct(dims, jnp.float32)
+
+    def shape(dims):
+        return jax.ShapeDtypeStruct(dims, jnp.float32)
+
     outputs = (shape(q.shape), shape((groups, chunks, d, d)), shape(v.shape), shape(initial.shape))
     chunk_shapes = [shape(x.shape[-2:]) for x in inputs]
     return pl.pallas_call(
@@ -127,9 +130,9 @@ def _fwd(q, a, k, w, v, decay, initial):
 
 
 def _bwd(residual, cotangents):
-    q, a, k, w, decay, states, vn = residual
+    q, a, k, w, decay, _states, vn = residual
     dout, dfinal = cotangents
-    groups, chunks, c, d = q.shape
+    groups, chunks, _c, d = q.shape
     inputs = (*residual, dout, dfinal)
     shapes = [jax.ShapeDtypeStruct(x.shape, x.dtype) for x in (q, a, k, w, vn, decay, dfinal)]
     chunk_shapes = [jax.ShapeDtypeStruct(x.shape[-2:], x.dtype) for x in inputs]
