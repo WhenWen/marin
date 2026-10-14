@@ -33,7 +33,10 @@ def crossing_details(counts, rank, last_valid):
 
 
 def details(indices, rank, *, axes, bins, group, radix, implementation):
-    if implementation == "reference":
+    use_reference = implementation == "reference" or (
+        implementation == "shape-specialized" and (indices.shape, bins, group, radix) != ((32768, 512), 10000, 64, 64)
+    )
+    if use_reference:
         counts = jax.lax.psum(factorized_expert_histogram(indices, bins, group, radix), axes).astype(jnp.float32)
         crossing, ct, height = crossing_details(counts, rank, bins - 1)
     else:
@@ -112,6 +115,7 @@ def main():
     parser.add_argument("--revision", required=True)
     parser.add_argument("--artifact-prefix", required=True)
     parser.add_argument("--cpu-check", action="store_true")
+    parser.add_argument("--candidate", choices=("two-stage", "shape-specialized"), default="two-stage")
     args = parser.parse_args()
     devices = jax.local_devices(backend="cpu" if args.cpu_check else "tpu")
     if len(devices) != 4 or (not args.cpu_check and any(d.device_kind != "TPU v4" for d in devices)):
@@ -135,6 +139,7 @@ def main():
     )
     report["xla_flags"] = os.environ.get("XLA_FLAGS", "")
     report["libtpu_init_args"] = os.environ.get("LIBTPU_INIT_ARGS", "")
+    report["candidate"] = args.candidate
     name = "cpu-check.json" if args.cpu_check else "two-stage-histogram.json"
 
     def save():
@@ -182,7 +187,7 @@ def main():
                                 samples=[],
                             )
                             reference = None
-                            for implementation in ("reference", "two-stage"):
+                            for implementation in ("reference", args.candidate):
                                 key = (mesh_shape, tokens, implementation)
                                 if key not in compiled:
                                     kwargs = dict(
@@ -239,7 +244,7 @@ def main():
                                         jax.block_until_ready(timed(inputs, rank))
                             if not args.cpu_check:
                                 for repeat in range(8):
-                                    order = ("reference", "two-stage") if repeat % 2 == 0 else ("two-stage", "reference")
+                                    order = ("reference", args.candidate) if repeat % 2 == 0 else (args.candidate, "reference")
                                     for implementation in order:
                                         timed = compiled[(mesh_shape, tokens, implementation)][0]
                                         start = time.monotonic()
@@ -255,7 +260,7 @@ def main():
                                     variant: statistics.median(
                                         x["seconds"] for x in row["samples"] if x["implementation"] == variant
                                     )
-                                    for variant in ("reference", "two-stage")
+                                    for variant in ("reference", args.candidate)
                                 }
                             row["passed_numerics"] = all(
                                 m["finite"]
