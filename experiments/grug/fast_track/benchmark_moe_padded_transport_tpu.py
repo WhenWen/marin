@@ -107,11 +107,11 @@ def payload(seed, peer, start, stop, width, dtype, *, initial=False):
     return values.astype(dtype)
 
 
-def output_oracle(seed, peer, width, dtype, counts, clipped, capacity, sender_rows, direction):
+def output_oracle(seed, peer, width, dtype, counts, clipped, capacity, sender_rows, direction, *, payload_fn=payload):
     """Copy accepted intervals in expert/sender order; never use JAX metadata offsets."""
     peers, experts = counts.shape
     local_experts = experts // peers
-    result = payload(seed, peer, 0, capacity if direction == "dispatch" else sender_rows, width, dtype, initial=True)
+    result = payload_fn(seed, peer, 0, capacity if direction == "dispatch" else sender_rows, width, dtype, initial=True)
     for destination in range(peers):
         cursor = 0
         for expert in range(local_experts):
@@ -120,9 +120,9 @@ def output_oracle(seed, peer, width, dtype, counts, clipped, capacity, sender_ro
                 size = int(clipped[sender, destination, expert])
                 offset = int(counts[sender, :global_expert].sum())
                 if direction == "dispatch" and destination == peer:
-                    result[cursor : cursor + size] = payload(seed, sender, offset, offset + size, width, dtype)
+                    result[cursor : cursor + size] = payload_fn(seed, sender, offset, offset + size, width, dtype)
                 elif direction == "return" and sender == peer:
-                    result[offset : offset + size] = payload(seed, destination, cursor, cursor + size, width, dtype)
+                    result[offset : offset + size] = payload_fn(seed, destination, cursor, cursor + size, width, dtype)
                 cursor += size
     return result
 
