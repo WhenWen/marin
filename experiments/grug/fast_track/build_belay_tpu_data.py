@@ -125,7 +125,9 @@ def freeze(config: BuildConfig):
         execution_fields = {"output", "revision", "reuse_samples_from"}
         data_config = {key: value for key, value in asdict(config).items() if key not in execution_fields}
         parent_config = {key: value for key, value in parent["config"].items() if key not in execution_fields}
-        if data_config != parent_config or any(parent[key] != value for key, value in manifest.items() if key != "config"):
+        if data_config != parent_config or any(
+            parent[key] != value for key, value in manifest.items() if key != "config"
+        ):
             raise ValueError("Reused samples must have identical frozen data inputs and selection")
         manifest["sample_parent"] = object_identity(parent_url)
     if StoragePath(manifest_path).exists():
@@ -197,7 +199,8 @@ def sample(config: BuildConfig, manifest):
                 indices = range(base, min(base + read_count, stop))
                 for index, item in zip(indices, blocking_wait(cache.get_batch(indices)), strict=True):
                     text = capped(
-                        source_tokenizer.decode(item["input_ids"].tolist(), skip_special_tokens=True), config.document_bytes
+                        source_tokenizer.decode(item["input_ids"].tolist(), skip_special_tokens=True),
+                        config.document_bytes,
                     )
                     if not text or text_digest(text) in holdouts:
                         excluded += 1
