@@ -14,6 +14,7 @@ import jax.numpy as jnp
 import ml_dtypes
 import numpy as np
 
+from experiments.grug.fast_track.attention_mask_crop import SCENARIOS
 from experiments.grug.fast_track.kv_head_gradient_tpu import sum_head_gradients
 
 PROTOCOL = "https://github.com/WhenWen/astra-d8-research/issues/96#issuecomment-6180942176"
@@ -98,6 +99,14 @@ def isolation_checks(source, device, folder):
 
 def control_reproduction(rows):
     """Check exact failed fixture/tensor/metric identities for both old paths."""
+    expected_fixtures = {
+        (seed, length, window, scenario)
+        for seed in (0, 1, 2)
+        for length in (256, 1024, 2048)
+        for window in (None, 129)
+        for scenario in SCENARIOS
+    }
+    complete = len(rows) == len(expected_fixtures) and {fixture_identity(row) for row in rows} == expected_fixtures
     results = {}
     for name, expected in (("flash-fp32-scale", FP32_FAILURES), ("flash-highest", BF16_FAILURES)):
         failures = set()
@@ -111,7 +120,8 @@ def control_reproduction(rows):
                         failures.add((*fixture_identity(row), tensor, metric))
         expected_failures = {(*identity, "dv", "max_abs_error") for identity in expected}
         results[name] = {
-            "passed": len(rows) == 90 and failures == expected_failures,
+            "passed": complete and failures == expected_failures,
+            "complete_fixture_grid": complete,
             "failures": sorted(failures, key=str),
             "expected": sorted(expected_failures, key=str),
         }
