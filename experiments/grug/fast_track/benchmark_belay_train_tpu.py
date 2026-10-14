@@ -38,8 +38,10 @@ from levanter.optim.config import OptimizerConfig
 
 from experiments.grug.fast_track.belay_flops import training_flops_per_token
 from experiments.grug.fast_track.belay_tpu import SOURCE_CONFIG, base16_model_config, require_tpu_rounding
+from experiments.grug.fast_track.benchmark_kda_state_tpu import tpu_recurrence
 from experiments.grug.fast_track.model import AttnResLayerBackward
 from experiments.grug.fast_track.train import _flat_train_step, _make_train_step, _router_ties_active, initial_state
+from experiments.grug.moe import kda
 
 mpl.use("Agg")
 import matplotlib.pyplot as plt
@@ -81,6 +83,7 @@ def main() -> None:
         "--kda-scan", choices=("production", "reference", "stacked", "stacked-split"), default="production"
     )
     parser.add_argument("--accepted-mask", choices=("production", "reference", "inverse-direct"), default="production")
+    parser.add_argument("--kda-state", choices=("production", "pallas"), default="production")
     parser.add_argument("--artifact-prefix", required=True)
     args = parser.parse_args()
     if args.steps < 1 or not args.artifact_prefix.startswith("gs://marin-us-central2/"):
@@ -127,6 +130,7 @@ def main() -> None:
         "attn_res_remat_attention": config.attn_res_remat_attention,
         "attn_res_remat_attention_save_all": config.attn_res_remat_attention_save_all,
         "kda_scan": args.kda_scan,
+        "kda_state": args.kda_state,
         "kda_xla_scan_impl": config.kda_xla_scan_impl,
         "accepted_mask": args.accepted_mask,
         "git_sha": args.revision,
@@ -213,6 +217,8 @@ def main() -> None:
         print("Compiling native base16 train step", flush=True)
         start = time.monotonic()
         with ExitStack() as contexts:
+            if args.kda_state == "pallas":
+                contexts.enter_context(patch.object(kda, "_parallel_chunk_recurrence", tpu_recurrence))
             if args.accepted_mask != "production":
                 implementation = (
                     ep_ragged_all_to_all._accepted_assignments_inverse

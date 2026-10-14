@@ -78,6 +78,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--revision", required=True)
     parser.add_argument("--artifact-prefix", required=True)
+    parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
     tpu = jax.devices("tpu")[0]
     cpu = jax.devices("cpu")[0]
@@ -89,8 +90,8 @@ def main():
     report = {
         "revision": args.revision,
         "oracle": "CPU FP64 tokenwise recurrence",
-        "seed": 0,
-        "final_cotangent_seed": 8,
+        "seed": args.seed,
+        "final_cotangent_seed": args.seed + 8,
         "jax_version": jax.__version__,
         "xla_flags": os.environ.get("XLA_FLAGS", ""),
         "records": [],
@@ -104,7 +105,7 @@ def main():
         ("uninterrupted", (1, 1, 256, 128), 256),
     ):
         with jax.default_device(tpu):
-            keys = jax.random.split(jax.random.key(0), 7)
+            keys = jax.random.split(jax.random.key(args.seed), 7)
             q, k, v = (jax.random.normal(key, shape, jnp.bfloat16) for key in keys[:3])
             if fixture == "repeated":
                 k = jnp.broadcast_to(k[..., :1, :], shape)
@@ -118,7 +119,7 @@ def main():
                 0.01 * jax.random.normal(keys[5], (*shape[:2], 128, 128)),
             )
             ct = jax.random.normal(keys[6], shape)
-            ft = jax.random.normal(jax.random.key(8), inputs[-1].shape)
+            ft = jax.random.normal(jax.random.key(args.seed + 8), inputs[-1].shape)
             segments = jnp.arange(shape[-2]) // document_length
             values = {}
             for implementation in ("production", "pallas_state"):
