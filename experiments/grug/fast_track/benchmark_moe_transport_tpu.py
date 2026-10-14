@@ -112,6 +112,8 @@ def evaluate(x, weights, valid, up, down, selected, cotangent, *, mesh, capacity
         mesh=mesh,
         in_specs=(*_SPECS, P("expert", None)),
         out_specs=(P("expert", None), CapacityDrops(P(), P())),
+        # Installed TPU Megablox does not annotate Pallas output variation.
+        check_vma=False,
     )
     output, pullback, drops = jax.vjp(
         lambda a, w, u, d: forward(a, w, valid, u, d, selected), x, weights, up, down, has_aux=True
