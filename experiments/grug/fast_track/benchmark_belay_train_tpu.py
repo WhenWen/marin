@@ -41,9 +41,8 @@ from levanter.grug.sharding import compact_grug_mesh
 from levanter.kernels.pallas.fused_cross_entropy_loss.config import BlockSizes
 from levanter.optim.config import OptimizerConfig
 
-from experiments.grug.fast_track import benchmark_kda_state_tpu
+from experiments.grug.fast_track import benchmark_kda_state_tpu, qb_balancing
 from experiments.grug.fast_track import model as model_module
-from experiments.grug.fast_track import qb_balancing
 from experiments.grug.fast_track.belay_flops import training_flops_per_token
 from experiments.grug.fast_track.belay_tpu import SOURCE_CONFIG, base16_model_config, require_tpu_rounding
 from experiments.grug.fast_track.benchmark_projection_tpu import gathered_projection
