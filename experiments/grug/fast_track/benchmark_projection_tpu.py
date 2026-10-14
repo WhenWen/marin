@@ -220,14 +220,8 @@ def main():
                     save()
             save()
             for name, _ in implementations:
-                samples = [
-                    r["seconds"]
-                    for r in report["timings"]
-                    if r["case"] == case and r["implementation"] == name
-                ]
-                print(
-                    json.dumps({"case": case, "implementation": name, "median": statistics.median(samples)})
-                )
+                samples = [r["seconds"] for r in report["timings"] if r["case"] == case and r["implementation"] == name]
+                print(json.dumps({"case": case, "implementation": name, "median": statistics.median(samples)}))
         report["status"] = "completed"
         report["numerical_gate_passed"] = all(row["passed"] for row in report["numerics"]) and all(
             row["finite"] for row in report["full_shape_checks"]
