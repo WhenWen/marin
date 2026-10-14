@@ -57,6 +57,40 @@ def local_expert_histogram(indices: jax.Array, n_bins: int, group_size: int | No
     return counts.reshape(experts, n_bins)
 
 
+def hierarchical_histogram_crossing(counts, target_rank, *, block_bins):
+    """Find a clipped suffix-count crossing using one selected block per expert."""
+    counts = counts.astype(jnp.float32)
+    experts, bins = counts.shape
+    padding = (-bins) % block_bins
+    blocks = jnp.pad(counts, ((0, 0), (0, padding))).reshape(experts, -1, block_bins)
+    totals = blocks.sum(axis=-1)
+    cumulative = jnp.cumsum(totals[:, ::-1], axis=-1)[:, ::-1]
+    block = jnp.clip(jnp.sum(cumulative >= target_rank[:, None], axis=-1) - 1, 0, blocks.shape[1] - 1)
+    selected = jnp.take_along_axis(blocks, block[:, None, None], axis=1)[:, 0, :]
+    above = jnp.take_along_axis(cumulative - totals, block[:, None], axis=-1)
+    local_cumulative = jnp.cumsum(selected[:, ::-1], axis=-1)[:, ::-1] + above
+    last_valid = jnp.minimum(block_bins - 1, bins - 1 - block * block_bins)
+    local_bin = jnp.clip(jnp.sum(local_cumulative >= target_rank[:, None], axis=-1) - 1, 0, last_valid)
+    ct = jnp.take_along_axis(local_cumulative, local_bin[:, None], axis=-1)[:, 0]
+    h = jnp.take_along_axis(selected, local_bin[:, None], axis=-1)[:, 0]
+    return block * block_bins + local_bin, ct, h
+
+
+def histogram_quantile(counts, target_rank, lo, bin_width, *, block_bins=None):
+    """Interpolate the QB threshold; block extraction is an explicit experimental option."""
+    if block_bins is None:
+        cumulative = jnp.cumsum(counts[:, ::-1], axis=-1)[:, ::-1]
+        crossing = jnp.clip(
+            jnp.sum((cumulative >= target_rank[:, None]).astype(jnp.int32), axis=-1) - 1, 0, counts.shape[-1] - 1
+        )
+        ct = jnp.take_along_axis(cumulative, crossing[:, None], axis=-1)[:, 0]
+        h = jnp.take_along_axis(counts, crossing[:, None], axis=-1)[:, 0]
+    else:
+        crossing, ct, h = hierarchical_histogram_crossing(counts, target_rank, block_bins=block_bins)
+    lower_edge = lo + crossing.astype(jnp.float32) * bin_width
+    return lower_edge + bin_width * (ct - target_rank) / jnp.maximum(h, 1.0)
+
+
 def bincount_upper_quantile(
     s_local: jax.Array,
     *,
@@ -84,13 +118,8 @@ def bincount_upper_quantile(
     else:
         local_counts = factorized_expert_histogram(idx, n_bins, *tile)
     counts = jax.lax.psum(local_counts, axis_name=batch_axes).astype(jnp.float32)
-    cum_from_top = jnp.cumsum(counts[:, ::-1], axis=-1)[:, ::-1]  # #{margins in bins >= b}
     target_rank = jnp.broadcast_to(jnp.asarray(target_rank, jnp.float32), (num_experts,))
-    bstar = jnp.clip(jnp.sum((cum_from_top >= target_rank[:, None]).astype(jnp.int32), axis=-1) - 1, 0, n_bins - 1)
-    ct_b = jnp.take_along_axis(cum_from_top, bstar[:, None], axis=-1)[:, 0]
-    h_b = jnp.take_along_axis(counts, bstar[:, None], axis=-1)[:, 0]
-    lower_edge = lo + bstar.astype(jnp.float32) * bin_width
-    return lower_edge + bin_width * (ct_b - target_rank) / jnp.maximum(h_b, 1.0)
+    return histogram_quantile(counts, target_rank, lo, bin_width)
 
 
 def qb_beta_hist(

@@ -18,32 +18,12 @@ import numpy as np
 
 from experiments.grug.fast_track.belay_tpu import require_tpu_rounding
 from experiments.grug.fast_track.benchmark_qb_collective_tpu import quantile
-
-
-def hierarchical_crossing(counts, target_rank, *, block_bins):
-    """Find the original clipped crossing without materializing every suffix sum."""
-    counts = counts.astype(jnp.float32)
-    experts, bins = counts.shape
-    padding = (-bins) % block_bins
-    blocks = jnp.pad(counts, ((0, 0), (0, padding))).reshape(experts, -1, block_bins)
-    totals = blocks.sum(axis=-1)
-    cumulative = jnp.cumsum(totals[:, ::-1], axis=-1)[:, ::-1]
-    block = jnp.clip(jnp.sum(cumulative >= target_rank[:, None], axis=-1) - 1, 0, blocks.shape[1] - 1)
-    selected = jnp.take_along_axis(blocks, block[:, None, None], axis=1)[:, 0, :]
-    above = jnp.take_along_axis(cumulative - totals, block[:, None], axis=-1)
-    local_cumulative = jnp.cumsum(selected[:, ::-1], axis=-1)[:, ::-1] + above
-    last_valid = jnp.minimum(block_bins - 1, bins - 1 - block * block_bins)
-    local_bin = jnp.clip(jnp.sum(local_cumulative >= target_rank[:, None], axis=-1) - 1, 0, last_valid)
-    ct = jnp.take_along_axis(local_cumulative, local_bin[:, None], axis=-1)[:, 0]
-    h = jnp.take_along_axis(selected, local_bin[:, None], axis=-1)[:, 0]
-    return block * block_bins + local_bin, ct, h
+from experiments.grug.fast_track.qb_balancing import hierarchical_histogram_crossing, histogram_quantile
 
 
 def hierarchical_quantile(counts, target_rank, *, block_bins):
-    crossing, ct, h = hierarchical_crossing(counts, target_rank, block_bins=block_bins)
     width = jnp.float32(4095.0) / counts.shape[-1]
-    edge = jnp.float32(-2048.0) + crossing.astype(jnp.float32) * width
-    return edge + width * (ct - target_rank) / jnp.maximum(h, 1.0)
+    return histogram_quantile(counts.astype(jnp.float32), target_rank, jnp.float32(-2048.0), width, block_bins=block_bins)
 
 
 def fixture(seed, experts, bins, distribution):
@@ -110,7 +90,7 @@ def main():
     save()
     reference = jax.jit(quantile)
     candidates = {b: jax.jit(functools.partial(hierarchical_quantile, block_bins=b)) for b in (128, 256)}
-    discrete = {b: jax.jit(functools.partial(hierarchical_crossing, block_bins=b)) for b in (128, 256)}
+    discrete = {b: jax.jit(functools.partial(hierarchical_histogram_crossing, block_bins=b)) for b in (128, 256)}
     with jax.default_device(device):
         for experts, bins in ((8, 1), (8, 31), (8, 129), (8, 257), (512, 10000)):
             for seed in (0, 1, 2):

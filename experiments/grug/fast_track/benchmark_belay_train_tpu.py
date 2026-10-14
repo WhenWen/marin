@@ -17,6 +17,7 @@ import statistics
 import time
 from contextlib import ExitStack
 from dataclasses import asdict, dataclass, replace
+from functools import partial
 from pathlib import Path
 from unittest.mock import patch
 
@@ -38,6 +39,7 @@ from levanter.grug.sharding import compact_grug_mesh
 from levanter.optim.config import OptimizerConfig
 
 from experiments.grug.fast_track import model as model_module
+from experiments.grug.fast_track import qb_balancing
 from experiments.grug.fast_track.belay_flops import training_flops_per_token
 from experiments.grug.fast_track.belay_tpu import SOURCE_CONFIG, base16_model_config, require_tpu_rounding
 from experiments.grug.fast_track.benchmark_kda_state_tpu import tpu_recurrence
@@ -93,6 +95,7 @@ def main() -> None:
     parser.add_argument("--kda-state", choices=("production", "pallas"), default="production")
     parser.add_argument("--projection-weights", choices=("production", "gather"), default="production")
     parser.add_argument("--moe-dispatch", choices=("serialized", "overlap"), default="serialized")
+    parser.add_argument("--qb-quantile", choices=("reference", "block128"), default="reference")
     parser.add_argument(
         "--job-completion",
         choices=("on-exit", "deferred"),
@@ -146,6 +149,7 @@ def main() -> None:
         "block_sizes": {"inkling_query": 128},
         "attn_res_layer_backward": config.attn_res_layer_backward.value,
         "attn_res_remat_attention": config.attn_res_remat_attention,
+        "qb_quantile": args.qb_quantile,
         "attn_res_remat_attention_save_all": config.attn_res_remat_attention_save_all,
         "kda_scan": args.kda_scan,
         "kda_state": args.kda_state,
@@ -238,6 +242,10 @@ def main() -> None:
         print("Compiling native base16 train step", flush=True)
         start = time.monotonic()
         with ExitStack() as contexts:
+            if args.qb_quantile == "block128":
+                contexts.enter_context(
+                    patch.object(qb_balancing, "histogram_quantile", partial(qb_balancing.histogram_quantile, block_bins=128))
+                )
             if args.moe_dispatch == "overlap":
                 contexts.enter_context(patch.object(ep_ragged_all_to_all, "_serialize_dispatch", _independent_dispatch))
             if args.projection_weights == "gather":
