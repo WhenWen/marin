@@ -241,12 +241,13 @@ def main():
             function = jax.jit(partial(evaluate, core=core, component=component), out_shardings=output_spec)
             start = time.perf_counter()
             executable = function.lower(*inputs).compile()
+            compile_seconds = time.perf_counter() - start
             compiled[implementation] = executable
             hlo = folder / f"{label}.hlo.txt"
             hlo.write_text(executable.as_text())
             fs.put_file(str(hlo), f"{prefix}/{hlo.name}")
             report["compilation"].append(
-                dict(label=label, seconds=time.perf_counter() - start, memory=str(executable.memory_analysis()))
+                dict(label=label, seconds=compile_seconds, memory=str(executable.memory_analysis()))
             )
         save()
         return compiled
