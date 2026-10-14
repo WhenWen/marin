@@ -150,12 +150,23 @@ def stage_data_baseline(url: str, directory: Path) -> tuple[dict[str, str], str,
             raise ValueError(f"Tokenizer SHA256 mismatch: {name}")
         (directory / name).write_bytes(data)
     tokenizer = load_tokenizer(str(directory))
-    if (tokenizer.vocab_size, tokenizer.bos_token_id, tokenizer.eos_token_id, tokenizer.pad_token_id) != (16384, 0, 1, 7):
+    if (tokenizer.vocab_size, tokenizer.bos_token_id, tokenizer.eos_token_id, tokenizer.pad_token_id) != (
+        16384,
+        0,
+        1,
+        7,
+    ):
         raise ValueError("Unexpected tokenizer vocabulary or document boundary IDs")
-    return baseline["cache_map"], str(directory), {
-        "manifest": url, "sha256": hashlib.sha256(raw).hexdigest(),
-        "kind": baseline["kind"], "tokenizer": baseline["tokenizer"],
-    }
+    return (
+        baseline["cache_map"],
+        str(directory),
+        {
+            "manifest": url,
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "kind": baseline["kind"],
+            "tokenizer": baseline["tokenizer"],
+        },
+    )
 
 
 def main() -> None:
@@ -174,9 +185,7 @@ def main() -> None:
     args.output.mkdir(parents=True, exist_ok=True)
     tokenizer_path, data_provenance = None, None
     if args.data_baseline:
-        cache_map, tokenizer_path, data_provenance = stage_data_baseline(
-            args.data_baseline, args.output / "tokenizer"
-        )
+        cache_map, tokenizer_path, data_provenance = stage_data_baseline(args.data_baseline, args.output / "tokenizer")
     else:
         cache_map = json.loads(args.cache_map.read_text())
     config = build_config(

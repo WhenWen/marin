@@ -32,8 +32,14 @@ from experiments.grug.fast_track.belay_tpu import REGION_PREFIX, SOURCE_CONFIG
 
 LOGGER = logging.getLogger(__name__)
 SPECIALS = (
-    "<|begin_of_text|>", "<|end_of_text|>", "<|start_think|>", "<|end_think|>",
-    "<|start_header_id|>", "<|end_header_id|>", "<|eot_id|>", "<|pad|>",
+    "<|begin_of_text|>",
+    "<|end_of_text|>",
+    "<|start_think|>",
+    "<|end_think|>",
+    "<|start_header_id|>",
+    "<|end_header_id|>",
+    "<|eot_id|>",
+    "<|pad|>",
 )
 SPLIT_PATTERN = (
     r"(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}{1,3}"
@@ -48,9 +54,7 @@ class BuildConfig:
     output: str
     revision: str
     source_store: str = "gs://marin-us-central2/datakit/store_8ac06c74"
-    eval_inventory: str = (
-        "gs://marin-us-central2/kaiyue/belay-base16-tpu/retokenization-v1/eval-source-inventory.json"
-    )
+    eval_inventory: str = "gs://marin-us-central2/kaiyue/belay-base16-tpu/retokenization-v1/eval-source-inventory.json"
     corpus_bytes: int = 12 * 1024**3
     tokenizer_bytes: int = 256 * 1024**2
     document_bytes: int = 32768
@@ -101,8 +105,11 @@ def freeze(config: BuildConfig):
     identity = object_identity(store_url)
     inventory = read_json(config.eval_inventory)
     manifest = {
-        "config": asdict(config), "source_store_identity": identity, "source_store": store,
-        "source_tokenizer_revision": SOURCE_TOKENIZER_REVISION, "evaluation": inventory,
+        "config": asdict(config),
+        "source_store_identity": identity,
+        "source_store": store,
+        "source_tokenizer_revision": SOURCE_TOKENIZER_REVISION,
+        "evaluation": inventory,
         "mixture": "UTF-8 byte quotas proportional to the source store's per-cell token counts",
         "selection": "seeded affine permutation of 64-document blocks within each cluster/quality cell",
         "holdout_filter": "exclude exact capped-text SHA256 matches with any evaluation document",
@@ -123,10 +130,14 @@ def sample(config: BuildConfig, manifest):
         "marin-community/marin-tokenizer", "tokenizer.json", revision=SOURCE_TOKENIZER_REVISION
     )
     source_tokenizer = Tokenizer.from_file(source_file)
-    write_json(f"{config.output}/source-decoder.json", {
-        "repo": "marin-community/marin-tokenizer", "revision": SOURCE_TOKENIZER_REVISION,
-        "tokenizer_json_sha256": hashlib.sha256(Path(source_file).read_bytes()).hexdigest(),
-    })
+    write_json(
+        f"{config.output}/source-decoder.json",
+        {
+            "repo": "marin-community/marin-tokenizer",
+            "revision": SOURCE_TOKENIZER_REVISION,
+            "tokenizer_json_sha256": hashlib.sha256(Path(source_file).read_bytes()).hexdigest(),
+        },
+    )
     cells = manifest["source_store"]["buckets"]
     total = sum(cell["total_tokens"] for cell in cells)
     summaries = []
@@ -155,7 +166,9 @@ def sample(config: BuildConfig, manifest):
             base = ((start + step * stride) % blocks) * 64
             indices = range(base, min(base + 64, len(cache)))
             for index, item in zip(indices, cache.get_batch_sync(indices), strict=True):
-                text = capped(source_tokenizer.decode(item["input_ids"].tolist(), skip_special_tokens=True), config.document_bytes)
+                text = capped(
+                    source_tokenizer.decode(item["input_ids"].tolist(), skip_special_tokens=True), config.document_bytes
+                )
                 if not text or text_digest(text) in holdouts:
                     excluded += 1
                     continue
@@ -172,9 +185,16 @@ def sample(config: BuildConfig, manifest):
         url = f"{config.output}/sample/{name}.parquet"
         with StoragePath(url).open("wb") as stream:
             pq.write_table(pa.Table.from_pylist(rows), stream, compression="zstd")
-        summary = {"cell": name, "source": cell["path"], "ledger_identity": ledger_identity,
-                   "raw": object_identity(url), "rows": len(rows), "bytes": selected_bytes,
-                   "quota": quota, "excluded_empty_or_exact_holdout": excluded}
+        summary = {
+            "cell": name,
+            "source": cell["path"],
+            "ledger_identity": ledger_identity,
+            "raw": object_identity(url),
+            "rows": len(rows),
+            "bytes": selected_bytes,
+            "quota": quota,
+            "excluded_empty_or_exact_holdout": excluded,
+        }
         write_json(done, summary)
         summaries.append(summary)
         LOGGER.info("sample %s: %d documents, %d bytes", name, len(rows), selected_bytes)
@@ -215,26 +235,39 @@ def fit_tokenizer(config: BuildConfig, summaries, local: Path):
                 break
     np.random.default_rng(config.seed).shuffle(texts)
     tokenizer = Tokenizer(BPE(byte_fallback=False, unk_token=None))
-    tokenizer.pre_tokenizer = pre_tokenizers.Sequence([
-        pre_tokenizers.Split(Regex(SPLIT_PATTERN), behavior="isolated"),
-        pre_tokenizers.ByteLevel(add_prefix_space=False, use_regex=False),
-    ])
+    tokenizer.pre_tokenizer = pre_tokenizers.Sequence(
+        [
+            pre_tokenizers.Split(Regex(SPLIT_PATTERN), behavior="isolated"),
+            pre_tokenizers.ByteLevel(add_prefix_space=False, use_regex=False),
+        ]
+    )
     tokenizer.decoder = decoders.ByteLevel()
     LOGGER.info("Fitting 16k BPE on %d documents", len(texts))
-    tokenizer.train_from_iterator(iter(texts), trainers.BpeTrainer(
-        vocab_size=16384, initial_alphabet=pre_tokenizers.ByteLevel.alphabet(),
-        special_tokens=list(SPECIALS), show_progress=False,
-    ))
+    tokenizer.train_from_iterator(
+        iter(texts),
+        trainers.BpeTrainer(
+            vocab_size=16384,
+            initial_alphabet=pre_tokenizers.ByteLevel.alphabet(),
+            special_tokens=list(SPECIALS),
+            show_progress=False,
+        ),
+    )
     if tokenizer.get_vocab_size() != 16384:
         raise ValueError("BPE fitting did not reach 16384 tokens")
     for i, token in enumerate(SPECIALS):
         assert tokenizer.token_to_id(token) == i
-    for text in texts[::max(1, len(texts) // 1000)]:
+    for text in texts[:: max(1, len(texts) // 1000)]:
         assert tokenizer.decode(tokenizer.encode(text).ids, skip_special_tokens=False) == text
-    wrapped = PreTrainedTokenizerFast(tokenizer_object=tokenizer, bos_token=SPECIALS[0], eos_token=SPECIALS[1], pad_token=SPECIALS[7])
+    wrapped = PreTrainedTokenizerFast(
+        tokenizer_object=tokenizer, bos_token=SPECIALS[0], eos_token=SPECIALS[1], pad_token=SPECIALS[7]
+    )
     wrapped.save_pretrained(local)
-    info = {"vocab_size": 16384, "fit_documents": len(texts),
-            "fit_bytes": sum(len(text.encode("utf-8")) for text in texts), "files": {}}
+    info = {
+        "vocab_size": 16384,
+        "fit_documents": len(texts),
+        "fit_bytes": sum(len(text.encode("utf-8")) for text in texts),
+        "files": {},
+    }
     for name in ("tokenizer.json", "tokenizer_config.json", "special_tokens_map.json"):
         path = local / name
         data = path.read_bytes()
@@ -295,7 +328,9 @@ def build(config: BuildConfig, local: Path):
     if StoragePath(f"{train}/validated.json").exists():
         train_stats = read_json(f"{train}/validated.json")
     else:
-        train_stats = write_cache(train, (text for summary in summaries for text in raw_texts(summary)), tokenizer, config.seed)
+        train_stats = write_cache(
+            train, (text for summary in summaries for text in raw_texts(summary)), tokenizer, config.seed
+        )
     if train_stats["tokens"] < 1_600_000_000:
         raise ValueError("Cache must exceed the full 1,476,919,296-token run budget with margin")
     cache_map = {"train": train}
@@ -317,8 +352,15 @@ def build(config: BuildConfig, local: Path):
         LOGGER.info("eval %s: %s", name, stats)
     if set(cache_map) != set(source_components):
         raise ValueError("Incomplete frozen-recipe cache coverage")
-    baseline = {"status": "validated", "kind": manifest["baseline_kind"], "config": asdict(config),
-                "tokenizer": tokenizer_info, "cache_map": cache_map, "train": train_stats, "evaluation": eval_stats}
+    baseline = {
+        "status": "validated",
+        "kind": manifest["baseline_kind"],
+        "config": asdict(config),
+        "tokenizer": tokenizer_info,
+        "cache_map": cache_map,
+        "train": train_stats,
+        "evaluation": eval_stats,
+    }
     write_json(f"{config.output}/baseline.json", baseline)
     LOGGER.info("BASELINE COMPLETE: %s/baseline.json", config.output)
 

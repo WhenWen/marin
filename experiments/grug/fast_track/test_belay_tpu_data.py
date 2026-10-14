@@ -20,9 +20,12 @@ def test_cache_preserves_document_boundaries_and_unicode(tmp_path):
     backend = Tokenizer(BPE())
     backend.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=False)
     backend.decoder = decoders.ByteLevel()
-    backend.train_from_iterator(texts, trainers.BpeTrainer(
-        vocab_size=512, initial_alphabet=pre_tokenizers.ByteLevel.alphabet(), special_tokens=list(SPECIALS)
-    ))
+    backend.train_from_iterator(
+        texts,
+        trainers.BpeTrainer(
+            vocab_size=512, initial_alphabet=pre_tokenizers.ByteLevel.alphabet(), special_tokens=list(SPECIALS)
+        ),
+    )
     tokenizer_dir = tmp_path / "tokenizer"
     PreTrainedTokenizerFast(
         tokenizer_object=backend, bos_token=SPECIALS[0], eos_token=SPECIALS[1], pad_token=SPECIALS[7]
