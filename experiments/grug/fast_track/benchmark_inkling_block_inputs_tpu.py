@@ -81,9 +81,7 @@ def finite_errors(actual, expected):
 
 def numerical_gate(row):
     return all(
-        baseline["finite"]
-        and candidate["finite"]
-        and candidate[metric] <= 1.25 * baseline[metric] + 1e-3
+        baseline["finite"] and candidate["finite"] and candidate[metric] <= 1.25 * baseline[metric] + 1e-3
         for key, baseline in row["errors"]["reference"].items()
         for candidate in (row["errors"]["block-inputs"][key],)
         for metric in ("max_abs_error", "relative_l2")
@@ -190,7 +188,10 @@ def main():
                         row["passed"] = numerical_gate(row)
                         report["numerics"].append(row)
                         save()
-                        print(json.dumps({k: row[k] for k in ("seed", "length", "window", "scenario", "passed")}), flush=True)
+                        print(
+                            json.dumps({k: row[k] for k in ("seed", "length", "window", "scenario", "passed")}),
+                            flush=True,
+                        )
         if not all(row["passed"] for row in report["numerics"]):
             raise ValueError("Independent FP64 numerical gate failed")
         if not args.cpu_preflight:
@@ -220,7 +221,9 @@ def main():
                             for scenario in ("one-document", "packed1024"):
                                 segments = jnp.zeros((batch, length), jnp.int32)
                                 if scenario == "packed1024":
-                                    segments = jnp.broadcast_to(jnp.arange(length, dtype=jnp.int32) // 1024, (batch, length))
+                                    segments = jnp.broadcast_to(
+                                        jnp.arange(length, dtype=jnp.int32) // 1024, (batch, length)
+                                    )
                                 inputs = q, k, v, band, segments, ct
                                 case = {"shape": shape, "window": window, "seed": seed, "scenario": scenario}
                                 for name, fn in functions.items():
@@ -245,7 +248,9 @@ def main():
                                     for repeat in range(2):
                                         values = jax.block_until_ready(compiled[name](*inputs))
                                         finite = bool(
-                                            jax.jit(lambda xs: jnp.stack([jnp.isfinite(x).all() for x in xs]).all())(values)
+                                            jax.jit(lambda xs: jnp.stack([jnp.isfinite(x).all() for x in xs]).all())(
+                                                values
+                                            )
                                         )
                                         report["warmups"].append(
                                             {**case, "implementation": name, "repeat": repeat, "finite": finite}
