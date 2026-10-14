@@ -8,10 +8,12 @@ global batch and sequence length match the frozen run; no optimizer updates run.
 """
 
 import argparse
+import atexit
 import json
 import os
 import statistics
 import time
+from contextlib import nullcontext
 from pathlib import Path
 
 import equinox as eqx
@@ -22,12 +24,14 @@ import jaxlib
 import jmp
 from jax.sharding import PartitionSpec as P
 from levanter.callbacks.profiler import ProfileOptionsConfig
-from levanter.distributed import DistributedConfig
+from levanter.distributed import DistributedConfig, _finalize_iris_jax_after_clean_exit, _unregister_iris_exit_handler
 from levanter.grug.attention import AttentionMask
 from levanter.grug.sharding import compact_grug_mesh
 
-from experiments.grug.fast_track.belay_tpu import SOURCE_CONFIG, base16_model_config
+from experiments.grug.fast_track.belay_tpu import SOURCE_CONFIG, base16_model_config, require_tpu_rounding
+from experiments.grug.fast_track.belay_tpu_execution import selected_execution, selected_model_config
 from experiments.grug.fast_track.model import Transformer
+from experiments.grug.fast_track.train import _to_dropless_local
 
 
 def main() -> None:
@@ -35,6 +39,10 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, help="Override only the diagnostic batch; default is the frozen 128.")
     parser.add_argument("--benchmark-steps", type=int, default=0)
     parser.add_argument("--profile-steps", type=int, default=0)
+    parser.add_argument("--execution-profile", choices=("reference", "selected"), default="reference")
+    parser.add_argument("--segments", choices=("packed", "reused"), default="packed")
+    parser.add_argument("--dropless-eval", action="store_true", help="Validate unreduced loss on the expert-collapsed mesh.")
+    parser.add_argument("--job-completion", choices=("on-exit", "deferred"), default="on-exit")
     parser.add_argument(
         "--training-objective", action="store_true", help="Use recorded trainer JAX flags and loss terms."
     )
@@ -51,16 +59,24 @@ def main() -> None:
     if args.training_objective:
         for name, value in source["trainer"]["trainer"]["jax_config"].items():
             jax.config.update(name, value)
+    require_tpu_rounding()
     DistributedConfig().initialize()
+    if args.job_completion == "deferred":
+        _unregister_iris_exit_handler()
+        atexit.register(_finalize_iris_jax_after_clean_exit)
     devices = jax.devices()
     if any(d.platform != "tpu" or "v4" not in d.device_kind for d in devices):
         raise RuntimeError("Full-model validation requires TPU v4")
     config = base16_model_config()
+    if args.execution_profile == "selected":
+        if len(devices) != 16:
+            raise ValueError("Validate the selected profile on all 16 TPU v4 chips")
+        config = selected_model_config(config)
     batch = source["trainer"]["trainer"]["train_batch_size"] if args.batch_size is None else args.batch_size
     if batch <= 0 or batch % len(devices):
         raise ValueError("Diagnostic batch must be positive and divisible by the TPU chip count")
     policy = jmp.get_policy("params=float32,compute=bfloat16,output=bfloat16")
-    mesh = compact_grug_mesh(expert_axis_size=len(devices), replica_axis_size=1)
+    mesh = compact_grug_mesh(expert_axis_size=1 if args.dropless_eval else len(devices), replica_axis_size=1)
     output = Path(os.environ.get("IRIS_OUTPUT_DIR", "outputs"))
     output.mkdir(parents=True, exist_ok=True)
     report = {
@@ -85,6 +101,9 @@ def main() -> None:
         "error": None,
         "status": "initializing",
         "training_objective": args.training_objective,
+        "execution_profile": args.execution_profile,
+        "segments": args.segments,
+        "dropless_eval": args.dropless_eval,
         "jax_config": {
             "jax_softmax_custom_jvp": jax.config.jax_softmax_custom_jvp,
             "jax_threefry_partitionable": jax.config.jax_threefry_partitionable,
@@ -102,30 +121,56 @@ def main() -> None:
                 stream.write(payload)
 
     save_report()
-    with jax.set_mesh(mesh):
+    with jax.set_mesh(mesh), selected_execution() if args.execution_profile == "selected" else nullcontext():
         print(f"Initializing base16 d512 on {len(devices)} TPU v4 chips, batch={batch}, seq=4096", flush=True)
         model = eqx.filter_jit(lambda key: Transformer.init(config, key=key))(jax.random.key(0))
+        if args.dropless_eval:
+            model = _to_dropless_local(model, implementation="scatter")
         spec = P(("replica_dcn", "data", "expert"), None)
         tokens = jax.sharding.reshard(
             jax.random.randint(jax.random.key(1), (batch, config.max_seq_len), 0, config.vocab_size), spec
         )
         weights = jax.sharding.reshard(jnp.ones(tokens.shape, jnp.float32), spec)
-        segments = jax.sharding.reshard(jnp.broadcast_to(jnp.arange(config.max_seq_len) // 1024, tokens.shape), spec)
+        labels = jnp.arange(config.max_seq_len) // (1024 if args.segments == "packed" else 137)
+        if args.segments == "reused":
+            labels = labels % 3
+        segments = jax.sharding.reshard(jnp.broadcast_to(labels, tokens.shape), spec)
         mask = AttentionMask.causal().with_segment_ids(segments)
 
-        def loss(model, tokens, weights, mask):
+        def losses(model, tokens, weights, mask):
             return policy.cast_to_compute(model).next_token_loss(
                 tokens,
                 weights,
                 mask=mask,
                 train_terms=args.training_objective,
                 logsumexp_weight=source["trainer"]["z_loss_weight"] if args.training_objective else None,
+                reduction="none" if args.dropless_eval else "mean",
             )
+
+        def loss(model, tokens, weights, mask):
+            return jnp.mean(losses(model, tokens, weights, mask))
+
+        if args.dropless_eval:
+            per_position = jax.block_until_ready(eqx.filter_jit(losses)(model, tokens, weights, mask))
+            report["unreduced_loss_shape"] = list(per_position.shape)
+            report["unreduced_loss_finite"] = bool(jnp.isfinite(per_position).all())
+            save_report()
+            if per_position.shape != tokens.shape or not report["unreduced_loss_finite"]:
+                raise ValueError("Dropless evaluation did not return finite per-position losses")
+            del per_position
 
         start = time.monotonic()
         print("Compiling and executing forward/backward", flush=True)
         compiled = eqx.filter_jit(eqx.filter_value_and_grad(loss)).lower(model, tokens, weights, mask).compile()
         report["compile_time"] = time.monotonic() - start
+        if args.execution_profile == "selected" and rank == 0:
+            hlo = compiled.compiled.as_text()
+            (output / "optimized-hlo.txt").write_text(hlo)
+            report["kda_forward_present"] = "kda_tpu_state_forward" in hlo
+            report["kda_backward_present"] = "kda_tpu_state_backward" in hlo
+            if args.artifact_prefix:
+                with fsspec.open(f"{args.artifact_prefix}/rank-{rank}/optimized-hlo.txt", "w") as stream:
+                    stream.write(hlo)
         loss_value, grads = jax.block_until_ready(compiled(model, tokens, weights, mask))
         report["compile_and_first_execute_seconds"] = time.monotonic() - start
         finite = jnp.stack([jnp.all(jnp.isfinite(x)) for x in jax.tree.leaves(grads) if eqx.is_array(x)]).all()

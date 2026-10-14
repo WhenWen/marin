@@ -18,26 +18,7 @@ import jaxlib
 
 from experiments.grug.fast_track.benchmark_kda_parameter_scan_tpu import compare
 from experiments.grug.moe import kda
-from experiments.grug.moe.kda_state_tpu import state_pass
-
-
-def tpu_recurrence(prep, state, mm, lead, dk, dv, *, scan_impl):
-    """Diagnostic adapter; the caller places all arrays on one explicit device."""
-    n, c = prep.kw.shape[-3:-1]
-
-    def flatten(x):
-        return x.reshape(-1, n, *x.shape[-2:])
-
-    out, final = state_pass(
-        flatten(prep.q_inflate),
-        flatten(prep.attn),
-        flatten(prep.kw),
-        flatten(prep.k_cumdecay),
-        flatten(prep.v_pseudo),
-        prep.decay.reshape(-1, n, 1, dk),
-        state.reshape(-1, dk, dv),
-    )
-    return out.reshape(*lead, n, c, dv), final.reshape(*lead, dk, dv)
+from experiments.grug.fast_track.belay_tpu_ops import tpu_recurrence
 
 
 def evaluate(inputs, cotangent, final_cotangent, segments, *, mode):

@@ -19,7 +19,6 @@ from contextlib import ExitStack
 from dataclasses import asdict, dataclass, replace
 from functools import partial
 from pathlib import Path
-from typing import Any
 from unittest.mock import patch
 
 import draccus
@@ -36,23 +35,20 @@ from levanter.callbacks.watch import WatchConfig
 from levanter.data.text.examples import GrugLmExample
 from levanter.distributed import DistributedConfig, _finalize_iris_jax_after_clean_exit, _unregister_iris_exit_handler
 from levanter.grug._moe import ep_ragged_all_to_all
-from levanter.grug.loss import fused_linear_softmax_cross_entropy_loss
 from levanter.grug.sharding import compact_grug_mesh
 from levanter.kernels.pallas.fused_cross_entropy_loss.config import BlockSizes
 from levanter.optim.config import OptimizerConfig
 
-from experiments.grug.fast_track import benchmark_kda_state_tpu, qb_balancing
+from experiments.grug.fast_track import belay_tpu_ops, qb_balancing
 from experiments.grug.fast_track import model as model_module
 from experiments.grug.fast_track.belay_flops import training_flops_per_token
 from experiments.grug.fast_track.belay_tpu import SOURCE_CONFIG, base16_model_config, require_tpu_rounding
-from experiments.grug.fast_track.benchmark_projection_tpu import gathered_projection
-from experiments.grug.fast_track.column_sharded_embedding import column_sharded_embedding
 from experiments.grug.fast_track.model import AttnResLayerBackward
 from experiments.grug.fast_track.moe_expert_residuals import saved_expert_backward, saved_expert_forward
 from experiments.grug.fast_track.moe_saved_output import saved_output_routed_experts
 from experiments.grug.fast_track.router_lookup import unrolled_router_logits
 from experiments.grug.fast_track.train import _flat_train_step, _make_train_step, _router_ties_active, initial_state
-from experiments.grug.moe import kda, kda_state_tpu
+from experiments.grug.moe import kda
 
 mpl.use("Agg")
 import matplotlib.pyplot as plt
@@ -70,33 +66,6 @@ class StepMeasurement:
 
 def _independent_dispatch(source: jax.Array, previous_residuals: tuple[jax.Array, ...]) -> jax.Array:
     return source
-
-
-def _pallas_cross_entropy(
-    hidden: jax.Array,
-    lm_head: jax.Array,
-    labels: jax.Array,
-    *,
-    implementation: str,
-    block_sizes: BlockSizes,
-    **kwargs: Any,
-) -> jax.Array:
-    if implementation != "xla_fast_bwd" or block_sizes != model_module._CE_BLOCK_SIZES or lm_head.shape != (512, 16384):
-        raise ValueError("The Pallas CE comparison requires the frozen base16 head")
-    return fused_linear_softmax_cross_entropy_loss(
-        hidden,
-        lm_head,
-        labels,
-        implementation="pallas_tpu",
-        block_sizes=BlockSizes(1024, 512, 512),
-        **kwargs,
-    )
-
-
-def _column_embedding_gather(table: jax.Array, ids: jax.Array) -> jax.Array:
-    if table.shape != (524288, 512) or ids.shape != (128, 4096) or table.dtype != jnp.bfloat16:
-        raise ValueError("The column embedding comparison requires the frozen base16 bigram table")
-    return column_sharded_embedding(table, ids)
 
 
 def main() -> None:
@@ -321,10 +290,10 @@ def main() -> None:
                     patch.object(ep_ragged_all_to_all, "_routed_experts", saved_output_routed_experts)
                 )
             if args.second_embedding == "column":
-                contexts.enter_context(patch.object(model_module, "_replicated_fp32_gather", _column_embedding_gather))
+                contexts.enter_context(patch.object(model_module, "_replicated_fp32_gather", belay_tpu_ops.column_embedding_gather))
             if args.cross_entropy == "pallas512":
                 contexts.enter_context(
-                    patch.object(model_module, "fused_linear_softmax_cross_entropy_loss", _pallas_cross_entropy)
+                    patch.object(model_module, "fused_linear_softmax_cross_entropy_loss", belay_tpu_ops.pallas_cross_entropy)
                 )
             if args.router_lookup == "unrolled":
                 contexts.enter_context(patch.object(model_module, "_selected_router_logits", unrolled_router_logits))
@@ -361,16 +330,11 @@ def main() -> None:
                     )
                 )
             if args.projection_weights == "gather":
-                contexts.enter_context(patch.object(model_module, "_proj", gathered_projection))
+                contexts.enter_context(patch.object(model_module, "_proj", belay_tpu_ops.gathered_projection))
             if args.kda_state == "pallas":
-                contexts.enter_context(
-                    patch.object(kda, "_parallel_chunk_recurrence", benchmark_kda_state_tpu.tpu_recurrence)
-                )
                 precision = jax.lax.Precision.HIGH if args.kda_state_precision == "high" else jax.lax.Precision.HIGHEST
                 contexts.enter_context(
-                    patch.object(
-                        benchmark_kda_state_tpu, "state_pass", partial(kda_state_tpu.state_pass, precision=precision)
-                    )
+                    patch.object(kda, "_parallel_chunk_recurrence", partial(belay_tpu_ops.tpu_recurrence, precision=precision))
                 )
             if args.accepted_mask != "production":
                 implementation = {

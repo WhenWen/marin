@@ -18,7 +18,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from experiments.grug.fast_track.benchmark_kda_state_tpu import evaluate, tpu_recurrence
+from experiments.grug.fast_track.benchmark_kda_state_tpu import evaluate
+from experiments.grug.fast_track.belay_tpu_ops import tpu_recurrence
 from experiments.grug.moe import kda
 
 
