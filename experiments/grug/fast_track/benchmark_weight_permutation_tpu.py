@@ -18,6 +18,7 @@ import jax.numpy as jnp
 import jaxlib
 import ml_dtypes
 import numpy as np
+from levanter.grug._moe.ep_ragged_all_to_all import _permute_assignment_weights_sort
 
 from experiments.grug.fast_track.benchmark_moe_scalar_permutation_tpu import DISTRIBUTIONS
 from experiments.grug.fast_track.benchmark_moe_scalar_permutation_tpu import fixture as routing_fixture
@@ -30,7 +31,7 @@ def permute_weights(order, weights, *, implementation, shared_inverse):
     if implementation == "reference":
         result = weights[order]
     elif implementation == "sort":
-        result = jax.lax.sort_key_val(inverse, weights)[1]
+        result = _permute_assignment_weights_sort(weights, order)
     elif implementation == "scatter":
         result = jnp.zeros_like(weights).at[inverse].set(weights, unique_indices=True)
     else:

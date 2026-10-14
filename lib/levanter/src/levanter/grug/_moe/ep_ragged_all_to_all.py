@@ -620,6 +620,15 @@ def _restore_assignment_scalars_sort(values, sorted_indices):
     return jax.lax.sort_key_val(sorted_indices, values)[1]
 
 
+def _permute_assignment_weights(weights, sorted_indices):
+    return weights[sorted_indices]
+
+
+def _permute_assignment_weights_sort(weights, sorted_indices):
+    """Place each assignment's weight at its inverse-permutation position."""
+    return jax.lax.sort_key_val(jnp.argsort(sorted_indices), weights)[1]
+
+
 def _routed_experts_bwd(layout, residuals, out_cotangent):
     weights, routing, chunk_residuals = residuals
     assignments = routing.sorted_indices.shape[0]
@@ -639,7 +648,7 @@ def _routed_experts_bwd(layout, residuals, out_cotangent):
                 weights=weights_f32,
             )
         else:
-            sorted_weights = weights_f32.reshape(-1)[routing.sorted_indices]
+            sorted_weights = _permute_assignment_weights(weights_f32.reshape(-1), routing.sorted_indices)
             token_cotangent = out_cotangent[routing.sorted_indices // layout.topk].astype(jnp.float32)
             returned_cotangent = (token_cotangent * sorted_weights[:, None]).astype(out_cotangent.dtype)
 

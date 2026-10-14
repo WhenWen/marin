@@ -99,6 +99,7 @@ def main() -> None:
     parser.add_argument("--projection-weights", choices=("production", "gather"), default="production")
     parser.add_argument("--moe-dispatch", choices=("serialized", "overlap"), default="serialized")
     parser.add_argument("--moe-scalar-permutation", choices=("production", "sort"), default="production")
+    parser.add_argument("--moe-weight-permutation", choices=("reference", "sort"), default="reference")
     parser.add_argument("--qb-quantile", choices=("reference", "block128", "two-stage"), default="reference")
     parser.add_argument("--router-lookup", choices=("reference", "unrolled"), default="reference")
     parser.add_argument(
@@ -162,6 +163,7 @@ def main() -> None:
         "projection_weights": args.projection_weights,
         "moe_dispatch": args.moe_dispatch,
         "moe_scalar_permutation": args.moe_scalar_permutation,
+        "moe_weight_permutation": args.moe_weight_permutation,
         "job_completion": args.job_completion,
         "kda_xla_scan_impl": config.kda_xla_scan_impl,
         "accepted_mask": args.accepted_mask,
@@ -267,6 +269,14 @@ def main() -> None:
                 )
             if args.moe_dispatch == "overlap":
                 contexts.enter_context(patch.object(ep_ragged_all_to_all, "_serialize_dispatch", _independent_dispatch))
+            if args.moe_weight_permutation == "sort":
+                contexts.enter_context(
+                    patch.object(
+                        ep_ragged_all_to_all,
+                        "_permute_assignment_weights",
+                        ep_ragged_all_to_all._permute_assignment_weights_sort,
+                    )
+                )
             if args.moe_scalar_permutation == "sort":
                 contexts.enter_context(
                     patch.object(
