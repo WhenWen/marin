@@ -26,9 +26,7 @@ def uint32_transport(operand, output, *metadata, axis_name):
     """Keep accepted row intervals while transporting raw BF16 pairs as uint32."""
     if operand.dtype != jnp.bfloat16:
         return jax.lax.ragged_all_to_all(operand, output, *metadata, axis_name=axis_name)
-    result = jax.lax.ragged_all_to_all(
-        pack_bf16_pairs(operand), pack_bf16_pairs(output), *metadata, axis_name=axis_name
-    )
+    result = jax.lax.ragged_all_to_all(pack_bf16_pairs(operand), pack_bf16_pairs(output), *metadata, axis_name=axis_name)
     return unpack_bf16_pairs(result)
 
 

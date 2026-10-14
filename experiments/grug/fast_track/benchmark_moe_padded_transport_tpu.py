@@ -351,7 +351,11 @@ def main():
                                             exact &= mismatches == 0
                                     branch_ok = all(
                                         bool(np.asarray(shard.data)[0])
-                                        == (False if implementation in ("reference", "pre-shaped", "uint32") else overflow)
+                                        == (
+                                            False
+                                            if implementation in ("reference", "pre-shaped", "uint32")
+                                            else overflow
+                                        )
                                         for shard in branches.addressable_shards
                                     )
                                     result_row["implementations"][implementation] = dict(
