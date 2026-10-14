@@ -197,6 +197,9 @@ def main():
         primitive_sha256=hashlib.sha256(
             Path(__file__).with_name("moe_padded_transport_tpu.py").read_bytes()
         ).hexdigest(),
+        transport_helper_sha256=hashlib.sha256(
+            Path(__file__).with_name("moe_transport_tpu.py").read_bytes()
+        ).hexdigest(),
     )
 
     def save():
