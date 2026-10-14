@@ -75,12 +75,15 @@ def lookup(logits, selected, *, implementation):
     return selected_logits(logits, selected, logits.shape[-1], implementation)
 
 
-def run(logits, selected, cotangent, *, implementation, mode):
+def run(logits, selected, cotangent, *, implementation, mode, expert_major):
+    if expert_major:
+        logits = logits.T
     fn = partial(lookup, selected=selected, implementation=implementation)
     if mode == "forward":
         return (fn(logits),)
     output, pullback = jax.vjp(fn, logits)
-    return output, pullback(cotangent)[0]
+    gradient = pullback(cotangent)[0]
+    return output, gradient.T if expert_major else gradient
 
 
 def fixture(seed, tokens, experts, distribution):
@@ -125,6 +128,7 @@ def main():
     parser.add_argument("--revision", required=True)
     parser.add_argument("--artifact-prefix", required=True)
     parser.add_argument("--cpu-check", action="store_true")
+    parser.add_argument("--expert-major", action="store_true")
     args = parser.parse_args()
     device = jax.local_devices(backend="cpu" if args.cpu_check else "tpu")[0]
     if not args.cpu_check and device.device_kind != "TPU v4":
@@ -141,6 +145,7 @@ def main():
         "jaxlib_version": jaxlib.__version__,
         "device_kind": device.device_kind,
         "cpu_check": args.cpu_check,
+        "expert_major": args.expert_major,
         "xla_flags": os.environ.get("XLA_FLAGS", ""),
         "libtpu_init_args": os.environ.get("LIBTPU_INIT_ARGS", ""),
         "status": "running",
@@ -169,6 +174,9 @@ def main():
                         path = folder / f"fixture-{tokens}-{experts}-{seed}-{distribution}.npz"
                         np.savez(path, logits=host[0], selected=host[1], cotangent=host[2])
                         fs.put_file(str(path), f"{prefix}/{path.name}")
+                    if args.expert_major:
+                        host = (np.ascontiguousarray(host[0].T), *host[1:])
+                        expected = (expected[0], expected[1].T)
                     arrays = tuple(jax.device_put(a, device) for a in host)
                     modes = ("forward", "forward-backward") if tokens == 32768 else ("forward-backward",)
                     for mode in modes:
@@ -176,7 +184,9 @@ def main():
                         for name in IMPLEMENTATIONS:
                             key = (tokens, experts, name, mode)
                             if key not in compiled:
-                                fn = jax.jit(partial(run, implementation=name, mode=mode))
+                                fn = jax.jit(
+                                    partial(run, implementation=name, mode=mode, expert_major=args.expert_major)
+                                )
                                 start = time.monotonic()
                                 executable = fn.lower(*arrays).compile()
                                 compiled[key] = executable
