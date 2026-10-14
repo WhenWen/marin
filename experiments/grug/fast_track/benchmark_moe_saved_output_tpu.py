@@ -30,18 +30,21 @@ from experiments.grug.fast_track.belay_tpu import require_tpu_rounding
 from experiments.grug.fast_track.benchmark_moe_transport_tpu import _NAMES, _SPECS, evaluate, fixture, oracle
 from experiments.grug.fast_track.diagnose_kda_state_precision import errors
 from experiments.grug.fast_track.moe_saved_output import saved_output_routed_experts
+from experiments.grug.fast_track.moe_expert_residuals import saved_expert_backward, saved_expert_forward
 
-_IMPLEMENTATIONS = ("reference", "saved-output")
 _DISTRIBUTIONS = ("uniform", "sparse", "imbalanced", "empty", "zero-weight", "tiny-weight")
 
 
-def compile_operator(arrays, mesh, capacity, implementation):
+def compile_operator(arrays, mesh, capacity, implementation, comparison):
     with ExitStack() as stack:
         stack.enter_context(patch.object(ragged, "_accepted_assignments", ragged._accepted_assignments_cutoff))
         stack.enter_context(patch.object(ragged, "_restore_assignment_scalars", ragged._restore_assignment_scalars_sort))
         stack.enter_context(patch.object(ragged, "_permute_assignment_weights", ragged._permute_assignment_weights_sort))
-        if implementation == "saved-output":
+        if comparison == "expert-residuals" or implementation == "saved-output":
             stack.enter_context(patch.object(ragged, "_routed_experts", saved_output_routed_experts))
+        if implementation == "expert-residuals":
+            stack.enter_context(patch.object(ragged._RaggedDotExpertMlp, "forward", saved_expert_forward))
+            stack.enter_context(patch.object(ragged._RaggedDotExpertMlp, "backward", saved_expert_backward))
         return jax.jit(partial(evaluate, mesh=mesh, capacity_factor=capacity)).lower(*arrays).compile()
 
 
@@ -50,7 +53,9 @@ def main():
     parser.add_argument("--revision", required=True)
     parser.add_argument("--artifact-prefix", required=True)
     parser.add_argument("--cpu-check", action="store_true")
+    parser.add_argument("--comparison", choices=("saved-output", "expert-residuals"), default="saved-output")
     args = parser.parse_args()
+    implementations = ("reference", args.comparison)
     if not args.artifact_prefix.startswith("gs://marin-us-central2/"):
         raise ValueError("Keep artifacts in us-central2")
     if not args.cpu_check:
@@ -68,6 +73,7 @@ def main():
     fs, prefix = fsspec.core.url_to_fs(f"{args.artifact_prefix}/{name}")
     report = dict(
         revision=args.revision,
+        comparison=args.comparison,
         rank=rank,
         platform=devices[0].platform,
         status="running",
@@ -81,6 +87,7 @@ def main():
             filename: hashlib.sha256(Path(__file__).with_name(filename).read_bytes()).hexdigest()
             for filename in (
                 "moe_saved_output.py",
+                "moe_expert_residuals.py",
                 "benchmark_moe_saved_output_tpu.py",
                 "benchmark_moe_transport_tpu.py",
             )
@@ -120,10 +127,10 @@ def main():
                         )
                         row = dict(seed=seed, distribution=distribution, width=width, capacity=capacity, arms={})
                         outputs = {}
-                        for arm in _IMPLEMENTATIONS:
+                        for arm in implementations:
                             key = (width, capacity, arm)
                             if key not in compiled:
-                                compiled[key] = compile_operator(arrays, mesh, capacity, arm)
+                                compiled[key] = compile_operator(arrays, mesh, capacity, arm, args.comparison)
                             result, drops = jax.block_until_ready(compiled[key](*arrays))
                             outputs[arm] = tuple(
                                 np.asarray(multihost_utils.process_allgather(a, tiled=True)) for a in result
@@ -135,16 +142,20 @@ def main():
                                 drops=int(drops.sender_dropped),
                                 receiver_drops=int(drops.receiver_dropped),
                             )
-                        reference, candidate = (row["arms"][arm] for arm in _IMPLEMENTATIONS)
+                        reference, candidate = (row["arms"][arm] for arm in implementations)
                         row["exact_nonrouter"] = {
-                            name: outputs["reference"][index].tobytes() == outputs["saved-output"][index].tobytes()
+                            name: outputs["reference"][index].tobytes() == outputs[args.comparison][index].tobytes()
                             for index, name in enumerate(_NAMES)
                             if name != "dweights"
+                        }
+                        row["direct_errors"] = {
+                            name: errors(a, b)
+                            for name, a, b in zip(_NAMES, outputs[args.comparison], outputs["reference"], strict=True)
                         }
                         row["passed"] = bool(
                             reference["drops"] == candidate["drops"] == expected_drops
                             and reference["receiver_drops"] == candidate["receiver_drops"] == 0
-                            and all(row["exact_nonrouter"].values())
+                            and (args.comparison == "expert-residuals" or all(row["exact_nonrouter"].values()))
                             and all(
                                 reference["tensors"][name]["finite"]
                                 and candidate["tensors"][name]["finite"]
@@ -210,10 +221,10 @@ def main():
                         if index in (3, 4):
                             a = a / np.sqrt(shape[1])
                     arrays.append(a)
-                for arm in _IMPLEMENTATIONS:
+                for arm in implementations:
                     if arm not in compiled:
                         start = time.monotonic()
-                        compiled[arm] = compile_operator(arrays, mesh, 1.05, arm)
+                        compiled[arm] = compile_operator(arrays, mesh, 1.05, arm, args.comparison)
                         report.setdefault("compilation", []).append(
                             dict(
                                 width=width,
@@ -240,7 +251,7 @@ def main():
                         )
                     )
                 for repeat in range(8):
-                    for arm in (_IMPLEMENTATIONS if repeat % 2 == 0 else _IMPLEMENTATIONS[::-1]):
+                    for arm in (implementations if repeat % 2 == 0 else implementations[::-1]):
                         multihost_utils.sync_global_devices(f"saved-output-{width}-{seed}-{repeat}-{arm}")
                         start = time.monotonic()
                         jax.block_until_ready(compiled[arm](*arrays))
@@ -260,7 +271,7 @@ def main():
             )
             for width in (256, 512)
             for seed in (0, 1, 2)
-            for arm in _IMPLEMENTATIONS
+            for arm in implementations
         ]
         report["status"] = "completed"
         save()
