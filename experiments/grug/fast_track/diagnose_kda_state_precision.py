@@ -65,9 +65,11 @@ def errors(actual, reference):
         "max_abs_error": float(np.max(np.abs(delta))),
         "mean_abs_error": float(np.mean(np.abs(delta))),
         "relative_l2": float(np.linalg.norm(delta.ravel()) / max(norm, 1e-300)),
-        "cosine": float(np.vdot(actual.ravel(), reference.ravel()) / (norm * actual_norm))
-        if norm > 0 and actual_norm > 0
-        else None,
+        "cosine": (
+            float(np.vdot(actual.ravel(), reference.ravel()) / (norm * actual_norm))
+            if norm > 0 and actual_norm > 0
+            else None
+        ),
         "reference_l2": float(norm),
         "finite": bool(np.isfinite(actual).all() and np.isfinite(reference).all()),
     }
