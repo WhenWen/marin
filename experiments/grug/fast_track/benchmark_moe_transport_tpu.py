@@ -8,9 +8,9 @@ gradients. Full-size calls measure output plus backward without training.
 """
 
 import argparse
+import json
 import math
 import os
-import json
 import statistics
 import time
 from contextlib import nullcontext
@@ -69,8 +69,8 @@ def oracle(x, weights, valid, up, down, selected, cotangent, capacity_factor, sh
     """Evaluate represented inputs with FP64 products and explicit derivatives."""
     accepted = accepted_routes(selected, valid, up.shape[0], capacity_factor, shards)
     x, weights, up, down, cotangent = (
-        np.asarray(a, np.float64) for a in (x, weights, up.astype(ml_dtypes.bfloat16),
-                                           down.astype(ml_dtypes.bfloat16), cotangent)
+        np.asarray(a, np.float64)
+        for a in (x, weights, up.astype(ml_dtypes.bfloat16), down.astype(ml_dtypes.bfloat16), cotangent)
     )
     output = np.zeros((len(x), down.shape[-1]), np.float64)
     dx, dw, du, dd = (np.zeros_like(a) for a in (x, weights, up, down))
@@ -94,13 +94,23 @@ def oracle(x, weights, valid, up, down, selected, cotangent, capacity_factor, sh
 def evaluate(x, weights, valid, up, down, selected, cotangent, *, mesh, capacity_factor):
     def local(a, w, mask, u, d, ids):
         return ragged._moe_mlp_ep_ragged_a2a_local(
-            a, ids, w, mask, u.astype(a.dtype), d.astype(a.dtype), activation_fn=relu_squared,
-            num_experts=up.shape[0], capacity_factor=capacity_factor, token_sharding_axes=("expert",),
+            a,
+            ids,
+            w,
+            mask,
+            u.astype(a.dtype),
+            d.astype(a.dtype),
+            activation_fn=relu_squared,
+            num_experts=up.shape[0],
+            capacity_factor=capacity_factor,
+            token_sharding_axes=("expert",),
             expert_chunks=2,
         )
 
     forward = jax.shard_map(
-        local, mesh=mesh, in_specs=(*_SPECS, P("expert", None)),
+        local,
+        mesh=mesh,
+        in_specs=(*_SPECS, P("expert", None)),
         out_specs=(P("expert", None), CapacityDrops(P(), P())),
     )
     output, pullback, drops = jax.vjp(
@@ -121,7 +131,7 @@ def fixture(seed, distribution, output_width):
     elif distribution == "empty":
         valid[:] = False
     x = rng.normal(size=(tokens, width)).astype(ml_dtypes.bfloat16)
-    weights = rng.uniform(.05, .4, size=(tokens, topk)).astype(np.float32)
+    weights = rng.uniform(0.05, 0.4, size=(tokens, topk)).astype(np.float32)
     up = (rng.normal(size=(experts, width, intermediate)) / np.sqrt(width)).astype(np.float32)
     down = (rng.normal(size=(experts, intermediate, output_width)) / np.sqrt(intermediate)).astype(np.float32)
     ct = rng.normal(size=(tokens, output_width)).astype(ml_dtypes.bfloat16)
@@ -143,9 +153,18 @@ def main():
     folder = Path(os.environ.get("IRIS_OUTPUT_DIR", "outputs")) / f"moe-transport-rank-{rank}"
     folder.mkdir(parents=True, exist_ok=True)
     fs, prefix = fsspec.core.url_to_fs(f"{args.artifact_prefix}/rank-{rank}")
-    report = {"revision": args.revision, "status": "running", "rank": rank, "numerics": [], "timings": [],
-              "full_shape_checks": [], "jax_version": jax.__version__, "xla_flags": os.environ.get("XLA_FLAGS", ""),
-              "logical_chunks": 2, "physical_chunks": {"reference": 2, "coalesced": 1}}
+    report = {
+        "revision": args.revision,
+        "status": "running",
+        "rank": rank,
+        "numerics": [],
+        "timings": [],
+        "full_shape_checks": [],
+        "jax_version": jax.__version__,
+        "xla_flags": os.environ.get("XLA_FLAGS", ""),
+        "logical_chunks": 2,
+        "physical_chunks": {"reference": 2, "coalesced": 1},
+    }
 
     def save():
         path = folder / "moe-transport.json"
@@ -169,16 +188,27 @@ def main():
                     host = fixture(seed, distribution, output_width)
                     if rank == 0:
                         path = folder / f"fixture-{seed}-{distribution}-{output_width}.npz"
-                        np.savez(path, **dict(zip(("x", "weights", "valid", "up", "down", "selected", "cotangent"),
-                                                 host, strict=True)))
+                        np.savez(
+                            path,
+                            **dict(
+                                zip(("x", "weights", "valid", "up", "down", "selected", "cotangent"), host, strict=True)
+                            ),
+                        )
                         fs.put_file(str(path), f"{prefix}/{path.name}")
-                    for capacity in (.5, 1.05):
+                    for capacity in (0.5, 1.05):
                         expected, dropped = oracle(*host, capacity, 16)
-                        arrays = tuple(jax.make_array_from_callback(
-                            a.shape, NamedSharding(mesh, spec), lambda index, a=a: a[index]
-                        ) for a, spec in zip(host, specs, strict=True))
-                        row = {"seed": seed, "distribution": distribution, "output_width": output_width,
-                               "capacity_factor": capacity, "expected_drops": dropped, "implementations": {}}
+                        arrays = tuple(
+                            jax.make_array_from_callback(a.shape, NamedSharding(mesh, spec), lambda index, a=a: a[index])
+                            for a, spec in zip(host, specs, strict=True)
+                        )
+                        row = {
+                            "seed": seed,
+                            "distribution": distribution,
+                            "output_width": output_width,
+                            "capacity_factor": capacity,
+                            "expected_drops": dropped,
+                            "implementations": {},
+                        }
                         for name in ("reference", "coalesced"):
                             cache_key = (output_width, capacity, name)
                             if cache_key not in small_compiled:
@@ -186,16 +216,24 @@ def main():
                             result, drops = jax.block_until_ready(small_compiled[cache_key](*arrays))
                             gathered = tuple(multihost_utils.process_allgather(a, tiled=True) for a in result)
                             row["implementations"][name] = {
-                                "tensors": {key: errors(a, b) for key, a, b in zip(_NAMES, gathered, expected, strict=True)},
-                                "drops": int(drops.sender_dropped), "receiver_drops": int(drops.receiver_dropped),
+                                "tensors": {
+                                    key: errors(a, b) for key, a, b in zip(_NAMES, gathered, expected, strict=True)
+                                },
+                                "drops": int(drops.sender_dropped),
+                                "receiver_drops": int(drops.receiver_dropped),
                             }
                         a, b = (row["implementations"][name] for name in ("reference", "coalesced"))
-                        row["passed"] = a["drops"] == b["drops"] == dropped and a["receiver_drops"] == b["receiver_drops"] == 0
+                        row["passed"] = (
+                            a["drops"] == b["drops"] == dropped and a["receiver_drops"] == b["receiver_drops"] == 0
+                        )
                         row["passed"] &= all(
-                            a["tensors"][key]["finite"] and b["tensors"][key]["finite"] and all(
+                            a["tensors"][key]["finite"]
+                            and b["tensors"][key]["finite"]
+                            and all(
                                 b["tensors"][key][metric] <= 1.25 * a["tensors"][key][metric] + 1e-3
                                 for metric in ("max_abs_error", "relative_l2")
-                            ) for key in _NAMES
+                            )
+                            for key in _NAMES
                         )
                         report["numerics"].append(row)
                         save()
@@ -206,8 +244,15 @@ def main():
             return
         small_compiled.clear()
         for output_width in (256, 512):
-            shapes = ((524288, 256), (524288, 8), (524288,), (512, 256, 384),
-                      (512, 384, output_width), (524288, 8), (524288, output_width))
+            shapes = (
+                (524288, 256),
+                (524288, 8),
+                (524288,),
+                (512, 256, 384),
+                (512, 384, output_width),
+                (524288, 8),
+                (524288, output_width),
+            )
             dtypes = (jnp.bfloat16, jnp.float32, jnp.bool_, jnp.float32, jnp.float32, jnp.int32, jnp.bfloat16)
             arrays = []
             for index, (shape, spec, dtype) in enumerate(zip(shapes, specs, dtypes, strict=True)):
@@ -218,7 +263,7 @@ def main():
                     a = jnp.full(shape, 1 / 8, dtype, out_sharding=sharding)
                 elif index == 5:
                     ids = ((np.arange(shape[0])[:, None] * 17 + np.arange(8)[None, :] * 31) % 512).astype(np.int32)
-                    a = jax.make_array_from_callback(shape, sharding, lambda index: ids[index])
+                    a = jax.make_array_from_callback(shape, sharding, lambda index, ids=ids: ids[index])
                 else:
                     a = jax.random.normal(jax.random.key(10 + index), shape, dtype, out_sharding=sharding)
                     if index in (3, 4):
@@ -232,9 +277,16 @@ def main():
                 for _ in range(2):
                     result, drops = jax.block_until_ready(compiled[name](*arrays))
                 finite = bool(jax.jit(lambda xs: jnp.stack([jnp.isfinite(a).all() for a in xs]).all())(result))
-                report["full_shape_checks"].append({"output_width": output_width, "implementation": name,
-                    "finite": finite, "drops": int(drops.sender_dropped), "compile_seconds": elapsed,
-                    "compiler_temporary_bytes": compiled[name].memory_analysis().temp_size_in_bytes})
+                report["full_shape_checks"].append(
+                    {
+                        "output_width": output_width,
+                        "implementation": name,
+                        "finite": finite,
+                        "drops": int(drops.sender_dropped),
+                        "compile_seconds": elapsed,
+                        "compiler_temporary_bytes": compiled[name].memory_analysis().temp_size_in_bytes,
+                    }
+                )
                 if rank == 0:
                     path = folder / f"width-{output_width}-{name}-hlo.txt"
                     path.write_text(compiled[name].as_text())
@@ -245,12 +297,24 @@ def main():
                     multihost_utils.sync_global_devices(f"moe-{output_width}-{repeat}-{name}")
                     start = time.monotonic()
                     jax.block_until_ready(compiled[name](*arrays))
-                    report["timings"].append({"output_width": output_width, "implementation": name,
-                                              "repeat": repeat, "seconds": time.monotonic() - start})
+                    report["timings"].append(
+                        {
+                            "output_width": output_width,
+                            "implementation": name,
+                            "repeat": repeat,
+                            "seconds": time.monotonic() - start,
+                        }
+                    )
             save()
-        report["median_seconds"] = {str(width): {name: statistics.median(
-            r["seconds"] for r in report["timings"] if r["output_width"] == width and r["implementation"] == name
-        ) for name in ("reference", "coalesced")} for width in (256, 512)}
+        report["median_seconds"] = {
+            str(width): {
+                name: statistics.median(
+                    r["seconds"] for r in report["timings"] if r["output_width"] == width and r["implementation"] == name
+                )
+                for name in ("reference", "coalesced")
+            }
+            for width in (256, 512)
+        }
         report["status"] = "completed"
         save()
 
