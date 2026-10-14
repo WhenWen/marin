@@ -9,6 +9,7 @@ import hashlib
 import json
 import logging
 import math
+import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -62,6 +63,9 @@ class BuildConfig:
     sample_block_documents: int = 1024
     seed: int = 0
     reuse_samples_from: str | None = None
+    reuse_tokenizer_from: str | None = None
+    tokenizer_threads: int = 1
+    checkpoint_documents: int = 8192
 
 
 def read_json(url):
@@ -122,7 +126,9 @@ def freeze(config: BuildConfig):
     if config.reuse_samples_from is not None:
         parent_url = f"{config.reuse_samples_from}/frozen.json"
         parent = read_json(parent_url)
-        execution_fields = {"output", "revision", "reuse_samples_from"}
+        execution_fields = {
+            "output", "revision", "reuse_samples_from", "reuse_tokenizer_from", "tokenizer_threads", "checkpoint_documents"
+        }
         data_config = {key: value for key, value in asdict(config).items() if key not in execution_fields}
         parent_config = {key: value for key, value in parent["config"].items() if key not in execution_fields}
         if data_config != parent_config or any(
@@ -250,6 +256,15 @@ def raw_texts(summary):
 
 def fit_tokenizer(config: BuildConfig, summaries, local: Path):
     target = f"{config.output}/tokenizer.json"
+    if config.reuse_tokenizer_from is not None and not StoragePath(target).exists():
+        parent = read_json(f"{config.reuse_tokenizer_from}/frozen.json")
+        if parent["config"]["tokenizer_bytes"] != config.tokenizer_bytes or parent["config"]["seed"] != config.seed:
+            raise ValueError("Reused tokenizer must preserve the frozen fit configuration")
+        parent_samples = read_json(f"{config.reuse_tokenizer_from}/sample.json")
+        if [s["raw"] for s in parent_samples] != [s["raw"] for s in summaries]:
+            raise ValueError("Reused tokenizer must have the identical ordered fitting corpus")
+        info = read_json(f"{config.reuse_tokenizer_from}/tokenizer.json")
+        write_json(target, info)
     if StoragePath(target).exists():
         info = read_json(target)
         for name, identity in info["files"].items():
@@ -312,7 +327,47 @@ def fit_tokenizer(config: BuildConfig, summaries, local: Path):
     return info
 
 
-def write_cache(url, texts, tokenizer, seed=None):
+def tokenized_chunk(url, texts, tokenizer, tokenizer_digest):
+    """Resume a contiguous document chunk only when its text and tokenizer match."""
+    digest = hashlib.sha256()
+    for text in texts:
+        encoded = text.encode("utf-8")
+        digest.update(len(encoded).to_bytes(8, "little"))
+        digest.update(encoded)
+    inputs = {"text_sha256": digest.hexdigest(), "tokenizer_sha256": tokenizer_digest, "rows": len(texts)}
+    manifest_url = f"{url}.json"
+    data_url = f"{url}.parquet"
+    resumed = StoragePath(manifest_url).exists()
+    if resumed:
+        manifest = read_json(manifest_url)
+        if manifest["inputs"] != inputs or object_identity(data_url) != manifest["data"]:
+            raise ValueError(f"Tokenization checkpoint changed: {url}")
+        with StoragePath(data_url).open("rb") as stream:
+            table = pq.read_table(stream)
+        documents = [np.asarray(ids, dtype=np.int32) for ids in table["input_ids"].to_pylist()]
+    else:
+        processor = TextLmDatasetFormat().build_preprocessor(tokenizer, enforce_bos=True, enforce_eos=True)
+        documents = [
+            np.asarray(row["input_ids"], dtype=np.int32)
+            for offset in range(0, len(texts), 64)
+            for row in processor([{"text": text} for text in texts[offset : offset + 64]])
+        ]
+    if len(documents) != len(texts):
+        raise ValueError("Tokenization checkpoint row count changed")
+    for ids in documents:
+        if not len(ids) or ids[0] != tokenizer.bos_token_id or ids[-1] != tokenizer.eos_token_id:
+            raise ValueError("Missing document boundary token")
+        if ids.min() < 0 or ids.max() >= 16384:
+            raise ValueError("Token outside 16k vocabulary")
+    if not resumed:
+        table = pa.table({"input_ids": pa.array(documents, type=pa.list_(pa.int32()))})
+        with StoragePath(data_url).open("wb") as stream:
+            pq.write_table(table, stream, compression="zstd")
+        write_json(manifest_url, {"inputs": inputs, "data": object_identity(data_url)})
+    return documents
+
+
+def write_cache(url, texts, tokenizer, seed=None, *, tokenizer_digest=None, checkpoint_documents=0):
     processor = TextLmDatasetFormat().build_preprocessor(tokenizer, enforce_bos=True, enforce_eos=True)
     documents, batch = [], []
 
@@ -326,14 +381,27 @@ def write_cache(url, texts, tokenizer, seed=None):
             documents.append(ids)
         batch.clear()
 
-    for text in texts:
-        batch.append({"text": text})
-        if len(batch) == 64:
+    if checkpoint_documents:
+        if tokenizer_digest is None or checkpoint_documents % 64:
+            raise ValueError("Checkpoints require a tokenizer digest and a multiple of 64 documents")
+        for text in texts:
+            batch.append(text)
+            if len(batch) == checkpoint_documents:
+                chunk_url = f"{url}/tokenization/{len(documents):09d}"
+                documents.extend(tokenized_chunk(chunk_url, batch, tokenizer, tokenizer_digest))
+                batch.clear()
+                LOGGER.info("checkpointed %s: %d documents", url, len(documents))
+        if batch:
+            documents.extend(tokenized_chunk(f"{url}/tokenization/{len(documents):09d}", batch, tokenizer, tokenizer_digest))
+    else:
+        for text in texts:
+            batch.append({"text": text})
+            if len(batch) == 64:
+                flush()
+                if len(documents) % 64000 == 0:
+                    LOGGER.info("tokenizing %s: %d documents", url, len(documents))
+        if batch:
             flush()
-            if len(documents) % 64000 == 0:
-                LOGGER.info("tokenizing %s: %d documents", url, len(documents))
-    if batch:
-        flush()
     if seed is not None:
         np.random.default_rng(seed).shuffle(documents)
     lengths = [len(doc) for doc in documents]
@@ -354,18 +422,28 @@ def build(config: BuildConfig, local: Path):
         raise ValueError("All large reads and writes must stay in us-central2")
     if config.reuse_samples_from is not None and not config.reuse_samples_from.startswith(REGION_PREFIX):
         raise ValueError("Reused samples must be in us-central2")
+    if config.reuse_tokenizer_from is not None and not config.reuse_tokenizer_from.startswith(REGION_PREFIX):
+        raise ValueError("Reused tokenizer must be in us-central2")
+    if config.tokenizer_threads < 1 or config.checkpoint_documents < 64 or config.checkpoint_documents % 64:
+        raise ValueError("Use positive tokenizer threads and a checkpoint size divisible by 64")
+    os.environ["TOKENIZERS_PARALLELISM"] = "true"
+    os.environ["RAYON_NUM_THREADS"] = str(config.tokenizer_threads)
     set_jagged_array_read_cache_bytes(256_000_000)
     manifest = freeze(config)
     summaries = sample(config, manifest)
     tokenizer_info = fit_tokenizer(config, summaries, local)
     tokenizer = load_tokenizer(str(local))
     assert tokenizer.vocab_size == 16384
+    tokenizer_digest = hashlib.sha256(
+        json.dumps({name: item["sha256"] for name, item in tokenizer_info["files"].items()}, sort_keys=True).encode()
+    ).hexdigest()
+    cache_options = {"tokenizer_digest": tokenizer_digest, "checkpoint_documents": config.checkpoint_documents}
     train = f"{config.output}/train"
     if StoragePath(f"{train}/validated.json").exists():
         train_stats = read_json(f"{train}/validated.json")
     else:
         train_stats = write_cache(
-            train, (text for summary in summaries for text in raw_texts(summary)), tokenizer, config.seed
+            train, (text for summary in summaries for text in raw_texts(summary)), tokenizer, config.seed, **cache_options
         )
     if train_stats["tokens"] < 1_600_000_000:
         raise ValueError("Cache must exceed the full 1,476,919,296-token run budget with margin")
@@ -382,7 +460,7 @@ def build(config: BuildConfig, local: Path):
             stats = read_json(f"{url}/validated.json")
         else:
             subset = {"sources": {name: manifest["evaluation"]["sources"][name]}}
-            stats = write_cache(url, (text for _, text in eval_records(subset)), tokenizer)
+            stats = write_cache(url, (text for _, text in eval_records(subset)), tokenizer, **cache_options)
         cache_map[matches[0]] = root
         eval_stats[name] = stats
         LOGGER.info("eval %s: %s", name, stats)
@@ -407,11 +485,19 @@ def main():
     parser.add_argument("--output", required=True)
     parser.add_argument("--revision", required=True)
     parser.add_argument("--reuse-samples-from")
+    parser.add_argument("--reuse-tokenizer-from")
+    parser.add_argument("--tokenizer-threads", type=int, default=1)
     parser.add_argument("--local-tokenizer", type=Path, default=Path("/tmp/belay-tpu-tokenizer"))
     args = parser.parse_args()
     args.local_tokenizer.mkdir(parents=True, exist_ok=True)
     build(
-        BuildConfig(output=args.output, revision=args.revision, reuse_samples_from=args.reuse_samples_from),
+        BuildConfig(
+            output=args.output,
+            revision=args.revision,
+            reuse_samples_from=args.reuse_samples_from,
+            reuse_tokenizer_from=args.reuse_tokenizer_from,
+            tokenizer_threads=args.tokenizer_threads,
+        ),
         args.local_tokenizer,
     )
 
