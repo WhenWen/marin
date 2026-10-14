@@ -16,19 +16,11 @@ import jax
 import jax.numpy as jnp
 import jaxlib
 import numpy as np
-from levanter.grug._moe.ep_ragged_all_to_all import _accepted_assignments_inverse
-
-
-def accepted_cutoff(selected, order, sizes, accepted_sizes):
-    """Use one cutoff per expert; counts and assignment positions fit int32."""
-    positions = jnp.argsort(order)
-    cutoff = jnp.cumsum(sizes) - sizes + accepted_sizes
-    expert = jnp.minimum(selected, sizes.shape[0] - 1)
-    return (selected < sizes.shape[0]) & (positions < cutoff[expert])
+from levanter.grug._moe.ep_ragged_all_to_all import _accepted_assignments_cutoff, _accepted_assignments_inverse
 
 
 def acceptance(selected, order, sizes, accepted_sizes, *, cutoff, reuse_inverse):
-    fn = accepted_cutoff if cutoff else _accepted_assignments_inverse
+    fn = _accepted_assignments_cutoff if cutoff else _accepted_assignments_inverse
     mask = fn(selected, order, sizes, accepted_sizes)
     return (mask, jnp.argsort(order)) if reuse_inverse else mask
 

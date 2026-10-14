@@ -91,7 +91,9 @@ def main() -> None:
     parser.add_argument(
         "--kda-scan", choices=("production", "reference", "stacked", "stacked-split"), default="production"
     )
-    parser.add_argument("--accepted-mask", choices=("production", "reference", "inverse-direct"), default="production")
+    parser.add_argument(
+        "--accepted-mask", choices=("production", "reference", "inverse-direct", "cutoff"), default="production"
+    )
     parser.add_argument("--kda-state", choices=("production", "pallas"), default="production")
     parser.add_argument("--projection-weights", choices=("production", "gather"), default="production")
     parser.add_argument("--moe-dispatch", choices=("serialized", "overlap"), default="serialized")
@@ -255,11 +257,11 @@ def main() -> None:
             if args.kda_state == "pallas":
                 contexts.enter_context(patch.object(kda, "_parallel_chunk_recurrence", tpu_recurrence))
             if args.accepted_mask != "production":
-                implementation = (
-                    ep_ragged_all_to_all._accepted_assignments_inverse
-                    if args.accepted_mask == "inverse-direct"
-                    else ep_ragged_all_to_all._accepted_assignments_scatter
-                )
+                implementation = {
+                    "reference": ep_ragged_all_to_all._accepted_assignments_scatter,
+                    "inverse-direct": ep_ragged_all_to_all._accepted_assignments_inverse,
+                    "cutoff": ep_ragged_all_to_all._accepted_assignments_cutoff,
+                }[args.accepted_mask]
                 contexts.enter_context(patch.object(ep_ragged_all_to_all, "_accepted_assignments", implementation))
             compiled = step_fn.lower(leaves, batch, loop_active=None, router_tie_active=router_ties).compile()
         report["compile_time"] = time.monotonic() - start
