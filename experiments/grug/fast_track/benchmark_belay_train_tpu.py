@@ -41,11 +41,11 @@ from levanter.grug.sharding import compact_grug_mesh
 from levanter.kernels.pallas.fused_cross_entropy_loss.config import BlockSizes
 from levanter.optim.config import OptimizerConfig
 
+from experiments.grug.fast_track import benchmark_kda_state_tpu
 from experiments.grug.fast_track import model as model_module
 from experiments.grug.fast_track import qb_balancing
 from experiments.grug.fast_track.belay_flops import training_flops_per_token
 from experiments.grug.fast_track.belay_tpu import SOURCE_CONFIG, base16_model_config, require_tpu_rounding
-from experiments.grug.fast_track.benchmark_kda_state_tpu import tpu_recurrence
 from experiments.grug.fast_track.benchmark_projection_tpu import gathered_projection
 from experiments.grug.fast_track.column_sharded_embedding import column_sharded_embedding
 from experiments.grug.fast_track.model import AttnResLayerBackward
@@ -53,7 +53,7 @@ from experiments.grug.fast_track.moe_expert_residuals import saved_expert_backwa
 from experiments.grug.fast_track.moe_saved_output import saved_output_routed_experts
 from experiments.grug.fast_track.router_lookup import unrolled_router_logits
 from experiments.grug.fast_track.train import _flat_train_step, _make_train_step, _router_ties_active, initial_state
-from experiments.grug.moe import kda
+from experiments.grug.moe import kda, kda_state_tpu
 
 mpl.use("Agg")
 import matplotlib.pyplot as plt
@@ -129,6 +129,7 @@ def main() -> None:
         "--accepted-mask", choices=("production", "reference", "inverse-direct", "cutoff"), default="production"
     )
     parser.add_argument("--kda-state", choices=("production", "pallas"), default="production")
+    parser.add_argument("--kda-state-precision", choices=("highest", "high"), default="highest")
     parser.add_argument("--projection-weights", choices=("production", "gather"), default="production")
     parser.add_argument("--moe-dispatch", choices=("serialized", "overlap"), default="serialized")
     parser.add_argument("--moe-scalar-permutation", choices=("production", "sort"), default="production")
@@ -149,6 +150,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.steps < 1 or not args.artifact_prefix.startswith("gs://marin-us-central2/"):
         parser.error("Use positive steps and a unique us-central2 GCS artifact prefix")
+    if args.kda_state_precision == "high" and args.kda_state != "pallas":
+        parser.error("HIGH state precision requires the Pallas KDA state path")
     require_tpu_rounding()
     for name in ("LEVANTER_CE_XLA_FAST_BWD", "LEVANTER_PALLAS_TPU_BWD_USE_XLA_STREAMING_BENCH"):
         if name in os.environ:
@@ -208,6 +211,7 @@ def main() -> None:
         "attn_res_remat_attention_save_all": config.attn_res_remat_attention_save_all,
         "kda_scan": args.kda_scan,
         "kda_state": args.kda_state,
+        "kda_state_precision": args.kda_state_precision,
         "projection_weights": args.projection_weights,
         "moe_dispatch": args.moe_dispatch,
         "moe_scalar_permutation": args.moe_scalar_permutation,
@@ -258,7 +262,7 @@ def main() -> None:
             markersize=4,
             label=(
                 f"base16, CE {args.cross_entropy}, embedding {args.second_embedding}\n"
-                f"MoE {args.moe_weight_gradient}, expert {args.expert_backward}\n"
+                f"MoE {args.moe_weight_gradient}, expert {args.expert_backward}, KDA {args.kda_state_precision}\n"
                 f"seed {trainer['seed']}, EMA {args.ema_phase}"
             ),
         )
@@ -360,7 +364,15 @@ def main() -> None:
             if args.projection_weights == "gather":
                 contexts.enter_context(patch.object(model_module, "_proj", gathered_projection))
             if args.kda_state == "pallas":
-                contexts.enter_context(patch.object(kda, "_parallel_chunk_recurrence", tpu_recurrence))
+                contexts.enter_context(
+                    patch.object(kda, "_parallel_chunk_recurrence", benchmark_kda_state_tpu.tpu_recurrence)
+                )
+                precision = jax.lax.Precision.HIGH if args.kda_state_precision == "high" else jax.lax.Precision.HIGHEST
+                contexts.enter_context(
+                    patch.object(
+                        benchmark_kda_state_tpu, "state_pass", partial(kda_state_tpu.state_pass, precision=precision)
+                    )
+                )
             if args.accepted_mask != "production":
                 implementation = {
                     "reference": ep_ragged_all_to_all._accepted_assignments_scatter,
