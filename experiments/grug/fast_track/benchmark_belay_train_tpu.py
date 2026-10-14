@@ -244,7 +244,9 @@ def main() -> None:
         with ExitStack() as contexts:
             if args.qb_quantile == "block128":
                 contexts.enter_context(
-                    patch.object(qb_balancing, "histogram_quantile", partial(qb_balancing.histogram_quantile, block_bins=128))
+                    patch.object(
+                        qb_balancing, "histogram_quantile", partial(qb_balancing.histogram_quantile, block_bins=128)
+                    )
                 )
             if args.moe_dispatch == "overlap":
                 contexts.enter_context(patch.object(ep_ragged_all_to_all, "_serialize_dispatch", _independent_dispatch))

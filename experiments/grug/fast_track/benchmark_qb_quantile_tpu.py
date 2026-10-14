@@ -23,7 +23,9 @@ from experiments.grug.fast_track.qb_balancing import hierarchical_histogram_cros
 
 def hierarchical_quantile(counts, target_rank, *, block_bins):
     width = jnp.float32(4095.0) / counts.shape[-1]
-    return histogram_quantile(counts.astype(jnp.float32), target_rank, jnp.float32(-2048.0), width, block_bins=block_bins)
+    return histogram_quantile(
+        counts.astype(jnp.float32), target_rank, jnp.float32(-2048.0), width, block_bins=block_bins
+    )
 
 
 def fixture(seed, experts, bins, distribution):
