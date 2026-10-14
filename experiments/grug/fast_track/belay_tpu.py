@@ -15,6 +15,8 @@ import jax
 from fray.cluster import ResourceConfig
 from levanter.data.text.datasets import LmDataConfig
 from levanter.optim.config import OptimizerConfig
+from levanter.tokenizers import load_tokenizer
+from rigging.filesystem.storage_path import StoragePath
 
 from experiments.grug.fast_track.model import GrugModelConfig
 from experiments.grug.fast_track.train import GrugEvalConfig, GrugRunConfig, GrugTrainerConfig, _run_grug_local
@@ -57,6 +59,7 @@ def build_config(
     chips: int,
     microbatches: int,
     seed: int,
+    tokenizer_path: str | None = None,
 ) -> GrugRunConfig:
     """Decode the recorded recipe and apply documented TPU execution changes.
 
@@ -65,6 +68,8 @@ def build_config(
     """
     source = json.loads(SOURCE_CONFIG.read_text())
     data = source["data"]
+    if tokenizer_path is not None:
+        data["tokenizer"] = tokenizer_path
     if set(cache_map) != set(data["components"]):
         raise ValueError("cache-map must name exactly the frozen training and validation components")
     if not checkpoint_path.startswith(REGION_PREFIX):
@@ -126,10 +131,39 @@ def build_config(
     )
 
 
+def stage_data_baseline(url: str, directory: Path) -> tuple[dict[str, str], str, dict]:
+    """Verify a new-data manifest and stage its small tokenizer files per host."""
+    if not url.startswith(REGION_PREFIX):
+        raise ValueError("Data baseline must be in us-central2")
+    raw = StoragePath(url).read_bytes()
+    baseline = json.loads(raw)
+    if baseline["status"] != "validated" or baseline["tokenizer"]["vocab_size"] != 16384:
+        raise ValueError("Data baseline must be validated with a 16384-token vocabulary")
+    if baseline["train"]["tokens"] < 1_600_000_000:
+        raise ValueError("Data baseline is too small for the frozen run")
+    directory.mkdir(parents=True, exist_ok=True)
+    for name, identity in baseline["tokenizer"]["files"].items():
+        if Path(name).name != name or not identity["url"].startswith(REGION_PREFIX):
+            raise ValueError("Invalid tokenizer artifact path")
+        data = StoragePath(identity["url"]).read_bytes()
+        if hashlib.sha256(data).hexdigest() != identity["sha256"]:
+            raise ValueError(f"Tokenizer SHA256 mismatch: {name}")
+        (directory / name).write_bytes(data)
+    tokenizer = load_tokenizer(str(directory))
+    if (tokenizer.vocab_size, tokenizer.bos_token_id, tokenizer.eos_token_id, tokenizer.pad_token_id) != (16384, 0, 1, 7):
+        raise ValueError("Unexpected tokenizer vocabulary or document boundary IDs")
+    return baseline["cache_map"], str(directory), {
+        "manifest": url, "sha256": hashlib.sha256(raw).hexdigest(),
+        "kind": baseline["kind"], "tokenizer": baseline["tokenizer"],
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-id", required=True)
-    parser.add_argument("--cache-map", type=Path, required=True)
+    data_args = parser.add_mutually_exclusive_group(required=True)
+    data_args.add_argument("--cache-map", type=Path)
+    data_args.add_argument("--data-baseline", help="Validated GCS manifest for a separately labeled new data baseline.")
     parser.add_argument("--checkpoint-path", required=True)
     parser.add_argument("--chips", type=int, choices=(4, 16), default=16)
     parser.add_argument("--microbatches", type=int, default=1)
@@ -138,14 +172,22 @@ def main() -> None:
     parser.add_argument("--run", action="store_true", help="Execute; otherwise write the resolved configuration.")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
+    tokenizer_path, data_provenance = None, None
+    if args.data_baseline:
+        cache_map, tokenizer_path, data_provenance = stage_data_baseline(
+            args.data_baseline, args.output / "tokenizer"
+        )
+    else:
+        cache_map = json.loads(args.cache_map.read_text())
     config = build_config(
         run_id=args.run_id,
-        cache_map=json.loads(args.cache_map.read_text()),
+        cache_map=cache_map,
         output=args.output,
         checkpoint_path=args.checkpoint_path,
         chips=args.chips,
         microbatches=args.microbatches,
         seed=args.seed,
+        tokenizer_path=tokenizer_path,
     )
     with (args.output / "resolved-config.yaml").open("w") as stream:
         draccus.dump(config, stream)
@@ -159,6 +201,7 @@ def main() -> None:
         "chips": args.chips,
         "xla_flags": os.environ.get("XLA_FLAGS", ""),
         "equivalence": "unverified: EP topology differs; microbatches > 1 also change routing capacity",
+        "data_baseline": data_provenance,
     }
     (args.output / "provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")
     if not args.run:
