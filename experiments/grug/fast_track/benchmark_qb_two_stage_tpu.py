@@ -65,9 +65,7 @@ def threshold_only(indices, rank, **kwargs):
 
 
 def compile_pipeline(function, out_specs, *, kwargs, mesh, axes, inputs, rank):
-    mapped = jax.shard_map(
-        partial(function, **kwargs), mesh=mesh, in_specs=(P(axes, None), P()), out_specs=out_specs
-    )
+    mapped = jax.shard_map(partial(function, **kwargs), mesh=mesh, in_specs=(P(axes, None), P()), out_specs=out_specs)
     return jax.jit(mapped).lower(inputs, rank).compile()
 
 
@@ -221,10 +219,16 @@ def main():
                                     ),
                                     oracle_close=bool(np.allclose(actual[0], expected[0], atol=1e-5, rtol=1e-5)),
                                     oracle_roundoff_bound=bool(
-                                        np.all(np.abs(actual[0] - expected[0]) <= interpolation_roundoff_bound(expected, host_rank, bins))
+                                        np.all(
+                                            np.abs(actual[0] - expected[0])
+                                            <= interpolation_roundoff_bound(expected, host_rank, bins)
+                                        )
                                     ),
                                     oracle_max_error_bound_ratio=float(
-                                        np.max(np.abs(actual[0] - expected[0]) / interpolation_roundoff_bound(expected, host_rank, bins))
+                                        np.max(
+                                            np.abs(actual[0] - expected[0])
+                                            / interpolation_roundoff_bound(expected, host_rank, bins)
+                                        )
                                     ),
                                     oracle_max_abs_error=float(np.max(np.abs(actual[0] - expected[0]))),
                                     compile_seconds=compile_time,
