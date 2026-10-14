@@ -44,16 +44,14 @@ def packed_transport(operand, output, input_offsets, send_sizes, output_offsets,
     sources = packed_row_indices(
         input_offsets.reshape(peers, -1), send_sizes.reshape(peers, -1), capacity, operand.shape[0]
     )
-    packed = jnp.where(
-        (sources < operand.shape[0])[..., None], operand[jnp.minimum(sources, operand.shape[0] - 1)], 0
-    )
+    packed = jnp.where((sources < operand.shape[0])[..., None], operand[jnp.minimum(sources, operand.shape[0] - 1)], 0)
     remote_offsets = jax.lax.all_to_all(
         output_offsets.reshape(peers, -1), axis_name, split_axis=0, concat_axis=0, tiled=True
     )
     received = jax.lax.all_to_all(packed, axis_name, split_axis=0, concat_axis=0, tiled=True)
-    destinations = packed_row_indices(
-        remote_offsets, recv_sizes.reshape(peers, -1), capacity, output.shape[0]
-    ).reshape(-1)
+    destinations = packed_row_indices(remote_offsets, recv_sizes.reshape(peers, -1), capacity, output.shape[0]).reshape(
+        -1
+    )
     inverse = _assignment_sources(destinations, send_size=output.shape[0])
     received = received.reshape(-1, operand.shape[-1])
     return jnp.where(
