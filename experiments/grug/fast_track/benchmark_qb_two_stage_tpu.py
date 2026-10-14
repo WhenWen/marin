@@ -64,6 +64,13 @@ def threshold_only(indices, rank, **kwargs):
     return details(indices, rank, **kwargs)[0]
 
 
+def compile_pipeline(function, out_specs, *, kwargs, mesh, axes, inputs, rank):
+    mapped = jax.shard_map(
+        partial(function, **kwargs), mesh=mesh, in_specs=(P(axes, None), P()), out_specs=out_specs
+    )
+    return jax.jit(mapped).lower(inputs, rank).compile()
+
+
 def oracle(counts, rank, bins):
     cumulative = np.cumsum(counts[:, ::-1], axis=-1, dtype=np.int32)[:, ::-1]
     crossing = np.clip((cumulative >= rank[:, None]).sum(axis=-1) - 1, 0, bins - 1)
@@ -176,15 +183,9 @@ def main():
                                         axes=axes, bins=bins, group=group, radix=radix, implementation=implementation
                                     )
 
-                                    def executable(function, out_specs):
-                                        mapped = jax.shard_map(
-                                            partial(function, **kwargs),
-                                            mesh=mesh,
-                                            in_specs=(P(axes, None), P()),
-                                            out_specs=out_specs,
-                                        )
-                                        return jax.jit(mapped).lower(inputs, rank).compile()
-
+                                    executable = partial(
+                                        compile_pipeline, kwargs=kwargs, mesh=mesh, axes=axes, inputs=inputs, rank=rank
+                                    )
                                     start = time.monotonic()
                                     timed = executable(threshold_only, P())
                                     compile_time = time.monotonic() - start
@@ -201,7 +202,9 @@ def main():
                                     reference = actual[0]
                                 row["implementations"][implementation] = dict(
                                     finite=bool(np.isfinite(actual[0]).all()),
-                                    discrete_exact=all(np.array_equal(a, b) for a, b in zip(actual[1:], expected[1:])),
+                                    discrete_exact=all(
+                                        np.array_equal(a, b) for a, b in zip(actual[1:], expected[1:], strict=True)
+                                    ),
                                     reference_exact=bool(
                                         np.array_equal(actual[0].view(np.uint32), reference.view(np.uint32))
                                     ),
