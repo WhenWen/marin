@@ -107,7 +107,9 @@ def main():
     parser.add_argument("--revision", required=True)
     parser.add_argument("--artifact-prefix", required=True)
     parser.add_argument("--cpu-preflight", action="store_true")
-    parser.add_argument("--candidate", choices=("block-inputs", "mask-crop", "flash-high", "flash-highest"), default="block-inputs")
+    parser.add_argument(
+        "--candidate", choices=("block-inputs", "mask-crop", "flash-high", "flash-highest"), default="block-inputs"
+    )
     args = parser.parse_args()
     candidate = args.candidate
     crop = candidate == "mask-crop"
@@ -139,7 +141,9 @@ def main():
     report = {
         "issue_url": "https://github.com/WhenWen/astra-d8-research/issues/96",
         "protocol_url": (
-            flash_block_bias.PROTOCOL if flash else (
+            flash_block_bias.PROTOCOL
+            if flash
+            else (
                 attention_mask_crop.PROTOCOL
                 if crop
                 else "https://github.com/WhenWen/astra-d8-research/issues/96#issuecomment-6171089614"
@@ -206,7 +210,13 @@ def main():
                 functions = probe_functions(window, candidate)
                 for seed in (0, 1, 2):
                     for scenario in scenarios:
-                        report["phase"] = {"stage": "numerics", "length": length, "window": window, "seed": seed, "scenario": scenario}
+                        report["phase"] = {
+                            "stage": "numerics",
+                            "length": length,
+                            "window": window,
+                            "seed": seed,
+                            "scenario": scenario,
+                        }
                         save()
                         host = make_fixture(seed, length, scenario)
                         path = folder / f"fixture-{seed}-{length}-{scenario}.npz"
@@ -279,7 +289,9 @@ def main():
                                 {"shape": shape, "window": window, "seed": seed, "sha256_q_k_v_band_ct": hashes}
                             )
                             for scenario in (
-                                ("one-document", "packed1024", "mixed") if expanded_fixtures else ("one-document", "packed1024")
+                                ("one-document", "packed1024", "mixed")
+                                if expanded_fixtures
+                                else ("one-document", "packed1024")
                             ):
                                 segments = jnp.zeros((batch, length), jnp.int32)
                                 if scenario == "packed1024":

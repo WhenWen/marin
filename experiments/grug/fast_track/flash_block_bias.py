@@ -108,7 +108,9 @@ def layout_values(band, cotangent, width, window):
 
 def layout_checks(device):
     """Yield exact layout/VJP checks and fixtures against coordinate enumeration."""
-    dtypes = (ml_dtypes.bfloat16, np.float32, np.float64) if device.platform == "cpu" else (ml_dtypes.bfloat16, np.float32)
+    dtypes = (
+        (ml_dtypes.bfloat16, np.float32, np.float64) if device.platform == "cpu" else (ml_dtypes.bfloat16, np.float32)
+    )
     for length in (128, 256, 1024):
         for width in (256, 1152):
             for window in (None, 129):
@@ -138,6 +140,14 @@ def layout_checks(device):
                             ):
                                 np.testing.assert_array_equal(np.asarray(actual), oracle)
                         yield (
-                            {"length": length, "width": width, "window": window, "seed": seed, "dtype": np.dtype(dtype).name, "backend": device.platform, "exact": True},
+                            {
+                                "length": length,
+                                "width": width,
+                                "window": window,
+                                "seed": seed,
+                                "dtype": np.dtype(dtype).name,
+                                "backend": device.platform,
+                                "exact": True,
+                            },
                             {"band": band, "cotangent": cotangent},
                         )
