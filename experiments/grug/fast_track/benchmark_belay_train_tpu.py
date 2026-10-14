@@ -47,6 +47,7 @@ from experiments.grug.fast_track.belay_flops import training_flops_per_token
 from experiments.grug.fast_track.belay_tpu import SOURCE_CONFIG, base16_model_config, require_tpu_rounding
 from experiments.grug.fast_track.benchmark_kda_state_tpu import tpu_recurrence
 from experiments.grug.fast_track.benchmark_projection_tpu import gathered_projection
+from experiments.grug.fast_track.column_sharded_embedding import column_sharded_embedding
 from experiments.grug.fast_track.model import AttnResLayerBackward
 from experiments.grug.fast_track.router_lookup import unrolled_router_logits
 from experiments.grug.fast_track.train import _flat_train_step, _make_train_step, _router_ties_active, initial_state
@@ -91,6 +92,12 @@ def _pallas_cross_entropy(
     )
 
 
+def _column_embedding_gather(table: jax.Array, ids: jax.Array) -> jax.Array:
+    if table.shape != (524288, 512) or ids.shape != (128, 4096) or table.dtype != jnp.bfloat16:
+        raise ValueError("The column embedding comparison requires the frozen base16 bigram table")
+    return column_sharded_embedding(table, ids)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--steps", type=int, default=4, help="Timed steps after two warmup steps and one profiled step.")
@@ -127,6 +134,7 @@ def main() -> None:
     parser.add_argument("--qb-quantile", choices=("reference", "block128", "two-stage"), default="reference")
     parser.add_argument("--router-lookup", choices=("reference", "unrolled"), default="reference")
     parser.add_argument("--cross-entropy", choices=("reference", "pallas512"), default="reference")
+    parser.add_argument("--second-embedding", choices=("reference", "column"), default="reference")
     parser.add_argument(
         "--job-completion",
         choices=("on-exit", "deferred"),
@@ -186,6 +194,7 @@ def main() -> None:
         "qb_quantile": args.qb_quantile,
         "router_lookup": args.router_lookup,
         "cross_entropy": args.cross_entropy,
+        "second_embedding": args.second_embedding,
         "cross_entropy_block_sizes": asdict(
             BlockSizes(1024, 512, 512) if args.cross_entropy == "pallas512" else model_module._CE_BLOCK_SIZES
         ),
@@ -241,7 +250,10 @@ def main() -> None:
             marker="o",
             linewidth=2,
             markersize=4,
-            label=f"base16, CE {args.cross_entropy}, seed {trainer['seed']}, EMA {args.ema_phase}",
+            label=(
+                f"base16, CE {args.cross_entropy}, embedding {args.second_embedding}, "
+                f"seed {trainer['seed']}, EMA {args.ema_phase}"
+            ),
         )
         ax.set(xlabel="Optimizer update", ylabel="Random-token training loss")
         ax.grid(color="#B0B0B0", linestyle="--", alpha=0.65)
@@ -287,6 +299,8 @@ def main() -> None:
         print("Compiling native base16 train step", flush=True)
         start = time.monotonic()
         with ExitStack() as contexts:
+            if args.second_embedding == "column":
+                contexts.enter_context(patch.object(model_module, "_replicated_fp32_gather", _column_embedding_gather))
             if args.cross_entropy == "pallas512":
                 contexts.enter_context(
                     patch.object(model_module, "fused_linear_softmax_cross_entropy_loss", _pallas_cross_entropy)
