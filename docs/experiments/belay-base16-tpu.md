@@ -641,3 +641,32 @@ first divergent operation or resolve the native failure to match all seven
 `native-stride-default-v1` update losses exactly. The launcher remains on
 RECOMPUTE. Reports, objective evaluations and optimized HLOs are under
 `gs://marin-us-central2/kaiyue/belay-base16-tpu/gradient-localization-v1/`.
+
+## MFU accounting
+
+The generic trainer estimator assumes GLU MLPs and generic attention and is
+not an accurate numerator for base16's ungated experts and KDA/MLA layers.
+Keep its historical metric separate from the base16 matrix-FLOP convention in
+`experiments/grug/fast_track/belay_flops.py`.
+
+This convention counts two FLOPs per multiply-add and three times forward
+matrix/convolution work for training. Causal attention uses only document-local
+pairs; KDA uses the recurrent prediction, rank-one correction and readout
+contractions. It excludes elementwise functions, normalization, softmax,
+lookups, optimizer/EMA, communication, padding, recomputation and extra
+prefix-scan/solve work. It is model work, not hardware executed FLOPs.
+
+For global batch 128 × 4096, the four-document diagnostic has 244,466,328
+nominal training FLOPs/token. At 1.207436402 seconds/update on 16 v4 chips
+(275 BF16 TFLOP/s per chip), this is 2.4125% nominal MFU; 7% requires at most
+0.416138838 seconds/update. A single 4096-token document has 272,778,150
+FLOPs/token and a 0.464332178-second threshold. Packing and dropped routes
+must be held fixed or accounted for when comparing utilization.
+
+New native benchmark reports retain the nominal breakdown and global
+per-layer dropped-assignment counts for every update. The per-update useful
+matrix count discounts those routes, including the wider expert writes in
+layers 4–5. Its peak denominator remains all 16 allocated chips. The
+[shape audit](https://github.com/WhenWen/astra-d8-research/issues/96#issuecomment-6161509061)
+records the underlying parameter classifications and retained artifacts.
+No measured configuration has met the 7% target.
