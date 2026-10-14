@@ -102,9 +102,9 @@ def two_stage_histogram_crossing(indices, rank, *, batch_axes, n_bins, group_siz
     block, coarse_ct, coarse_height = histogram_crossing(coarse_counts, rank, coarse_bins - 1)
     above = coarse_ct - coarse_height
     selected = jnp.where(coarse_indices == block[None, :], indices % block_bins, -1)
-    fine_counts = jax.lax.psum(
-        factorized_expert_histogram(selected, block_bins, group_size, 8), batch_axes
-    ).astype(jnp.float32)
+    fine_counts = jax.lax.psum(factorized_expert_histogram(selected, block_bins, group_size, 8), batch_axes).astype(
+        jnp.float32
+    )
     cumulative = jnp.cumsum(fine_counts[:, ::-1], axis=-1)[:, ::-1] + above[:, None]
     last_valid = jnp.minimum(block_bins - 1, n_bins - 1 - block * block_bins)
     local_bin = jnp.clip(jnp.sum(cumulative >= rank[:, None], axis=-1) - 1, 0, last_valid)
