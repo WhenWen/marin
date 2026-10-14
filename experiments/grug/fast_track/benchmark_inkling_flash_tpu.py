@@ -71,7 +71,7 @@ def expanded_bias_bwd(width, _, gradient):
     length = gradient.shape[-2]
     keys = (jnp.arange(length)[:, None] // 128) * 128 + jnp.arange(width)[None, :] - (width - 128)
     valid = (keys >= 0) & (keys < gradient.shape[-1])
-    indices = jnp.broadcast_to(jnp.clip(keys, 0, gradient.shape[-1] - 1), gradient.shape[:-1] + (width,))
+    indices = jnp.broadcast_to(jnp.clip(keys, 0, gradient.shape[-1] - 1), (*gradient.shape[:-1], width))
     values = jnp.take_along_axis(gradient, indices, axis=-1)
     return (jnp.where(valid, values, 0),)
 
@@ -97,6 +97,11 @@ def flash_gather_fp32(q, k, v, band, segments):
     return output.astype(q.dtype)
 
 
+def bias_values_and_gradients(band, ct):
+    output, pullback = jax.vjp(lambda x: expanded_bias(x, band.shape[-1]), band)
+    return output, pullback(ct)[0]
+
+
 def bias_adjoint_check(cpu, device):
     """Check the linear layout map against independent NumPy indexing."""
     results = []
@@ -114,13 +119,9 @@ def bias_adjoint_check(cpu, device):
                         expected[:, :, row, key] = band[:, :, row, column]
                         expected_grad[:, :, row, column] = ct[:, :, row, key]
 
-            def evaluate(band, ct):
-                output, pullback = jax.vjp(lambda x: expanded_bias(x, width), band)
-                return output, pullback(ct)[0]
-
             for backend, target, dtype in (("cpu", cpu, np.float64), ("tpu", device, ml_dtypes.bfloat16)):
                 with jax.enable_x64(backend == "cpu"), jax.default_device(target):
-                    actual = jax.jit(evaluate)(
+                    actual = jax.jit(bias_values_and_gradients)(
                         jax.device_put(band.astype(dtype), target), jax.device_put(ct.astype(dtype), target)
                     )
                     for value, oracle in zip(jax.device_get(actual), (expected, expected_grad), strict=True):
@@ -173,7 +174,10 @@ def main():
     parser.add_argument("--revision", required=True)
     parser.add_argument("--artifact-prefix", required=True)
     parser.add_argument(
-        "--candidates", nargs="+", choices=("dense-bias", "inverse-gather", "inverse-gather-fp32"), default=["dense-bias"]
+        "--candidates",
+        nargs="+",
+        choices=("dense-bias", "inverse-gather", "inverse-gather-fp32"),
+        default=["dense-bias"],
     )
     args = parser.parse_args()
     require_tpu_rounding()
