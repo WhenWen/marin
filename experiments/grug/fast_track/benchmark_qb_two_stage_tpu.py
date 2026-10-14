@@ -77,10 +77,18 @@ def oracle(counts, rank, bins):
     rows = np.arange(len(rank))
     ct = cumulative[rows, crossing]
     height = counts[rows, crossing]
-    width = np.float32(4095) / np.float32(bins)
-    lower = np.float32(-2048) + crossing.astype(np.float32) * width
-    threshold = lower + width * (ct.astype(np.float32) - rank) / np.maximum(height.astype(np.float32), 1)
+    width = 4095.0 / bins
+    lower = -2048.0 + crossing.astype(np.float64) * width
+    threshold = lower + width * (ct.astype(np.float64) - rank) / np.maximum(height, 1)
     return threshold, crossing, ct, height
+
+
+def interpolation_roundoff_bound(expected, rank, bins):
+    _, crossing, ct, height = expected
+    width = 4095.0 / bins
+    terms = 2048.0 + np.abs(crossing * width) + np.abs(width * (ct - rank.astype(np.float64)) / np.maximum(height, 1))
+    # Eight FP32 epsilon units cover division, products, additions and cancellation.
+    return 8 * np.finfo(np.float32).eps * terms
 
 
 def boundary_ranks(counts, tokens, bins):
@@ -212,6 +220,12 @@ def main():
                                         np.array_equal(timed_threshold.view(np.uint32), actual[0].view(np.uint32))
                                     ),
                                     oracle_close=bool(np.allclose(actual[0], expected[0], atol=1e-5, rtol=1e-5)),
+                                    oracle_roundoff_bound=bool(
+                                        np.all(np.abs(actual[0] - expected[0]) <= interpolation_roundoff_bound(expected, host_rank, bins))
+                                    ),
+                                    oracle_max_error_bound_ratio=float(
+                                        np.max(np.abs(actual[0] - expected[0]) / interpolation_roundoff_bound(expected, host_rank, bins))
+                                    ),
                                     oracle_max_abs_error=float(np.max(np.abs(actual[0] - expected[0]))),
                                     compile_seconds=compile_time,
                                     compiler_temporary_bytes=timed.memory_analysis().temp_size_in_bytes,
@@ -243,7 +257,7 @@ def main():
                                 m["finite"]
                                 and m["discrete_exact"]
                                 and m["reference_exact"]
-                                and m["oracle_close"]
+                                and m["oracle_roundoff_bound"]
                                 and m["timed_threshold_exact"]
                                 for m in row["implementations"].values()
                             )
