@@ -1,7 +1,7 @@
 # Copyright The Marin Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Measure checkpoint-control placement in the real-data Belay training loop."""
+"""Measure host scheduling in the real-data Belay training loop."""
 
 import argparse
 import atexit
@@ -23,9 +23,6 @@ from rigging.filesystem.storage_path import StoragePath
 
 from experiments.grug.fast_track import belay_tpu
 
-UPDATES = 100
-WARMUP_UPDATES = 10
-
 
 def validate_broadcast() -> None:
     """Check every boolean pair from every source through both input paths."""
@@ -40,11 +37,13 @@ def validate_broadcast() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--experiment", choices=("checkpoint", "pipeline"), default="checkpoint")
     parser.add_argument("--arm", choices=("control-before", "candidate", "control-after"), required=True)
     parser.add_argument("--revision", required=True)
     parser.add_argument("--report-prefix", required=True)
     parser.add_argument("--job-completion", choices=("deferred", "normal"), required=True)
     args, remaining = parser.parse_known_args()
+    updates, warmup_updates = (100, 10) if args.experiment == "checkpoint" else (600, 25)
     if not args.report_prefix.startswith(belay_tpu.REGION_PREFIX):
         parser.error("Reports must stay in us-central2")
 
@@ -54,7 +53,13 @@ def main() -> None:
     original_on_step = checkpoint.Checkpointer.on_step
     output = Path(os.environ["IRIS_OUTPUT_DIR"])
     output.mkdir(parents=True, exist_ok=True)
-    report: dict[str, Any] = {"arm": args.arm, "revision": args.revision, "status": "starting", "decisions": []}
+    report: dict[str, Any] = {
+        "arm": args.arm,
+        "experiment": args.experiment,
+        "revision": args.revision,
+        "status": "starting",
+        "decisions": [],
+    }
     previous_end = None
     window_start = None
 
@@ -63,7 +68,10 @@ def main() -> None:
         if kwargs["execution_profile"] != "selected" or kwargs["seed"] != 0 or kwargs["resume"]:
             raise ValueError("Use selected execution, seed 0 and a fresh run")
         trainer = replace(config.trainer, completion_marker_path=f"{kwargs['checkpoint_path']}/training_done.json")
-        return replace(config, stop_after_steps=UPDATES, eval=None, trainer=trainer)
+        if args.experiment == "pipeline":
+            trainer = replace(trainer, pipeline_depth=int(args.arm == "candidate"))
+        report["pipeline_depth"] = trainer.pipeline_depth
+        return replace(config, stop_after_steps=updates, eval=None, trainer=trainer)
 
     def control_broadcast(value, is_source=None):
         return original_broadcast(jnp.asarray(value), is_source=is_source)
@@ -73,19 +81,25 @@ def main() -> None:
         started = time.perf_counter()
         original_on_step(self, tree=tree, step=step, force=force)
         ended = time.perf_counter()
-        row: dict[str, Any] = {"step": int(step), "force": force, "decision_seconds": ended - started}
+        row: dict[str, Any] = {
+            "step": int(step),
+            "force": force,
+            "decision_seconds": ended - started,
+            "completed_at_monotonic": ended,
+        }
         if not force:
             row["cycle_seconds"] = None if previous_end is None else ended - previous_end
             previous_end = ended
-            if step == WARMUP_UPDATES:
+            if step == warmup_updates:
                 jax.block_until_ready(tree)
                 window_start = time.perf_counter()
+                report["window_start_monotonic"] = window_start
                 previous_end = window_start
-            elif step == UPDATES:
+            elif step == updates:
                 jax.block_until_ready(tree)
                 assert window_start is not None
                 report["drained_window_seconds"] = time.perf_counter() - window_start
-                report["drained_window_updates"] = UPDATES - WARMUP_UPDATES
+                report["drained_window_updates"] = updates - warmup_updates
         report["decisions"].append(row)
         with (output / "checkpoint-timings.jsonl").open("a") as stream:
             stream.write(json.dumps(row) + "\n")
@@ -104,7 +118,10 @@ def main() -> None:
         try:
             validate_broadcast()
             report["broadcast_cases"] = jax.process_count() * 4 * 2
-            checkpoint.broadcast_one_to_all = control_broadcast if args.arm != "candidate" else original_broadcast
+            # Hold checkpoint flag placement fixed while testing the existing pipeline scheduler.
+            checkpoint.broadcast_one_to_all = (
+                control_broadcast if args.experiment == "pipeline" or args.arm != "candidate" else original_broadcast
+            )
             checkpoint.Checkpointer.on_step = on_step
             report["status"] = "training"
             original_run(config)
