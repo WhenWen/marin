@@ -45,8 +45,7 @@ def finite(values):
 @jax.jit
 def differences(actual, expected):
     return tuple(
-        jnp.max(jnp.abs(a.astype(jnp.float32) - b.astype(jnp.float32)))
-        for a, b in zip(actual, expected, strict=True)
+        jnp.max(jnp.abs(a.astype(jnp.float32) - b.astype(jnp.float32))) for a, b in zip(actual, expected, strict=True)
     )
 
 
