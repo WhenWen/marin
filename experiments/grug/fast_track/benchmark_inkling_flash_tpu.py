@@ -130,7 +130,7 @@ def bias_adjoint_check(cpu, device):
     return results
 
 
-def reference64(q, k, v, band, segments):
+def reference64(q, k, v, band, segments, *, sliding_window=None):
     """Independent dense attention, including the block-relative bias indexing."""
     length = q.shape[1]
     repeat = q.shape[2] // k.shape[2]
@@ -144,6 +144,8 @@ def reference64(q, k, v, band, segments):
     bias = jnp.where(valid[None, None], bias, 0)
     scores = jnp.einsum("bqhd,bkhd->bhqk", q / math.sqrt(q.shape[-1]), k) + bias
     mask = (positions[:, None] >= positions[None, :])[None] & (segments[:, :, None] == segments[:, None, :])
+    if sliding_window is not None:
+        mask = mask & (positions[None, :] >= positions[:, None] - sliding_window + 1)[None]
     scores = jnp.where(mask[:, None], scores, -1e9)
     weights = jax.nn.softmax(scores, axis=-1)
     return jnp.einsum("bhqk,bkhd->bqhd", weights, v)
