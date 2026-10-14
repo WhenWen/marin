@@ -150,7 +150,10 @@ def main():
                         row = numerical_case(seed, tokens, width, scenario, functions, device)
                         report["numerics"].append(row)
                         save()
-                        print(json.dumps({"numerical_fixture": len(report["numerics"]), "passed": row["passed"]}), flush=True)
+                        print(
+                            json.dumps({"numerical_fixture": len(report["numerics"]), "passed": row["passed"]}),
+                            flush=True,
+                        )
         qualified = [name for name in ("unrolled", "tiled") if all(r["passed"][name] for r in report["numerics"])]
         report["numerically_qualified"] = qualified
         save()
@@ -221,7 +224,10 @@ def main():
         ]
         report["status"] = "completed"
         save()
-        print(json.dumps({"qualified": qualified, "eligible_for_native_trial": report["eligible_for_native_trial"]}), flush=True)
+        print(
+            json.dumps({"qualified": qualified, "eligible_for_native_trial": report["eligible_for_native_trial"]}),
+            flush=True,
+        )
 
 
 if __name__ == "__main__":
