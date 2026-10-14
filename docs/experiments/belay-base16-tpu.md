@@ -177,7 +177,7 @@ have not yet completed.
 `gs://marin-us-central2/datakit/store_8ac06c74` document store. It selects 12 GiB
 of UTF-8 text across the 40 cluster and five quality buckets, with byte quotas
 proportional to each bucket's source token count. A seeded permutation of
-64-document blocks chooses source rows without repeating a row. Decoded
+1,024-document blocks chooses source rows without repeating a row. Decoded
 documents are capped at 32 KiB on a UTF-8 boundary. The decoder is
 `marin-community/marin-tokenizer` at revision
 `a5ca45f2feb6c959bd87b81689aa7279b5bdcaa2`; the source store names that tokenizer

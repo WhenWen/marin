@@ -58,6 +58,7 @@ class BuildConfig:
     corpus_bytes: int = 12 * 1024**3
     tokenizer_bytes: int = 256 * 1024**2
     document_bytes: int = 32768
+    sample_block_documents: int = 1024
     seed: int = 0
 
 
@@ -111,7 +112,7 @@ def freeze(config: BuildConfig):
         "source_tokenizer_revision": SOURCE_TOKENIZER_REVISION,
         "evaluation": inventory,
         "mixture": "UTF-8 byte quotas proportional to the source store's per-cell token counts",
-        "selection": "seeded affine permutation of 64-document blocks within each cluster/quality cell",
+        "selection": "seeded affine permutation of sample_block_documents blocks within each cluster/quality cell",
         "holdout_filter": "exclude exact capped-text SHA256 matches with any evaluation document",
         "issue_url": "https://github.com/WhenWen/astra-d8-research/issues/96",
         "baseline_kind": "new tokenizer and corpus; not an original Belay data reproduction",
@@ -156,15 +157,16 @@ def sample(config: BuildConfig, manifest):
         ledger_url = f"{cell['path']}/shard_ledger.json"
         ledger_identity = object_identity(ledger_url)
         rng = np.random.default_rng(np.random.SeedSequence([config.seed, cell["cluster_id"], cell["quality_bucket"]]))
-        blocks = (len(cache) + 63) // 64
+        block_documents = config.sample_block_documents
+        blocks = (len(cache) + block_documents - 1) // block_documents
         start = int(rng.integers(blocks))
         stride = int(rng.integers(1, max(2, blocks)))
         while math.gcd(stride, blocks) != 1:
             stride += 1
         rows, selected_bytes, excluded = [], 0, 0
         for step in range(blocks):
-            base = ((start + step * stride) % blocks) * 64
-            indices = range(base, min(base + 64, len(cache)))
+            base = ((start + step * stride) % blocks) * block_documents
+            indices = range(base, min(base + block_documents, len(cache)))
             for index, item in zip(indices, cache.get_batch_sync(indices), strict=True):
                 text = capped(
                     source_tokenizer.decode(item["input_ids"].tolist(), skip_special_tokens=True), config.document_bytes
@@ -178,7 +180,7 @@ def sample(config: BuildConfig, manifest):
                     break
             if selected_bytes >= quota:
                 break
-            if step % 100 == 0:
+            if step % 10 == 0:
                 LOGGER.info("sampling %s: %d / %d bytes", name, selected_bytes, quota)
         if selected_bytes < quota:
             raise ValueError(f"Insufficient unique text in {name}: {selected_bytes} < {quota}")
