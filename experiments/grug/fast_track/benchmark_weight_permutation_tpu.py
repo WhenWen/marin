@@ -92,9 +92,9 @@ def main():
     report = {
         "revision": args.revision,
         "source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-        "fixture_source_sha256": hashlib.sha256(
-            Path(__file__).with_name("benchmark_moe_scalar_permutation_tpu.py").read_bytes()
-        ).hexdigest(),
+        "fixture_source_sha256": (
+            hashlib.sha256(Path(__file__).with_name("benchmark_moe_scalar_permutation_tpu.py").read_bytes()).hexdigest()
+        ),
         "device_kind": device.device_kind,
         "device_count_used": 1,
         "jax_version": jax.__version__,
