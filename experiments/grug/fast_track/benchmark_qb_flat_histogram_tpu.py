@@ -143,7 +143,10 @@ def main():
                                 histogram = flat_histogram if name == "flat" else factorized_expert_histogram
                                 checker = jax.jit(
                                     jax.shard_map(
-                                        partial(histogram, **kwargs), mesh=mesh, in_specs=P(axes, None), out_specs=P(axes, None)
+                                        partial(histogram, **kwargs),
+                                        mesh=mesh,
+                                        in_specs=P(axes, None),
+                                        out_specs=P(axes, None),
                                     )
                                 )
                                 checkers[key] = checker.lower(inputs).compile()
@@ -159,7 +162,9 @@ def main():
                             row["implementations"][name] = {
                                 "counts_exact": bool(np.array_equal(actual_counts, expected_counts.reshape(-1, bins))),
                                 "finite": bool(np.isfinite(actual).all()),
-                                "thresholds_exact": bool(np.array_equal(actual.view(np.uint32), reference.view(np.uint32))),
+                                "thresholds_exact": bool(
+                                    np.array_equal(actual.view(np.uint32), reference.view(np.uint32))
+                                ),
                                 "oracle_close": bool(np.allclose(actual, expected, atol=1e-5, rtol=1e-5)),
                                 "oracle_max_abs_error": float(np.max(np.abs(actual - expected))),
                                 "compile_seconds": compile_time,
