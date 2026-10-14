@@ -87,7 +87,15 @@ def main():
     folder = Path(os.environ.get("IRIS_OUTPUT_DIR", "outputs"))
     folder.mkdir(parents=True, exist_ok=True)
     fs, prefix = fsspec.core.url_to_fs(args.artifact_prefix)
-    report = {"revision": args.revision, "oracle": "CPU FP64 tokenwise recurrence", "records": []}
+    report = {
+        "revision": args.revision,
+        "oracle": "CPU FP64 tokenwise recurrence",
+        "seed": 0,
+        "final_cotangent_seed": 8,
+        "jax_version": jax.__version__,
+        "xla_flags": os.environ.get("XLA_FLAGS", ""),
+        "records": [],
+    }
     names = ("output", "final_state", "objective", "dq", "dk", "dv", "dg", "dbeta", "dinitial")
     for fixture, shape, document_length in (
         ("random", (1, 2, 128, 128), 37),
@@ -132,10 +140,15 @@ def main():
             cpu_ft = jnp.asarray(np.asarray(jax.device_get(ft), dtype=np.float64))
             cpu_segments = jax.device_put(segments, cpu)
             reference = jax.block_until_ready(jax.jit(oracle)(cpu_inputs, cpu_ct, cpu_ft, cpu_segments))
+            assert all(x.dtype == jnp.float64 for x in reference)
             row = {"fixture": fixture, "shape": shape, "document_length": document_length, "implementations": {}}
             for implementation, actual in values.items():
                 row["implementations"][implementation] = {
                     name: errors(a, b) for name, a, b in zip(names, actual, reference, strict=True)
+                }
+                row["implementations"][implementation]["rounded_oracle_gradients"] = {
+                    name: errors(a, b.astype(a.dtype))
+                    for name, a, b in zip(names[3:], actual[3:], reference[3:], strict=True)
                 }
             row["candidate_vs_production"] = {
                 name: errors(a, b)
