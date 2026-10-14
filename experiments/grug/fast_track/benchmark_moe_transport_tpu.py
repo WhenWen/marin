@@ -311,9 +311,9 @@ def main():
                     drops_match = True
                 else:
                     exact_match = bool(
-                        jax.jit(lambda xs, ys: jnp.stack([jnp.array_equal(x, y) for x, y in zip(xs, ys)]).all())(
-                            result, reference_result
-                        )
+                        jax.jit(
+                            lambda xs, ys: jnp.stack([jnp.array_equal(x, y) for x, y in zip(xs, ys, strict=True)]).all()
+                        )(result, reference_result)
                     )
                     drops_match = int(drops.sender_dropped) == int(reference_drops.sender_dropped) and int(
                         drops.receiver_dropped

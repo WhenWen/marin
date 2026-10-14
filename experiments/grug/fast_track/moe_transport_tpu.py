@@ -19,7 +19,7 @@ def trimmed_chunk_plans(routing, layout):
     for index, plan in enumerate(_chunk_plans(routing, layout)):
         experts = slice(index * layout.chunk_experts, (index + 1) * layout.chunk_experts)
 
-        def trim(value):
+        def trim(value, experts=experts):
             return value.reshape(layout.ep_size, layout.local_experts)[:, experts].reshape(-1)
 
         plans.append(
