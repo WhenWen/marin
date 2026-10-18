@@ -14,19 +14,19 @@ tokenizer file; no corpus statistics.
 import hashlib
 import json
 from collections import defaultdict
+from pathlib import Path
 
 import numpy as np
 
 
 def _byte_decoder():
     # GPT-2 byte-level BPE byte<->unicode map used by the frozen tokenizer.
-    bs = (list(range(ord("!"), ord("~")+1)) + list(range(ord("¡"), ord("¬")+1))
-          + list(range(ord("®"), ord("ÿ")+1)))
+    bs = list(range(ord("!"), ord("~") + 1)) + list(range(ord("¡"), ord("¬") + 1)) + list(range(ord("®"), ord("ÿ") + 1))
     cs, n = bs[:], 0
     for b in range(256):
         if b not in bs:
             bs.append(b)
-            cs.append(256+n)
+            cs.append(256 + n)
             n += 1
     return {chr(c): b for b, c in zip(bs, cs, strict=True)}
 
@@ -47,7 +47,7 @@ def build(tokenizer_json, vocab_size, width=12):
     ``classes[v]`` is the smallest id in v's class. ``members[v]`` lists v's class
     in increasing id order and therefore always contains v.
     """
-    tokenizer = json.loads(open(tokenizer_json, encoding="utf-8").read())
+    tokenizer = json.loads(Path(tokenizer_json).read_text(encoding="utf-8"))
     decoder = _byte_decoder()
     groups = defaultdict(list)
     for piece, index in tokenizer["model"]["vocab"].items():
@@ -69,7 +69,7 @@ def build(tokenizer_json, vocab_size, width=12):
             raise ValueError(f"case class larger than {width}: {len(ids)}")
         for i in ids:
             classes[i] = ids[0]
-            members[i, :len(ids)] = ids
+            members[i, : len(ids)] = ids
     return classes, members
 
 
@@ -84,7 +84,11 @@ def table_hash(classes, members):
 
 def summary(classes, members):
     sizes = (members >= 0).sum(-1)
-    return {"vocabulary": int(len(classes)), "width": int(members.shape[1]),
-            "tokens_in_shared_classes": int((sizes > 1).sum()),
-            "shared_classes": int(len(np.unique(classes[sizes > 1]))),
-            "max_class_size": int(sizes.max()), "sha256": table_hash(classes, members)}
+    return {
+        "vocabulary": len(classes),
+        "width": int(members.shape[1]),
+        "tokens_in_shared_classes": int((sizes > 1).sum()),
+        "shared_classes": len(np.unique(classes[sizes > 1])),
+        "max_class_size": int(sizes.max()),
+        "sha256": table_hash(classes, members),
+    }

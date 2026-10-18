@@ -156,8 +156,17 @@ class CopyPasteBelay(model.Transformer):
     def copy_head(self, hidden, token_ids, labels, segments):
         ts, hs = P(model._BATCH_AXES, None), P(model._BATCH_AXES, None, None)
         specs = (hs, P(), P(), P(), P(), P(), ts, ts, ts)
-        args = (hidden, self.output_proj, self.cp_query, self.cp_key, self.cp_gate,
-                self.cp_sink, token_ids, labels, segments)
+        args = (
+            hidden,
+            self.output_proj,
+            self.cp_query,
+            self.cp_key,
+            self.cp_gate,
+            self.cp_sink,
+            token_ids,
+            labels,
+            segments,
+        )
         args = tuple(jax.sharding.reshard(a, s) for a, s in zip(args, specs, strict=True))
         return jax.shard_map(local_head, in_specs=specs, out_specs=(ts, ts, ts, ts), check_vma=False)(*args)
 
@@ -179,7 +188,8 @@ class Belay(model.Transformer):
             ce, _ = vocabulary_statistics(x, weight, target)
             return ce, ce, jnp.zeros_like(ce), jnp.zeros_like(ce)
 
-        return jax.shard_map(vocabulary_only, in_specs=(hs, P(), ts),
-                             out_specs=(ts, ts, ts, ts), check_vma=False)(
-            jax.sharding.reshard(hidden, hs), jax.sharding.reshard(self.output_proj, P()),
-            jax.sharding.reshard(labels, ts))
+        return jax.shard_map(vocabulary_only, in_specs=(hs, P(), ts), out_specs=(ts, ts, ts, ts), check_vma=False)(
+            jax.sharding.reshard(hidden, hs),
+            jax.sharding.reshard(self.output_proj, P()),
+            jax.sharding.reshard(labels, ts),
+        )

@@ -45,7 +45,8 @@ def class_copy_statistics(q, k, sink, tokens, labels, classes, segments, *, tile
         target_class = jax.lax.dynamic_slice_in_dim(label_classes, start, tile, axis=1)
         scores = jnp.einsum("bqd,bkd->bqk", query, k)
         allowed = (positions[None, None, :] <= (start + jnp.arange(tile))[None, :, None]) & (
-            segments[:, None, :] == segment[:, :, None])
+            segments[:, None, :] == segment[:, :, None]
+        )
         scores = jnp.where(allowed, scores, -1e30)
         sink_score = jnp.einsum("bqd,d->bq", query, sink)
         normalizer = jnp.logaddexp(jax.nn.logsumexp(scores, -1), sink_score)
@@ -68,15 +69,33 @@ def class_target_logp(x, head, labels, members):
     return own - jax.nn.logsumexp(logits, -1)
 
 
-def local_head(hidden, head, qw, kw, gw, sink, tokens, labels, segments,
-               prev_weight, prev_gain, variant_weight, variant_bias, classes, members,
-               *, tile=128, reference=False):
+def local_head(
+    hidden,
+    head,
+    qw,
+    kw,
+    gw,
+    sink,
+    tokens,
+    labels,
+    segments,
+    prev_weight,
+    prev_gain,
+    variant_weight,
+    variant_bias,
+    classes,
+    members,
+    *,
+    tile=128,
+    reference=False,
+):
     batch, length, dim = hidden.shape
     ce, z = vocabulary_statistics(hidden, head, labels, reference=reference)
     q = jnp.einsum("bsd,dh->bsh", hidden, qw, preferred_element_type=jnp.float32)
     k = jnp.einsum("bsd,dh->bsh", hidden, kw, preferred_element_type=jnp.float32)
-    previous = jnp.einsum("bsd,dh->bsh", predecessor_states(hidden, segments), prev_weight,
-                          preferred_element_type=jnp.float32)
+    previous = jnp.einsum(
+        "bsd,dh->bsh", predecessor_states(hidden, segments), prev_weight, preferred_element_type=jnp.float32
+    )
     k = k + prev_gain.astype(jnp.float32) * previous
     g = capped(jnp.sum(hidden.astype(jnp.float32) * gw.astype(jnp.float32), -1))
     sink_logp, exact_logp, class_logp = class_copy_statistics(q, k, sink, tokens, labels, classes, segments, tile=tile)
@@ -104,7 +123,8 @@ class BelayCPLMPlus(CopyPasteBelay):
             cp_prev_key=jax.sharding.reshard(weight, P()),
             cp_prev_gain=jax.sharding.reshard(jnp.zeros(d), P()),
             cp_variant=jax.sharding.reshard(jnp.zeros(d), P()),
-            cp_variant_bias=jax.sharding.reshard(jnp.full((), -3.0), P()))
+            cp_variant_bias=jax.sharding.reshard(jnp.full((), -3.0), P()),
+        )
 
     def copy_head(self, hidden, token_ids, labels, segments):
         if CASE_TABLES is None:
@@ -112,8 +132,22 @@ class BelayCPLMPlus(CopyPasteBelay):
         classes, members = (jnp.asarray(x, jnp.int32) for x in CASE_TABLES)
         ts, hs = P(model._BATCH_AXES, None), P(model._BATCH_AXES, None, None)
         specs = (hs, P(), P(), P(), P(), P(), ts, ts, ts, P(), P(), P(), P(), P(), P())
-        args = (hidden, self.output_proj, self.cp_query, self.cp_key, self.cp_gate, self.cp_sink,
-                token_ids, labels, segments, self.cp_prev_key, self.cp_prev_gain,
-                self.cp_variant, self.cp_variant_bias, classes, members)
+        args = (
+            hidden,
+            self.output_proj,
+            self.cp_query,
+            self.cp_key,
+            self.cp_gate,
+            self.cp_sink,
+            token_ids,
+            labels,
+            segments,
+            self.cp_prev_key,
+            self.cp_prev_gain,
+            self.cp_variant,
+            self.cp_variant_bias,
+            classes,
+            members,
+        )
         args = tuple(jax.sharding.reshard(a, s) for a, s in zip(args, specs, strict=True))
         return jax.shard_map(local_head, in_specs=specs, out_specs=(ts, ts, ts, ts), check_vma=False)(*args)

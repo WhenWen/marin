@@ -18,8 +18,10 @@ def validate_head(variant, width):
     if variant == "plus":
         shapes += [(width, width), (width,), (width,), ()]
     with jax.default_device(jax.local_devices()[0]):
-        params = tuple((0.02 * jax.random.normal(k, s)).astype(jnp.bfloat16)
-                       for k, s in zip(jax.random.split(jax.random.key(16), len(shapes)), shapes, strict=True))
+        params = tuple(
+            (0.02 * jax.random.normal(k, s)).astype(jnp.bfloat16)
+            for k, s in zip(jax.random.split(jax.random.key(16), len(shapes)), shapes, strict=True)
+        )
         tokens = (jnp.arange(1024) % 31)[None]
         labels = jnp.roll(tokens, -1, axis=1)
         segments = (jnp.arange(1024) // 256)[None]
@@ -47,10 +49,16 @@ def validate_head(variant, width):
         for a, b in zip(got_grad, want_grad, strict=True):
             a, b = np.asarray(a, np.float32), np.asarray(b, np.float32)
             assert np.isfinite(a).all()
-            error = float(np.linalg.norm(a-b) / max(float(np.linalg.norm(b)), 1e-9))
+            error = float(np.linalg.norm(a - b) / max(float(np.linalg.norm(b)), 1e-9))
             assert error < 0.02, error
             errors.append(error)
         fused.clear_cache()
         dense.clear_cache()
-        return {"loss": float(got), "reference_loss": float(want), "gradient_relative_errors": errors,
-                "training_updates": 0, "width": width, "variant": variant}
+        return {
+            "loss": float(got),
+            "reference_loss": float(want),
+            "gradient_relative_errors": errors,
+            "training_updates": 0,
+            "width": width,
+            "variant": variant,
+        }

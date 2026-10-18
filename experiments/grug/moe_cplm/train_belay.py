@@ -126,16 +126,25 @@ def build_config(
         max_seq_len=8192,
     )
     layers = {512: 6, 768: 8}[width]
-    model_values.update(num_layers=layers, latent_out_full_layers=[layers - 2, layers - 1],
-                        initializer_std=0.5 / math.sqrt(width))
-    for name in ("intermediate_dim", "shared_expert_intermediate_dim", "latent_dim",
-                 "mla_num_heads", "num_heads", "global_local_heads"):
+    model_values.update(
+        num_layers=layers, latent_out_full_layers=[layers - 2, layers - 1], initializer_std=0.5 / math.sqrt(width)
+    )
+    for name in (
+        "intermediate_dim",
+        "shared_expert_intermediate_dim",
+        "latent_dim",
+        "mla_num_heads",
+        "num_heads",
+        "global_local_heads",
+    ):
         assert model_values[name] * width % 512 == 0
         model_values[name] = model_values[name] * width // 512
     model_config = draccus.decode(model.GrugModelConfig, model_values)
     optimizer = source["optimizer"]
     optimizer["type"] = "grug_fast_track_muonh_v1"
-    heuristic = MoeHeuristic().build_optimizer_config(num_train_steps=steps, batch_size=16, hidden_dim=width, seq_len=8192)
+    heuristic = MoeHeuristic().build_optimizer_config(
+        num_train_steps=steps, batch_size=16, hidden_dim=width, seq_len=8192
+    )
     for name in ("learning_rate", "adam_lr", "epsilon", "beta2"):
         optimizer[name] = getattr(heuristic, name)
     outer = source["trainer"]
@@ -178,8 +187,12 @@ def build_config(
         save_interval="0:10:00",
         append_run_id_to_base_path=False,
     )
-    inner["checkpointer"]["write"].update(max_staged_host_bytes=256 * 1024**2,
-        max_chunk_bytes=64 * 1024**2, cache_pool_bytes=64 * 1024**2, data_copy_concurrency=1)
+    inner["checkpointer"]["write"].update(
+        max_staged_host_bytes=256 * 1024**2,
+        max_chunk_bytes=64 * 1024**2,
+        cache_pool_bytes=64 * 1024**2,
+        data_copy_concurrency=1,
+    )
     trainer_config = draccus.decode(train.GrugTrainerConfig, outer)
     tracker = WandbConfig(
         entity=wandb_entity,
@@ -276,6 +289,7 @@ def main(argv=None):
     parser.add_argument("--variant", choices=tuple(MODELS), default="cplm")
     parser.add_argument("--width", type=int, choices=(512, 768), default=512)
     parser.add_argument("--steps", type=int, default=10980)
+    parser.add_argument("--compute-budget", type=Path)
     args = parser.parse_args(argv)
     run_name = args.run_name
     args.output.mkdir(parents=True, exist_ok=True)
@@ -311,6 +325,7 @@ def main(argv=None):
     args.output = args.output / attempt
     args.output.mkdir(parents=True, exist_ok=True)
     artifact_root = args.artifact_root.rstrip("/") + "/" + attempt
+
     def persist(name, value):
         if jax.process_index() == 0:
             content = json.dumps(value, default=str, indent=2).encode()
@@ -333,6 +348,13 @@ def main(argv=None):
         width=args.width,
         steps=args.steps,
     )
+    budget = None
+    if args.compute_budget is not None:
+        budget = next(row for row in json.loads(args.compute_budget.read_text())["rows"]
+                      if row["variant"] == args.variant and row["width"] == args.width)
+        if budget["steps"] != args.steps or budget["model_config"] != json.loads(json.dumps(asdict(config.model))):
+            raise ValueError("Execution configuration differs from frozen compute budget")
+        persist("compute-budget.json", budget)
     tables = None
     if args.variant == "plus":
         tables = case_classes.build(Path(args.tokenizer) / "tokenizer.json", config.model.vocab_size)
@@ -424,24 +446,26 @@ def main(argv=None):
                             "width": args.width,
                             "process_group_id": attempt,
                             "iris_attempt_uid": os.environ.get("IRIS_ATTEMPT_UID"),
+                            "compute_budget": None if budget is None else {
+                                k: v for k, v in budget.items() if k not in ("model_config", "parameter_count")},
                         }
                     )
-                    persist("tracking.json", {"url": wandb.run.url, "resumed": False,
-                                              "restored_step": restored_step})
+                    persist("tracking.json", {"url": wandb.run.url, "resumed": False, "restored_step": restored_step})
                 loss, finite, norms = jax.device_get(preflight(leaves, batch, **kwargs))
                 # A zero predecessor gain intentionally blocks W_prev's first gradient.
                 positive = np.delete(norms, 4) if args.variant == "plus" else norms
                 if not (bool(finite) and np.isfinite(loss) and np.all(positive > 0)):
                     raise ValueError("Full-model preflight failed before optimizer updates")
                 if jax.process_index() == 0:
-                    persist("full-model-preflight.json",
-                            {
-                                "loss": float(loss),
-                                "all_gradients_finite": True,
-                                "copy_gradient_norms": norms.tolist(),
-                                "training_updates": 0,
-                                "restored_step": restored_step,
-                            }
+                    persist(
+                        "full-model-preflight.json",
+                        {
+                            "loss": float(loss),
+                            "all_gradients_finite": True,
+                            "copy_gradient_norms": norms.tolist(),
+                            "training_updates": 0,
+                            "restored_step": restored_step,
+                        },
                     )
                 preflight.clear_cache()
             result = native(leaves, batch, **kwargs)
