@@ -43,7 +43,7 @@ from experiments.grug.moe.kda_state_tpu import state_pass
 from experiments.grug.moe_cplm import case_classes, plus
 from experiments.grug.moe_cplm.belay import Belay, CopyPasteBelay
 from experiments.grug.moe_cplm.checkpoint_io import python_zarr_checkpoint_writes
-from experiments.grug.moe_cplm.head_validation import validate_head
+from experiments.grug.moe_cplm.head_validation import validate_head, validate_histogram
 
 RECIPE = Path(__file__).with_name("belay_recipe.json")
 DATA = Path(__file__).with_name("july_data.json")
@@ -155,7 +155,7 @@ def build_config(
     outer.update(
         expert_axis_size=1,
         replica_axis_size=1,
-        grad_accum_microbatches=batch_size // tpu_chips,
+        grad_accum_microbatches=1,
         pipeline_depth=1,
         loader_buffer_batches=4,
         z_loss_weight=0.0,
@@ -172,7 +172,7 @@ def build_config(
         seed=0,
         num_train_steps=steps,
         train_batch_size=batch_size,
-        per_device_parallelism=1,
+        per_device_parallelism=batch_size // tpu_chips,
         per_device_eval_parallelism=1,
         mp="params=float32,compute=bfloat16,output=bfloat16",
         load_checkpoint=False if calibration else None,
@@ -367,6 +367,8 @@ def main(argv=None):
             raise ValueError("Execution configuration differs from frozen compute budget")
         if budget.get("batch_size", 16) != args.batch_size or budget.get("tpu_chips", 16) != args.tpu_chips:
             raise ValueError("Execution batch or hardware differs from frozen compute budget")
+        if "optimizer_config" in budget and budget["optimizer_config"] != json.loads(json.dumps(asdict(config.optimizer))):
+            raise ValueError("Execution optimizer differs from frozen compute budget")
         persist("compute-budget.json", budget)
     tables = None
     if args.variant == "plus":
@@ -374,8 +376,33 @@ def main(argv=None):
         persist("case-classes.json", case_classes.summary(*tables))
     head_check = validate_head(args.variant, args.width)
     persist("head-preflight.json", head_check)
+    if args.batch_size == 128:
+        histogram_check = validate_histogram(args.batch_size * 8192 // args.tpu_chips)
+        persist("histogram-preflight.json", histogram_check)
+        StoragePath(artifact_root + f"/histogram-preflight-host{jax.process_index()}.json").write_bytes(
+            json.dumps(histogram_check, indent=2).encode()
+        )
     config.trainer.trainer.distributed = replace(config.trainer.trainer.distributed, initialize_jax_distributed=False)
     handlers = []
+    memory_stages = []
+
+    def record_startup_memory(stage):
+        devices = []
+        for device in jax.local_devices():
+            stats = device.memory_stats()
+            devices.append(
+                {
+                    "device_id": device.id,
+                    "in_use_gib": stats["bytes_in_use"] / 1024**3,
+                    "peak_gib": stats["peak_bytes_in_use"] / 1024**3,
+                    "limit_gib": stats["bytes_limit"] / 1024**3,
+                }
+            )
+        memory_stages.append({"stage": stage, "time": time.time(), "devices": devices})
+        StoragePath(artifact_root + f"/startup-memory-host{jax.process_index()}.json").write_bytes(
+            json.dumps({"process_index": jax.process_index(), "stages": memory_stages}, indent=2).encode()
+        )
+
     initialize = config.trainer.trainer.initialize
 
     def checked_initialize():
@@ -388,6 +415,7 @@ def main(argv=None):
             handler.setFormatter(logging.Formatter("%(message)s"))
             logging.getLogger("levanter.json_logger").addHandler(handler)
             persist("resolved-config.json", asdict(config))
+        record_startup_memory("before_state_initialization")
 
     config.trainer.trainer.initialize = checked_initialize
     evaluator = train.TaggedEvaluator
@@ -459,6 +487,8 @@ def main(argv=None):
         def run(leaves, batch, **kwargs):
             nonlocal completed, started
             if completed == 0:
+                jax.block_until_ready(leaves)
+                record_startup_memory("state_ready_before_preflight")
                 state = jax.tree.unflatten(treedef, leaves)
                 restored_step = int(jax.device_get(state.step))
                 if jax.process_index() == 0:
@@ -472,7 +502,7 @@ def main(argv=None):
                             "variant": args.variant,
                             "width": args.width,
                             "logical_batch_size": args.batch_size,
-                            "physical_batch_size": args.tpu_chips,
+                            "physical_batch_size": args.batch_size,
                             "grad_accum_microbatches": config.trainer.grad_accum_microbatches,
                             "process_group_id": attempt,
                             "iris_attempt_uid": os.environ.get("IRIS_ATTEMPT_UID"),
@@ -485,6 +515,7 @@ def main(argv=None):
                     )
                     persist("tracking.json", {"url": wandb.run.url, "resumed": False, "restored_step": restored_step})
                 loss, finite, norms = jax.device_get(preflight(leaves, batch, **kwargs))
+                record_startup_memory("after_full_model_preflight")
                 # A zero predecessor gain intentionally blocks W_prev's first gradient.
                 positive = np.delete(norms, 4) if args.variant == "plus" else norms
                 if not (bool(finite) and np.isfinite(loss) and np.all(positive > 0)):
@@ -503,6 +534,9 @@ def main(argv=None):
                 preflight.clear_cache()
             result = native(leaves, batch, **kwargs)
             completed += 1
+            if completed == 1:
+                jax.block_until_ready(result)
+                record_startup_memory("after_first_optimizer_step")
             if args.calibration and completed in (100, 400):
                 jax.block_until_ready(result)
                 sync_global_devices(f"belay-window-{completed}")

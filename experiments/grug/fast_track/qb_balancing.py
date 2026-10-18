@@ -17,6 +17,7 @@ from jax.sharding import reshard
 _HISTOGRAM_MATMUL_TILES = {
     ("TPU v4", 32768, 512, 10000): (64, 64),
     ("TPU v4", 8192, 512, 10000): (64, 64),
+    ("TPU v4", 65536, 512, 10000): (64, 64),
 }
 
 
