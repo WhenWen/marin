@@ -50,7 +50,10 @@ def test_pooled_qb_uses_the_whole_batch_range(micros, constant):
             cumulative = counts[::-1].cumsum()[::-1]
             rank = tokens * 2 / experts
             crossing = np.clip(np.count_nonzero(cumulative >= rank) - 1, 0, bins - 1)
-            thresholds.append(lo + crossing * width + width * (cumulative[crossing] - rank) / max(counts[crossing], 1))
+            # The production quantile uses float32, including the crossing-bin interpolation.
+            lower = np.float32(lo + np.float32(crossing) * width)
+            offset = np.float32(width * np.float32(cumulative[crossing] - rank) / np.float32(max(counts[crossing], 1)))
+            thresholds.append(np.float32(lower + offset))
         expected.append(thresholds)
     split = values.reshape(layers, micros, tokens // micros, experts).transpose(1, 0, 2, 3)
     with jax.set_mesh(mesh):
@@ -74,7 +77,7 @@ def test_accumulation_matches_whole_batch_nll_gradients_and_router_statistics(ki
         global_kv_heads=1, head_dim=16, max_seq_len=16,
         global_every=1, attn_res=True, attn_res_num_blocks=2,
         attn_res_layer_backward=model.AttnResLayerBackward.SAVE,
-        moe_implementation="scatter",
+        moe_implementation="ragged_all_to_all",
     )
     batch_size = 4 * len(jax.devices())
     tokens = (jnp.arange(batch_size * 16).reshape(batch_size, 16) % 29).astype(jnp.int32)
