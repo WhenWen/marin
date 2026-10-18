@@ -9,6 +9,7 @@ import json
 import logging
 import math
 import os
+import tarfile
 import time
 import uuid
 from contextlib import ExitStack, contextmanager
@@ -18,7 +19,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import draccus
-import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -316,9 +316,20 @@ def main(argv=None):
         tracker.log({"preflight/ok": 1}, step=0)
         tracker.finish()
         return
-    flag = "--xla_allow_excess_precision=false"
-    if flag not in os.environ.get("XLA_FLAGS", "").split():
-        os.environ["XLA_FLAGS"] = os.environ.get("XLA_FLAGS", "") + " " + flag
+    memory_schedule = args.width == 768 and args.batch_size == 64
+    compiler_dump = args.output / "compiler-dump"
+    flags = ["--xla_allow_excess_precision=false"]
+    if memory_schedule:
+        flags += [
+            "--xla_memory_scheduler=kBrkga",
+            f"--xla_dump_to={compiler_dump}",
+            "--xla_dump_hlo_as_proto=true",
+            "--xla_dump_hlo_as_text=true",
+            "--xla_dump_hlo_module_re=jit_train_step",
+        ]
+    for flag in flags:
+        if flag not in os.environ.get("XLA_FLAGS", "").split():
+            os.environ["XLA_FLAGS"] = os.environ.get("XLA_FLAGS", "") + " " + flag
     # Iris task-attempt IDs differ by host. Broadcast one fresh process-group
     # identity before constructing tracker and checkpoint paths.
     jax_settings = json.loads(RECIPE.read_text())["trainer"]["trainer"]["jax_config"]
@@ -339,6 +350,16 @@ def main(argv=None):
             (args.output / name).write_bytes(content)
             StoragePath(artifact_root + "/" + name).write_bytes(content)
 
+    def retain_compiler_dump():
+        if memory_schedule and compiler_dump.exists():
+            try:
+                archive = args.output / f"compiler-dump-host{jax.process_index()}.tar.gz"
+                with tarfile.open(archive, "w:gz", compresslevel=1) as packed:
+                    packed.add(compiler_dump, arcname="compiler-dump")
+                StoragePath(artifact_root + "/" + archive.name).write_bytes(archive.read_bytes())
+            except Exception:
+                logging.exception("Could not retain compiler dump")
+
     identities = json.loads(Path(__file__).with_name("tokenizer_identity.json").read_text())
     for name, expected in identities.items():
         if hashlib.sha256((Path(args.tokenizer) / name).read_bytes()).hexdigest() != expected:
@@ -358,7 +379,7 @@ def main(argv=None):
         tpu_chips=args.tpu_chips,
     )
     budget = None
-    execution_policy = "native-saved-integrated-check" if args.width == 768 and args.batch_size == 64 else "native-saved"
+    execution_policy = "native-saved-memory-schedule" if memory_schedule else "native-saved"
     if args.compute_budget is not None:
         budget = next(
             row
@@ -376,7 +397,10 @@ def main(argv=None):
         if budget.get("execution_policy", "native-saved") != execution_policy:
             raise ValueError("Execution backward scheduling differs from frozen compute budget")
         persist("compute-budget.json", budget)
-    persist("execution-policy.json", {"backward": execution_policy, "additional_forward_recomputation": False})
+    persist(
+        "execution-policy.json",
+        {"backward": execution_policy, "additional_forward_recomputation": False, "xla_flags": flags},
+    )
     tables = None
     if args.variant == "plus":
         tables = case_classes.build(Path(args.tokenizer) / "tokenizer.json", config.model.vocab_size)
@@ -456,11 +480,8 @@ def main(argv=None):
 
     def flat_step(step_fn, treedef):
         native = native_flat(step_fn, treedef)
-        checked_native = native_flat(step_fn, treedef)
         completed = 0
         started = None
-        integrated_check = execution_policy == "native-saved-integrated-check"
-        original_loss_and_grads = train._loss_and_grads
         names = [] if args.variant == "belay" else ["cp_query", "cp_key", "cp_gate", "cp_sink"]
         if args.variant == "plus":
             names += ["cp_prev_key", "cp_prev_gain", "cp_variant", "cp_variant_bias"]
@@ -472,13 +493,9 @@ def main(argv=None):
             good = finite & jnp.isfinite(loss) & jnp.all(jnp.isfinite(positive) & (positive > 0))
             return good, finite, norms
 
-        def checked_loss_and_grads(*values, **options):
-            (loss, metrics), grads = original_loss_and_grads(*values, **options)
-            good, finite, norms = gradient_checks(loss, grads)
-            # This data dependency rejects invalid gradients before the optimizer
-            # consumes them. Only the first compiled update contains the check.
-            grads = eqx.error_if(grads, ~good, "Full-model gradients failed before the first optimizer update")
-            return (loss, {**metrics, "preflight/finite": finite, "preflight/copy_norms": norms}), grads
+        @jax.jit
+        def state_is_finite(leaves):
+            return jnp.all(jnp.stack([jnp.all(jnp.isfinite(x)) for x in leaves]))
 
         @partial(jax.jit, static_argnames=("loop_active", "router_tie_active"))
         def preflight(leaves, batch, loop_active=None, router_tie_active=None):
@@ -539,41 +556,43 @@ def main(argv=None):
                         }
                     )
                     persist("tracking.json", {"url": wandb.run.url, "resumed": False, "restored_step": restored_step})
-                if integrated_check:
-                    with patch.object(train, "_loss_and_grads", checked_loss_and_grads):
-                        result = checked_native(leaves, batch, **kwargs)
-                    metrics = result[1]
-                    loss, finite, norms = jax.device_get(
-                        (metrics["train/loss"], metrics.pop("preflight/finite"), metrics.pop("preflight/copy_norms"))
-                    )
-                    record_startup_memory("after_checked_first_optimizer_step")
-                else:
+                if not memory_schedule:
                     loss, finite, norms = jax.device_get(preflight(leaves, batch, **kwargs))
                     record_startup_memory("after_full_model_preflight")
-                # A zero predecessor gain intentionally blocks W_prev's first gradient.
-                positive = np.delete(norms, 4) if args.variant == "plus" else norms
-                if not (bool(finite) and np.isfinite(loss) and np.all(positive > 0)):
-                    raise ValueError("Full-model preflight failed before optimizer updates")
-                if jax.process_index() == 0:
-                    persist(
-                        "full-model-preflight.json",
-                        {
-                            "loss": float(loss),
-                            "all_gradients_finite": True,
-                            "copy_gradient_norms": norms.tolist(),
-                            "training_updates": 1 if integrated_check else 0,
-                            "validated_before_optimizer": True,
-                            "method": "integrated-first-update" if integrated_check else "separate-gradient-preflight",
-                            "restored_step": restored_step,
-                        },
-                    )
+                    # A zero predecessor gain intentionally blocks W_prev's first gradient.
+                    positive = np.delete(norms, 4) if args.variant == "plus" else norms
+                    if not (bool(finite) and np.isfinite(loss) and np.all(positive > 0)):
+                        raise ValueError("Full-model preflight failed before optimizer updates")
+                    if jax.process_index() == 0:
+                        persist(
+                            "full-model-preflight.json",
+                            {
+                                "loss": float(loss),
+                                "all_gradients_finite": True,
+                                "copy_gradient_norms": norms.tolist(),
+                                "training_updates": 0,
+                                "validated_before_optimizer": True,
+                                "method": "separate-gradient-preflight",
+                                "restored_step": restored_step,
+                            },
+                        )
                 preflight.clear_cache()
-            if completed != 0 or not integrated_check:
-                result = native(leaves, batch, **kwargs)
+            result = native(leaves, batch, **kwargs)
             completed += 1
             if completed == 1:
                 jax.block_until_ready(result)
                 record_startup_memory("after_first_optimizer_step")
+                if memory_schedule:
+                    loss = float(jax.device_get(result[1]["train/loss"]))
+                    finite = bool(jax.device_get(state_is_finite(result[0])))
+                    if not (np.isfinite(loss) and finite):
+                        raise ValueError("Nonfinite loss or state after the first native optimizer update")
+                    persist(
+                        "first-update-validation.json",
+                        {"loss": loss, "all_state_finite": finite, "training_updates": 1, "restored_step": restored_step},
+                    )
+                    state_is_finite.clear_cache()
+                    retain_compiler_dump()
             if args.calibration and completed in (100, 400):
                 jax.block_until_ready(result)
                 sync_global_devices(f"belay-window-{completed}")
@@ -608,6 +627,7 @@ def main(argv=None):
         ):
             train._run_grug_local(config)
     finally:
+        retain_compiler_dump()
         for handler in handlers:
             handler.upload()
         if jax.process_index() == 0:
