@@ -1,12 +1,13 @@
 # Copyright The Marin Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Belay+CPLM d512, fixed B16 x 8192, on one TPU v4-32 slice."""
+"""Belay / Belay+CPLM / Belay-CPLM-plus, fixed B16 x 8192 on TPU v4-32."""
 
 import argparse
 import hashlib
 import json
 import logging
+import math
 import os
 import time
 import uuid
@@ -39,11 +40,14 @@ from experiments.grug.fast_track.heuristic import MoeHeuristic
 from experiments.grug.fast_track.router_lookup import unrolled_router_logits
 from experiments.grug.moe import kda
 from experiments.grug.moe.kda_state_tpu import state_pass
-from experiments.grug.moe_cplm.belay import CopyPasteBelay
+from experiments.grug.moe_cplm import case_classes, plus
+from experiments.grug.moe_cplm.belay import Belay, CopyPasteBelay
+from experiments.grug.moe_cplm.checkpoint_io import python_zarr_checkpoint_writes
 
 RECIPE = Path(__file__).with_name("belay_recipe.json")
 DATA = Path(__file__).with_name("july_data.json")
 REFERENCE_PROJECTION = model._proj
+MODELS = {"belay": Belay, "cplm": CopyPasteBelay, "plus": plus.BelayCPLMPlus}
 
 
 def gathered_projection(cfg, x, weight, out_sharding=None):
@@ -71,11 +75,12 @@ def tpu_recurrence(prep, state, mm, lead, dk, dv, *, scan_impl):
 
 
 @contextmanager
-def execution():
+def execution(variant="cplm", tables=None):
     """Bind TPU implementations for this single-run process, including eval."""
     with ExitStack() as stack:
         for module, name, implementation in (
-            (train, "Transformer", CopyPasteBelay),
+            (train, "Transformer", MODELS[variant]),
+            (plus, "CASE_TABLES", tables),
             (model, "_proj", gathered_projection),
             (model, "_replicated_fp32_gather", column_sharded_embedding),
             (model, "_selected_router_logits", unrolled_router_logits),
@@ -100,6 +105,8 @@ def build_config(
     wandb_project: str,
     calibration: bool,
     tokenizer_path: str,
+    width: int = 512,
+    steps: int = 10980,
 ) -> train.GrugRunConfig:
     """Freeze the optimizer batch and schedule; calibration stops after 400 updates."""
     source = json.loads(RECIPE.read_text())
@@ -113,14 +120,21 @@ def build_config(
         kda_save_chunk_states=False,
         kda_state_grads="XLA",
         kda_xla_scan_impl="parallel_stacked_split",
-        hidden_dim=512,
+        hidden_dim=width,
         vocab_size=128256,
         max_seq_len=8192,
     )
+    layers = {512: 6, 768: 8}[width]
+    model_values.update(num_layers=layers, latent_out_full_layers=[layers - 2, layers - 1],
+                        initializer_std=0.5 / math.sqrt(width))
+    for name in ("intermediate_dim", "shared_expert_intermediate_dim", "latent_dim",
+                 "mla_num_heads", "num_heads", "global_local_heads"):
+        assert model_values[name] * width % 512 == 0
+        model_values[name] = model_values[name] * width // 512
     model_config = draccus.decode(model.GrugModelConfig, model_values)
     optimizer = source["optimizer"]
     optimizer["type"] = "grug_fast_track_muonh_v1"
-    heuristic = MoeHeuristic().build_optimizer_config(num_train_steps=10980, batch_size=16, hidden_dim=512, seq_len=8192)
+    heuristic = MoeHeuristic().build_optimizer_config(num_train_steps=steps, batch_size=16, hidden_dim=width, seq_len=8192)
     for name in ("learning_rate", "adam_lr", "epsilon", "beta2"):
         optimizer[name] = getattr(heuristic, name)
     outer = source["trainer"]
@@ -142,12 +156,12 @@ def build_config(
     inner.update(
         id=run_name,
         seed=0,
-        num_train_steps=10980,
+        num_train_steps=steps,
         train_batch_size=16,
         per_device_parallelism=1,
         per_device_eval_parallelism=1,
         mp="params=float32,compute=bfloat16,output=bfloat16",
-        load_checkpoint=False,
+        load_checkpoint=False if calibration else None,
         load_checkpoint_path=None,
         log_dir=str(output / "logs"),
         tracker=[{"type": "json_logger"}],
@@ -161,8 +175,10 @@ def build_config(
         temporary_base_path=checkpoint_path + "/temporary",
         keep=[{"every": 1000}],
         save_interval="0:10:00",
+        append_run_id_to_base_path=False,
     )
-    inner["checkpointer"]["write"].update(max_staged_host_bytes=2 * 1024**3, data_copy_concurrency=4)
+    inner["checkpointer"]["write"].update(max_staged_host_bytes=256 * 1024**2,
+        max_chunk_bytes=64 * 1024**2, cache_pool_bytes=64 * 1024**2, data_copy_concurrency=1)
     trainer_config = draccus.decode(train.GrugTrainerConfig, outer)
     tracker = WandbConfig(
         entity=wandb_entity,
@@ -256,6 +272,9 @@ def main(argv=None):
     parser.add_argument("--wandb-project", required=True)
     parser.add_argument("--calibration", action="store_true")
     parser.add_argument("--logging-check", action="store_true")
+    parser.add_argument("--variant", choices=tuple(MODELS), default="cplm")
+    parser.add_argument("--width", type=int, choices=(512, 768), default=512)
+    parser.add_argument("--steps", type=int, default=10980)
     args = parser.parse_args(argv)
     run_name = args.run_name
     args.output.mkdir(parents=True, exist_ok=True)
@@ -298,13 +317,19 @@ def main(argv=None):
     config = build_config(
         data_path=args.data_config,
         output=args.output,
-        checkpoint_path=args.checkpoint_path + "/" + attempt,
+        checkpoint_path=args.checkpoint_path,
         run_name=run_name,
         wandb_entity=args.wandb_entity,
         wandb_project=args.wandb_project,
         calibration=args.calibration,
         tokenizer_path=args.tokenizer,
+        width=args.width,
+        steps=args.steps,
     )
+    tables = None
+    if args.variant == "plus":
+        tables = case_classes.build(Path(args.tokenizer) / "tokenizer.json", config.model.vocab_size)
+        (args.output / "case-classes.json").write_text(json.dumps(case_classes.summary(*tables)))
     config.trainer.trainer.distributed = replace(config.trainer.trainer.distributed, initialize_jax_distributed=False)
     handlers = []
     initialize = config.trainer.trainer.initialize
@@ -367,26 +392,36 @@ def main(argv=None):
                 router_tie_active=router_tie_active,
             )
             finite = jnp.all(jnp.stack([jnp.all(jnp.isfinite(x)) for x in jax.tree.leaves(grads)]))
-            norms = jnp.stack([jnp.linalg.norm(getattr(grads, k)) for k in ("cp_query", "cp_key", "cp_gate", "cp_sink")])
+            names = [] if args.variant == "belay" else ["cp_query", "cp_key", "cp_gate", "cp_sink"]
+            if args.variant == "plus":
+                names += ["cp_prev_key", "cp_prev_gain", "cp_variant", "cp_variant_bias"]
+            norms = jnp.array([jnp.linalg.norm(getattr(grads, k)) for k in names])
             return loss, finite, norms
 
         def run(leaves, batch, **kwargs):
             nonlocal completed, started
             if completed == 0:
+                state = jax.tree.unflatten(treedef, leaves)
+                restored_step = int(jax.device_get(state.step))
                 if jax.process_index() == 0:
                     if wandb.run is None or wandb.run.offline or wandb.run.disabled:
                         raise RuntimeError("Online W&B must initialize before optimizer updates")
                     wandb.config.update(
                         {
                             "seed": 0,
-                            "restored_checkpoint": None,
+                            "restored_step": restored_step,
+                            "checkpoint_root": args.checkpoint_path,
+                            "variant": args.variant,
+                            "width": args.width,
                             "process_group_id": attempt,
                             "iris_attempt_uid": os.environ.get("IRIS_ATTEMPT_UID"),
                         }
                     )
                     (args.output / "tracking.json").write_text(json.dumps({"url": wandb.run.url, "resumed": False}))
                 loss, finite, norms = jax.device_get(preflight(leaves, batch, **kwargs))
-                if not (bool(finite) and np.isfinite(loss) and np.all(norms > 0)):
+                # A zero predecessor gain intentionally blocks W_prev's first gradient.
+                positive = norms[:4] if args.variant != "belay" else norms
+                if not (bool(finite) and np.isfinite(loss) and np.all(positive > 0)):
                     raise ValueError("Full-model preflight failed before optimizer updates")
                 if jax.process_index() == 0:
                     (args.output / "full-model-preflight.json").write_text(
@@ -396,6 +431,7 @@ def main(argv=None):
                                 "all_gradients_finite": True,
                                 "copy_gradient_norms": norms.tolist(),
                                 "training_updates": 0,
+                                "restored_step": restored_step,
                             }
                         )
                     )
@@ -429,7 +465,8 @@ def main(argv=None):
 
     try:
         with (
-            execution(),
+            execution(args.variant, tables),
+            python_zarr_checkpoint_writes(),
             patch.object(train, "TaggedEvaluator", bounded_evaluator),
             patch.object(train, "_flat_train_step", flat_step),
         ):
