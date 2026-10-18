@@ -81,6 +81,14 @@ def reduce_router_stats(
     counts = jnp.sum(stacked["routing_counts_local"], axis=1)
     prob_sum = jnp.sum(stacked["router_prob_sum_local"], axis=1)
     z_sq_sum = jnp.sum(stacked["router_z_sq_sum_local"], axis=1)
+    return {
+        **router_metrics_from_sums(counts, prob_sum, z_sq_sum, num_tokens, num_experts_per_token, num_experts),
+        "qb_beta": stacked["qb_beta"],
+    }
+
+
+def router_metrics_from_sums(counts, prob_sum, z_sq_sum, num_tokens, num_experts_per_token, num_experts):
+    """Compute nonlinear router telemetry after pooling additive token statistics."""
 
     total_assignments = jnp.maximum(jnp.sum(counts, axis=-1, keepdims=True), 1.0)
     assignment_fraction = counts / total_assignments
@@ -94,7 +102,6 @@ def reduce_router_stats(
         "routing_entropy": routing_entropy,
         "load_balancing_loss": load_balancing_loss,
         "router_z_loss": z_sq_sum / num_tokens,
-        "qb_beta": stacked["qb_beta"],
     }
 
 

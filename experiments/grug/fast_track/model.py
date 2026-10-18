@@ -1020,6 +1020,8 @@ class GrugModelConfig:
     ``attn_out`` (the attention sublayer output) and ``mlp_out`` (the MoE sublayer output)."""
     qb_freeze_step: int | None = None
     """Stop updating the QB router biases from this step on (they keep their last value)."""
+    qb_defer_update: bool = False
+    """Return detached margins and additive router statistics to the Belay accumulation driver."""
     qb_bias_damping: float | None = None
     """Damped QB bias update (StableMoE arXiv 2204.08396; phi-balancing arXiv 2605.15403): ``b <- (1 - gamma) b +
     gamma (-beta)`` instead of ``b <- -beta``. Setting it (1.0 is the undamped update) also logs
@@ -4545,7 +4547,14 @@ class MoEMLP(eqx.Module):
         )
         # Sharded QB: estimate each expert's threshold beta from the margins `s - alpha` by binning
         # them into fixed bins over the live global range and reading the (1-K/E) quantile.
-        if self.cfg.num_null_experts:
+        if self.cfg.qb_defer_update:
+            if len(banks) != 1 or self.cfg.num_null_experts or self.cfg.qb_bias_damping is not None:
+                raise ValueError("Deferred QB requires one expert bank without null experts or churn diagnostics")
+            router_stats["qb_margins"] = jax.lax.stop_gradient(
+                reshard(router_logits - bank_alpha[0], P(_BATCH_AXES, None))
+            )
+            bank_stats = [(jnp.zeros((num_real,), jnp.float32), jnp.array(0.0), jnp.array(0.0))]
+        elif self.cfg.num_null_experts:
             bank_stats = [self._null_qb_stats(router_logits - bank_alpha[0], selected_experts, mesh)]
         else:
             bank_stats = [
@@ -7846,6 +7855,10 @@ class Transformer(eqx.Module):
                 "margin_min_per_layer": stacked_router_stats["margin_min"],
                 "margin_max_per_layer": stacked_router_stats["margin_max"],
             }
+            if cfg.qb_defer_update:
+                router_metrics["qb_margins"] = stacked_router_stats["qb_margins"]
+                router_metrics["router_prob_sum"] = jnp.sum(stacked_router_stats["router_prob_sum_local"], axis=1)
+                router_metrics["router_z_sq_sum"] = jnp.sum(stacked_router_stats["router_z_sq_sum_local"], axis=1)
             router_metrics.update(
                 {
                     k: v

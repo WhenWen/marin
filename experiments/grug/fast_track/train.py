@@ -1020,6 +1020,7 @@ def _loss_and_grads(
     byte_weight: jax.Array | None = None,
     router_tie_active: bool | None = None,
     future_weight: jax.Array | None = None,
+    loss_scale: jax.Array | float = 1.0,
 ):
     """``loop_active`` is a static pass selector for looped growth (see ``GrugModelConfig.loop_grow_step``);
     ``router_tie_active`` statically applies the router ties (see ``GrugModelConfig.router_embed_tie_release_step``)."""
@@ -1034,7 +1035,7 @@ def _loss_and_grads(
 
     def loss_fn(model):
         compute_params = _cast_to_compute(mp, model)
-        return compute_params.next_token_loss(
+        loss, metrics = compute_params.next_token_loss(
             batch.tokens,
             batch.loss_weight,
             mask=batch.attn_mask,
@@ -1051,6 +1052,7 @@ def _loss_and_grads(
             router_tie_active=router_tie_active,
             future_aux_weight=future_weight,
         )
+        return loss * loss_scale, metrics
 
     return jax.value_and_grad(loss_fn, has_aux=True)(params)
 

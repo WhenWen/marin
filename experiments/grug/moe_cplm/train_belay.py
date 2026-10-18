@@ -41,7 +41,7 @@ from experiments.grug.fast_track.heuristic import MoeHeuristic
 from experiments.grug.fast_track.router_lookup import unrolled_router_logits
 from experiments.grug.moe import kda
 from experiments.grug.moe.kda_state_tpu import state_pass
-from experiments.grug.moe_cplm import case_classes, plus
+from experiments.grug.moe_cplm import accumulation, case_classes, plus
 from experiments.grug.moe_cplm.belay import Belay, CopyPasteBelay
 from experiments.grug.moe_cplm.checkpoint_io import python_zarr_checkpoint_writes
 from experiments.grug.moe_cplm.head_validation import validate_head, validate_histogram
@@ -82,6 +82,7 @@ def execution(variant="cplm", tables=None):
     with ExitStack() as stack:
         for module, name, implementation in (
             (train, "Transformer", MODELS[variant]),
+            (train, "_accumulated_loss_and_grads", accumulation.accumulated_loss_and_grads),
             (plus, "CASE_TABLES", tables),
             (model, "_proj", gathered_projection),
             (model, "_replicated_fp32_gather", column_sharded_embedding),
@@ -111,10 +112,14 @@ def build_config(
     steps: int = 10980,
     batch_size: int = 16,
     tpu_chips: int = 16,
+    grad_accum_microbatches: int = 1,
+    expert_axis_size: int = 1,
 ) -> train.GrugRunConfig:
     """Freeze the optimizer batch and schedule; calibration stops after 400 updates."""
     if batch_size % tpu_chips or batch_size < tpu_chips:
         raise ValueError("Logical batch must contain an integer number of one-sequence-per-chip microbatches")
+    if batch_size % (tpu_chips * grad_accum_microbatches) or tpu_chips % expert_axis_size:
+        raise ValueError("Each microbatch and expert mesh must divide evenly across the TPU chips")
     source = json.loads(RECIPE.read_text())
     model_values = source["model"]
     model_values.update(
@@ -127,6 +132,7 @@ def build_config(
         kda_state_grads="XLA",
         kda_xla_scan_impl="parallel_stacked_split",
         hidden_dim=width,
+        qb_defer_update=grad_accum_microbatches > 1,
         vocab_size=128256,
         max_seq_len=8192,
     )
@@ -154,9 +160,9 @@ def build_config(
         optimizer[name] = getattr(heuristic, name)
     outer = source["trainer"]
     outer.update(
-        expert_axis_size=1,
+        expert_axis_size=expert_axis_size,
         replica_axis_size=1,
-        grad_accum_microbatches=1,
+        grad_accum_microbatches=grad_accum_microbatches,
         pipeline_depth=1,
         loader_buffer_batches=4,
         z_loss_weight=0.0,
@@ -295,6 +301,9 @@ def main(argv=None):
     parser.add_argument("--width", type=int, choices=(512, 768, 1024, 1280), default=512)
     parser.add_argument("--batch-size", type=int, choices=(16, 64, 128, 256), default=16)
     parser.add_argument("--tpu-chips", type=int, choices=(16, 32), default=16)
+    parser.add_argument("--grad-accum-microbatches", type=int, choices=(1, 2, 4, 8), default=1)
+    parser.add_argument("--expert-axis-size", type=int, choices=(1, 2, 4), default=1)
+    parser.add_argument("--memory-scheduler", choices=("default", "brkga"), default="default")
     parser.add_argument("--steps", type=int, default=10980)
     parser.add_argument("--compute-budget", type=Path)
     args = parser.parse_args(argv)
@@ -319,7 +328,7 @@ def main(argv=None):
     memory_schedule = args.width == 768 and args.batch_size == 64
     compiler_dump = args.output / "compiler-dump"
     flags = ["--xla_allow_excess_precision=false"]
-    tpu_flags = ["--xla_memory_scheduler=brkga"] if memory_schedule else []
+    tpu_flags = ["--xla_memory_scheduler=brkga"] if args.memory_scheduler == "brkga" else []
     if memory_schedule:
         flags += [
             f"--xla_dump_to={compiler_dump}",
@@ -378,9 +387,13 @@ def main(argv=None):
         steps=args.steps,
         batch_size=args.batch_size,
         tpu_chips=args.tpu_chips,
+        grad_accum_microbatches=args.grad_accum_microbatches,
+        expert_axis_size=args.expert_axis_size,
     )
     budget = None
-    execution_policy = "native-saved-memory-schedule" if memory_schedule else "native-saved"
+    execution_policy = "native-saved-global-qb" if args.grad_accum_microbatches > 1 else "native-saved"
+    if args.memory_scheduler == "brkga":
+        execution_policy += "-memory-schedule"
     if args.compute_budget is not None:
         budget = next(
             row
@@ -397,6 +410,10 @@ def main(argv=None):
             raise ValueError("Execution optimizer differs from frozen compute budget")
         if budget.get("execution_policy", "native-saved") != execution_policy:
             raise ValueError("Execution backward scheduling differs from frozen compute budget")
+        if (budget.get("grad_accum_microbatches", 1), budget.get("expert_axis_size", 1)) != (
+            args.grad_accum_microbatches, args.expert_axis_size
+        ):
+            raise ValueError("Execution accumulation or expert mesh differs from frozen compute budget")
         persist("compute-budget.json", budget)
     persist(
         "execution-policy.json",
@@ -405,6 +422,9 @@ def main(argv=None):
             "additional_forward_recomputation": False,
             "xla_flags": flags,
             "libtpu_init_args": tpu_flags,
+            "grad_accum_microbatches": args.grad_accum_microbatches,
+            "physical_batch_size": args.batch_size // args.grad_accum_microbatches,
+            "expert_axis_size": args.expert_axis_size,
         },
     )
     tables = None
@@ -549,7 +569,7 @@ def main(argv=None):
                             "variant": args.variant,
                             "width": args.width,
                             "logical_batch_size": args.batch_size,
-                            "physical_batch_size": args.batch_size,
+                            "physical_batch_size": args.batch_size // args.grad_accum_microbatches,
                             "grad_accum_microbatches": config.trainer.grad_accum_microbatches,
                             "backward_scheduling": execution_policy,
                             "process_group_id": attempt,

@@ -137,14 +137,19 @@ class CopyPasteBelay(model.Transformer):
             for k in list(metrics)
             if k.startswith("attn_res_")
         }
-        result = model.summarize_router_metrics(metrics)
-        result.update(final)
-        result.update(
-            {
+        means = {
                 "train/cross_entropy_loss": loss,
                 "train/aux/cplm/native_head_nll": jnp.sum(ce * weights) / denom,
                 "train/aux/cplm/copy_gate": jnp.sum(gate * weights) / denom,
                 "train/aux/cplm/effective_copy": jnp.sum(effective * weights) / denom,
+        }
+        if self.config.qb_defer_update:
+            return loss, {"router": metrics, "token_means": final, "weighted_means": means}
+        result = model.summarize_router_metrics(metrics)
+        result.update(final)
+        result.update(means)
+        result.update(
+            {
                 "train/router/z_loss_logging_only": jnp.mean(metrics["router_z_loss_per_layer"]),
                 "moe/dropped_assignments": metrics["capacity_overflow_per_layer"],
                 "moe/sender_dropped_assignments": metrics["sender_capacity_overflow_per_layer"],
