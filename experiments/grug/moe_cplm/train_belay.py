@@ -36,7 +36,6 @@ from levanter.tracker.wandb import WandbConfig
 from rigging.filesystem.storage_path import StoragePath
 
 from experiments.grug.fast_track import model, qb_balancing, train
-from experiments.grug.fast_track.attn_res_saved import saved_layer
 from experiments.grug.fast_track.column_sharded_embedding import column_sharded_embedding
 from experiments.grug.fast_track.heuristic import MoeHeuristic
 from experiments.grug.fast_track.router_lookup import unrolled_router_logits
@@ -78,7 +77,7 @@ def tpu_recurrence(prep, state, mm, lead, dk, dv, *, scan_impl):
 
 
 @contextmanager
-def execution(variant, tables, *, layer_passthrough):
+def execution(variant="cplm", tables=None):
     """Bind TPU implementations for this single-run process, including eval."""
     with ExitStack() as stack:
         for module, name, implementation in (
@@ -87,7 +86,6 @@ def execution(variant, tables, *, layer_passthrough):
             (model, "_proj", gathered_projection),
             (model, "_replicated_fp32_gather", column_sharded_embedding),
             (model, "_selected_router_logits", unrolled_router_logits),
-            (model, "_attn_res_layer_passthrough", layer_passthrough),
             (kda, "_parallel_chunk_recurrence", tpu_recurrence),
             (
                 qb_balancing,
@@ -603,19 +601,7 @@ def main(argv=None):
 
     try:
         with (
-            execution(
-                args.variant,
-                tables,
-                layer_passthrough=(
-                    partial(
-                        saved_layer,
-                        layer_forward=model._attn_res_layer,
-                        statistic_keys=(*model._DIFFERENTIABLE_STATS, model._ATTN_RES_Z),
-                    )
-                    if execution_policy == "ordered-saved"
-                    else model._attn_res_layer_passthrough
-                ),
-            ),
+            execution(args.variant, tables),
             python_zarr_checkpoint_writes(),
             patch.object(train, "TaggedEvaluator", bounded_evaluator),
             patch.object(train, "_flat_train_step", flat_step),
