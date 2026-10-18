@@ -120,8 +120,8 @@ def build_config(
         kda_write_gate=False,
         kda_erase_gate=False,
         kda_onchip_erase_gate=False,
-        attn_res_layer_backward="RECOMPUTE" if batch_size >= 128 or width >= 1024 else "SAVE",
-        attn_res_remat_attention=batch_size >= 128 or width >= 1280,
+        attn_res_layer_backward="RECOMPUTE" if width >= 1024 else "SAVE",
+        attn_res_remat_attention=width >= 1280,
         kda_save_chunk_states=False,
         kda_state_grads="XLA",
         kda_xla_scan_impl="parallel_stacked_split",
@@ -292,7 +292,7 @@ def main(argv=None):
     parser.add_argument("--logging-check", action="store_true")
     parser.add_argument("--variant", choices=tuple(MODELS), default="cplm")
     parser.add_argument("--width", type=int, choices=(512, 768, 1024, 1280), default=512)
-    parser.add_argument("--batch-size", type=int, choices=(16, 128, 256), default=16)
+    parser.add_argument("--batch-size", type=int, choices=(16, 64, 128, 256), default=16)
     parser.add_argument("--tpu-chips", type=int, choices=(16, 32), default=16)
     parser.add_argument("--steps", type=int, default=10980)
     parser.add_argument("--compute-budget", type=Path)
@@ -378,7 +378,7 @@ def main(argv=None):
         persist("case-classes.json", case_classes.summary(*tables))
     head_check = validate_head(args.variant, args.width)
     persist("head-preflight.json", head_check)
-    if args.batch_size == 128:
+    if args.batch_size in (64, 128):
         histogram_check = validate_histogram(args.batch_size * 8192 // args.tpu_chips)
         persist("histogram-preflight.json", histogram_check)
         StoragePath(artifact_root + f"/histogram-preflight-host{jax.process_index()}.json").write_bytes(
