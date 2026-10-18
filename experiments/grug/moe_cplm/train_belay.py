@@ -367,7 +367,9 @@ def main(argv=None):
             raise ValueError("Execution configuration differs from frozen compute budget")
         if budget.get("batch_size", 16) != args.batch_size or budget.get("tpu_chips", 16) != args.tpu_chips:
             raise ValueError("Execution batch or hardware differs from frozen compute budget")
-        if "optimizer_config" in budget and budget["optimizer_config"] != json.loads(json.dumps(asdict(config.optimizer))):
+        if "optimizer_config" in budget and budget["optimizer_config"] != json.loads(
+            json.dumps(asdict(config.optimizer))
+        ):
             raise ValueError("Execution optimizer differs from frozen compute budget")
         persist("compute-budget.json", budget)
     tables = None

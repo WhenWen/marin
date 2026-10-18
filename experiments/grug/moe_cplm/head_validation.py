@@ -7,8 +7,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from experiments.grug.moe_cplm import belay, plus
 from experiments.grug.fast_track import qb_balancing
+from experiments.grug.moe_cplm import belay, plus
 
 
 def validate_histogram(local_tokens):
