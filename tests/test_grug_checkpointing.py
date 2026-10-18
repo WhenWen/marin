@@ -8,9 +8,10 @@ from pathlib import Path
 
 import jax
 import jax.numpy as jnp
-import pytest
 import numpy as np
-from jax.sharding import AxisType, Mesh, NamedSharding, PartitionSpec as P
+import pytest
+from jax.sharding import AxisType, Mesh, NamedSharding
+from jax.sharding import PartitionSpec as P
 from jax.tree_util import register_dataclass
 from levanter.checkpoint import Checkpointer, CheckpointInterval, latest_checkpoint_path
 
@@ -114,7 +115,35 @@ def test_full_resume_preserves_sharding_and_pinned_host_without_initializing(tmp
     assert restored.opt_state.sharding == host
 
 
-@pytest.mark.parametrize("metadata", ['{"step": 4}', 'unreadable-json'])
+def test_partial_resume_initializes_missing_leaves_once(tmp_path: Path):
+    checkpointer = Checkpointer(base_path=str(tmp_path), step_policies=[CheckpointInterval(every=1)])
+    checkpointer.on_step(tree={"step": jnp.array(7), "params": jnp.array([4.0, 5.0])}, step=7, force=True)
+    checkpointer.wait_until_finished()
+    allocations = 0
+
+    def initialize():
+        nonlocal allocations
+        allocations += 1
+        return {"step": jnp.array(0), "params": jnp.zeros(2), "missing": jnp.array([8.0, 9.0])}
+
+    def no_template():
+        raise AssertionError("Partial resume needs concrete values for missing leaves")
+
+    restored = initialize_or_restore_grug_state(
+        initialize=initialize,
+        restore_template=no_template,
+        checkpoint_search_paths=[str(tmp_path)],
+        load_checkpoint_setting=None,
+        mesh=None,
+        allow_partial=True,
+    )
+    assert allocations == 1
+    assert int(restored["step"]) == 7
+    np.testing.assert_array_equal(restored["params"], [4.0, 5.0])
+    np.testing.assert_array_equal(restored["missing"], [8.0, 9.0])
+
+
+@pytest.mark.parametrize("metadata", ['{"step": 4}', "unreadable-json"])
 def test_existing_broken_checkpoint_never_initializes_fresh(tmp_path: Path, metadata: str):
     directory = tmp_path / "step-4"
     directory.mkdir()

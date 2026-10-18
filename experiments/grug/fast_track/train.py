@@ -5,6 +5,7 @@ import concurrent.futures
 import dataclasses
 import faulthandler
 import functools
+import gc
 import glob
 import io
 import json
