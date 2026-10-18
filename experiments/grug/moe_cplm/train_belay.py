@@ -589,7 +589,12 @@ def main(argv=None):
                         raise ValueError("Nonfinite loss or state after the first native optimizer update")
                     persist(
                         "first-update-validation.json",
-                        {"loss": loss, "all_state_finite": finite, "training_updates": 1, "restored_step": restored_step},
+                        {
+                            "loss": loss,
+                            "all_state_finite": finite,
+                            "training_updates": 1,
+                            "restored_step": restored_step,
+                        },
                     )
                     state_is_finite.clear_cache()
                     retain_compiler_dump()
