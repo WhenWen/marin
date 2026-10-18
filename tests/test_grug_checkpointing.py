@@ -116,7 +116,9 @@ def test_full_resume_preserves_sharding_and_pinned_host_without_initializing(tmp
 
 
 def test_partial_resume_initializes_missing_leaves_once(tmp_path: Path):
-    checkpointer = Checkpointer(base_path=str(tmp_path), step_policies=[CheckpointInterval(every=1)])
+    checkpointer = Checkpointer(
+        base_path=str(tmp_path), save_interval=timedelta(seconds=1), step_policies=[CheckpointInterval(every=1)]
+    )
     checkpointer.on_step(tree={"step": jnp.array(7), "params": jnp.array([4.0, 5.0])}, step=7, force=True)
     checkpointer.wait_until_finished()
     allocations = 0
