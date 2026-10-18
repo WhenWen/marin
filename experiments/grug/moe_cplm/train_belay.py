@@ -577,9 +577,13 @@ def main(argv=None):
                 args.variant,
                 tables,
                 layer_passthrough=(
-                    partial(saved_layer, layer_forward=model._attn_res_layer,
-                            statistic_keys=(*model._DIFFERENTIABLE_STATS, model._ATTN_RES_Z))
-                    if execution_policy == "ordered-saved" else model._attn_res_layer_passthrough
+                    partial(
+                        saved_layer,
+                        layer_forward=model._attn_res_layer,
+                        statistic_keys=(*model._DIFFERENTIABLE_STATS, model._ATTN_RES_Z),
+                    )
+                    if execution_policy == "ordered-saved"
+                    else model._attn_res_layer_passthrough
                 ),
             ),
             python_zarr_checkpoint_writes(),

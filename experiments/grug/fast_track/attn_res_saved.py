@@ -5,6 +5,7 @@
 
 import equinox as eqx
 import jax
+import jax.numpy as jnp
 
 
 @eqx.filter_custom_vjp
@@ -15,7 +16,9 @@ def saved_layer(diff_args, mask, token_ids, use_long, layer_index, eps, noise_ke
 
 
 @saved_layer.def_fwd
-def _forward(perturbed, diff_args, mask, token_ids, use_long, layer_index, eps, noise_key, *, layer_forward, statistic_keys):
+def _forward(
+    perturbed, diff_args, mask, token_ids, use_long, layer_index, eps, noise_key, *, layer_forward, statistic_keys
+):
     del perturbed
 
     def forward(args):
@@ -24,18 +27,31 @@ def _forward(perturbed, diff_args, mask, token_ids, use_long, layer_index, eps, 
         return (partial, differentiable), stats
 
     (partial, differentiable), pullback, stats = eqx.filter_vjp(forward, diff_args, has_aux=True)
-    return (partial, diff_args[1], diff_args[2], stats), (pullback, tuple(differentiable))
+    return (partial, diff_args[1], diff_args[2], stats), (pullback, differentiable)
 
 
 @saved_layer.def_bwd
-def _backward(residuals, grad_out, perturbed, diff_args, mask, token_ids, use_long, layer_index, eps, noise_key,
-              *, layer_forward, statistic_keys):
+def _backward(
+    residuals,
+    grad_out,
+    perturbed,
+    diff_args,
+    mask,
+    token_ids,
+    use_long,
+    layer_index,
+    eps,
+    noise_key,
+    *,
+    layer_forward,
+    statistic_keys,
+):
     del perturbed, diff_args, mask, token_ids, use_long, eps, noise_key, layer_forward, statistic_keys
-    pullback, keys = residuals
+    pullback, differentiable = residuals
     with jax.named_scope(f"attn_res_saved_bwd{layer_index}"):
         d_partial, d_blocks, d_logits, d_stats = jax.lax.optimization_barrier(grad_out)
         ((d_layer, own_blocks, own_logits, d_partial_in, d_queries, d_extras),) = pullback(
-            (d_partial, {k: d_stats[k] for k in keys})
+            (d_partial, {k: jnp.zeros_like(v) if d_stats[k] is None else d_stats[k] for k, v in differentiable.items()})
         )
         add = lambda a, b: b if a is None else a if b is None else a + b  # noqa: E731
         is_none = lambda x: x is None  # noqa: E731

@@ -7,8 +7,9 @@ This exercises the Belay backbone boundary; copy heads are omitted here and
 remain covered separately by the full-model TPU launch preflight.
 """
 
-import equinox as eqx
 from functools import partial
+
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -21,7 +22,7 @@ from experiments.grug.fast_track.test_kda_local import _SEQ, _VOCAB, _model
 
 
 @pytest.mark.parametrize("index", [0, 3])
-@pytest.mark.parametrize("z_weight", [0., .1])
+@pytest.mark.parametrize("z_weight", [0.0, 0.1])
 def test_saved_layer_matches_ordinary_ad_for_history_and_z_loss(index, z_weight):
     mesh, net = _model(attn_res_layer_backward=model.AttnResLayerBackward.SAVE)
     rng = jax.random.split(jax.random.key(83), 5)
@@ -29,24 +30,37 @@ def test_saved_layer_matches_ordinary_ad_for_history_and_z_loss(index, z_weight)
     segments = jnp.broadcast_to(jnp.arange(_SEQ) // 12, tokens.shape)
     mask = AttentionMask(is_causal=True, segment_ids=(segments, segments))
     with jax.set_mesh(mesh):
-        queries = jax.random.normal(rng[1], (2 * net.config.num_layers + 1, 32)) * .1
-        blocks = tuple(jax.sharding.reshard(jax.random.normal(k, (2, _SEQ, 32)) * .1, model._batch_spec()) for k in rng[2:4])
-        logits = tuple(model._logit_rows(model._attn_res_source_logits(x, queries[2 * index:], 1e-6, False))
-                       for x in blocks)
-        running = None if index == 0 else jax.sharding.reshard(jax.random.normal(rng[4], (2, _SEQ, 32)) * .1, model._batch_spec())
+        queries = jax.random.normal(rng[1], (2 * net.config.num_layers + 1, 32)) * 0.1
+        blocks = tuple(
+            jax.sharding.reshard(jax.random.normal(k, (2, _SEQ, 32)) * 0.1, model._batch_spec()) for k in rng[2:4]
+        )
+        logits = tuple(
+            model._logit_rows(model._attn_res_source_logits(x, queries[2 * index :], 1e-6, False)) for x in blocks
+        )
+        running = (
+            None
+            if index == 0
+            else jax.sharding.reshard(jax.random.normal(rng[4], (2, _SEQ, 32)) * 0.1, model._batch_spec())
+        )
         args = (net.layers()[index], blocks, logits, running, queries, None)
 
         def loss(values, implementation):
             output, history, scores, stats = implementation(values, mask, tokens, index == 3, index, 1e-6, None)
             # Direct history cotangents exercise their addition to the layer VJP;
             # the z-loss checks the differentiable auxiliary-statistic path.
-            return (jnp.mean(output ** 2) + .03 * sum(jnp.mean(x ** 2) for x in history)
-                    + .02 * sum(jnp.mean(x ** 2) for x in jax.tree.leaves(scores))
-                    + (z_weight * stats[model._ATTN_RES_Z] if z_weight else 0))
+            return (
+                jnp.mean(output**2)
+                + 0.03 * sum(jnp.mean(x**2) for x in history)
+                + 0.02 * sum(jnp.mean(x**2) for x in jax.tree.leaves(scores))
+                + (z_weight * stats[model._ATTN_RES_Z] if z_weight else 0)
+            )
 
         reference = eqx.filter_jit(eqx.filter_value_and_grad(lambda x: loss(x, model._attn_res_layer_passthrough)))
-        implementation = partial(saved_layer, layer_forward=model._attn_res_layer,
-                                 statistic_keys=(*model._DIFFERENTIABLE_STATS, model._ATTN_RES_Z))
+        implementation = partial(
+            saved_layer,
+            layer_forward=model._attn_res_layer,
+            statistic_keys=(*model._DIFFERENTIABLE_STATS, model._ATTN_RES_Z),
+        )
         scheduled = eqx.filter_jit(eqx.filter_value_and_grad(lambda x: loss(x, implementation)))
         want, want_grad = reference(args)
         got, got_grad = scheduled(args)
