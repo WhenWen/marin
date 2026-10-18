@@ -35,6 +35,7 @@ from levanter.tracker.wandb import WandbConfig
 from rigging.filesystem.storage_path import StoragePath
 
 from experiments.grug.fast_track import model, qb_balancing, train
+from experiments.grug.fast_track.attn_res_saved import saved_layer
 from experiments.grug.fast_track.column_sharded_embedding import column_sharded_embedding
 from experiments.grug.fast_track.heuristic import MoeHeuristic
 from experiments.grug.fast_track.router_lookup import unrolled_router_logits
@@ -76,7 +77,7 @@ def tpu_recurrence(prep, state, mm, lead, dk, dv, *, scan_impl):
 
 
 @contextmanager
-def execution(variant="cplm", tables=None):
+def execution(variant, tables, *, layer_passthrough):
     """Bind TPU implementations for this single-run process, including eval."""
     with ExitStack() as stack:
         for module, name, implementation in (
@@ -85,6 +86,7 @@ def execution(variant="cplm", tables=None):
             (model, "_proj", gathered_projection),
             (model, "_replicated_fp32_gather", column_sharded_embedding),
             (model, "_selected_router_logits", unrolled_router_logits),
+            (model, "_attn_res_layer_passthrough", layer_passthrough),
             (kda, "_parallel_chunk_recurrence", tpu_recurrence),
             (
                 qb_balancing,
@@ -357,6 +359,7 @@ def main(argv=None):
         tpu_chips=args.tpu_chips,
     )
     budget = None
+    execution_policy = "ordered-saved" if args.width == 768 and args.batch_size == 64 else "native-saved"
     if args.compute_budget is not None:
         budget = next(
             row
@@ -371,7 +374,10 @@ def main(argv=None):
             json.dumps(asdict(config.optimizer))
         ):
             raise ValueError("Execution optimizer differs from frozen compute budget")
+        if budget.get("execution_policy", "native-saved") != execution_policy:
+            raise ValueError("Execution backward scheduling differs from frozen compute budget")
         persist("compute-budget.json", budget)
+    persist("execution-policy.json", {"backward": execution_policy, "additional_forward_recomputation": False})
     tables = None
     if args.variant == "plus":
         tables = case_classes.build(Path(args.tokenizer) / "tokenizer.json", config.model.vocab_size)
@@ -506,6 +512,7 @@ def main(argv=None):
                             "logical_batch_size": args.batch_size,
                             "physical_batch_size": args.batch_size,
                             "grad_accum_microbatches": config.trainer.grad_accum_microbatches,
+                            "backward_scheduling": execution_policy,
                             "process_group_id": attempt,
                             "iris_attempt_uid": os.environ.get("IRIS_ATTEMPT_UID"),
                             "compute_budget": (
@@ -566,7 +573,15 @@ def main(argv=None):
 
     try:
         with (
-            execution(args.variant, tables),
+            execution(
+                args.variant,
+                tables,
+                layer_passthrough=(
+                    partial(saved_layer, layer_forward=model._attn_res_layer,
+                            statistic_keys=(*model._DIFFERENTIABLE_STATS, model._ATTN_RES_Z))
+                    if execution_policy == "ordered-saved" else model._attn_res_layer_passthrough
+                ),
+            ),
             python_zarr_checkpoint_writes(),
             patch.object(train, "TaggedEvaluator", bounded_evaluator),
             patch.object(train, "_flat_train_step", flat_step),

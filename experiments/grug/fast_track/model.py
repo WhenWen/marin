@@ -24,8 +24,6 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
-
-from experiments.grug.fast_track.attn_res_saved import saved_layer
 from einops import rearrange
 from haliax import Axis
 from haliax.jax_utils import named_call
@@ -7895,12 +7893,15 @@ class Transformer(eqx.Module):
         input_embed2: jax.Array | None = None,
         ple_rows: jax.Array | None = None,
     ) -> tuple[Float[Array, "B S D"], dict[str, jax.Array], dict[str, jax.Array]]:
-        """Unrolled Block AttnRes, with immutable completed blocks and one running partial.
+        """Block AttnRes over the layers, unrolled so each gate reads only its valid sources.
 
-        Every ``seg_size`` layers roll the partial into a block and score it once
-        against its remaining reader gates. SAVE retains each layer's pullback;
-        RECOMPUTE retains inputs and reruns the forward in backward. Both finish
-        each layer's cotangents before the preceding layer starts.
+        The residual history is a Python tuple of completed block sums (the token embedding is the
+        first, rolled in at layer 0) plus the running partial; every ``seg_size``-th layer rolls its
+        incoming partial into a new block. Completed blocks are immutable, so each block's logits
+        against the queries of every gate that reads it (layer ``i``'s onwards and the final gate) are
+        computed once when it is rolled, and each gate then only scores the partial. Blocks are shared
+        by reference, so block memory is one copy per block. With ``AttnResLayerBackward.RECOMPUTE``
+        each layer is rematerialized by ``_attn_res_layer_remat``, which saves only its inputs.
 
         ``ple_rows`` (``ple_dim``) holds every layer's per-layer-embedding rows side by side; layer ``i``
         gets its RMS-normed slice through its ``extras["ple"]``.
@@ -8003,8 +8004,7 @@ class Transformer(eqx.Module):
         layer_fn = (
             _attn_res_layer_remat
             if cfg.attn_res_layer_backward == AttnResLayerBackward.RECOMPUTE
-            else functools.partial(saved_layer, layer_forward=_attn_res_layer,
-                                   statistic_keys=(*_DIFFERENTIABLE_STATS, _ATTN_RES_Z))
+            else _attn_res_layer_passthrough
         )
 
         weight_logs: dict[int, tuple[jax.Array, bool]] = {}

@@ -42,7 +42,7 @@ def test_saved_layer_matches_ordinary_ad_for_history_and_z_loss(index, z_weight)
             # the z-loss checks the differentiable auxiliary-statistic path.
             return (jnp.mean(output ** 2) + .03 * sum(jnp.mean(x ** 2) for x in history)
                     + .02 * sum(jnp.mean(x ** 2) for x in jax.tree.leaves(scores))
-                    + z_weight * stats[model._ATTN_RES_Z])
+                    + (z_weight * stats[model._ATTN_RES_Z] if z_weight else 0))
 
         reference = eqx.filter_jit(eqx.filter_value_and_grad(lambda x: loss(x, model._attn_res_layer_passthrough)))
         implementation = partial(saved_layer, layer_forward=model._attn_res_layer,
