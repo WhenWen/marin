@@ -1,7 +1,7 @@
 # Copyright The Marin Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Belay / Belay+CPLM / Belay-CPLM-plus, fixed B16 x 8192 on TPU v4-32."""
+"""Belay / Belay+CPLM / Belay-CPLM-plus at frozen TPU ladder budgets."""
 
 import argparse
 import hashlib
@@ -108,16 +108,20 @@ def build_config(
     tokenizer_path: str,
     width: int = 512,
     steps: int = 10980,
+    batch_size: int = 16,
+    tpu_chips: int = 16,
 ) -> train.GrugRunConfig:
     """Freeze the optimizer batch and schedule; calibration stops after 400 updates."""
+    if batch_size % tpu_chips or batch_size < tpu_chips:
+        raise ValueError("Logical batch must contain an integer number of one-sequence-per-chip microbatches")
     source = json.loads(RECIPE.read_text())
     model_values = source["model"]
     model_values.update(
         kda_write_gate=False,
         kda_erase_gate=False,
         kda_onchip_erase_gate=False,
-        attn_res_layer_backward="SAVE",
-        attn_res_remat_attention=False,
+        attn_res_layer_backward="RECOMPUTE" if width >= 1024 else "SAVE",
+        attn_res_remat_attention=width >= 1280,
         kda_save_chunk_states=False,
         kda_state_grads="XLA",
         kda_xla_scan_impl="parallel_stacked_split",
@@ -125,7 +129,7 @@ def build_config(
         vocab_size=128256,
         max_seq_len=8192,
     )
-    layers = {512: 6, 768: 8}[width]
+    layers = {512: 6, 768: 8, 1024: 12, 1280: 14}[width]
     model_values.update(
         num_layers=layers, latent_out_full_layers=[layers - 2, layers - 1], initializer_std=0.5 / math.sqrt(width)
     )
@@ -143,7 +147,7 @@ def build_config(
     optimizer = source["optimizer"]
     optimizer["type"] = "grug_fast_track_muonh_v1"
     heuristic = MoeHeuristic().build_optimizer_config(
-        num_train_steps=steps, batch_size=16, hidden_dim=width, seq_len=8192
+        num_train_steps=steps, batch_size=batch_size, hidden_dim=width, seq_len=8192
     )
     for name in ("learning_rate", "adam_lr", "epsilon", "beta2"):
         optimizer[name] = getattr(heuristic, name)
@@ -151,7 +155,7 @@ def build_config(
     outer.update(
         expert_axis_size=1,
         replica_axis_size=1,
-        grad_accum_microbatches=1,
+        grad_accum_microbatches=batch_size // tpu_chips,
         pipeline_depth=1,
         loader_buffer_batches=4,
         z_loss_weight=0.0,
@@ -167,7 +171,7 @@ def build_config(
         id=run_name,
         seed=0,
         num_train_steps=steps,
-        train_batch_size=16,
+        train_batch_size=batch_size,
         per_device_parallelism=1,
         per_device_eval_parallelism=1,
         mp="params=float32,compute=bfloat16,output=bfloat16",
@@ -183,7 +187,7 @@ def build_config(
     inner["checkpointer"].update(
         base_path=checkpoint_path,
         temporary_base_path=checkpoint_path + "/temporary",
-        keep=[{"every": 1000}],
+        keep=[{"every": max(1, 1000 * 16 // batch_size)}],
         save_interval="0:10:00",
         append_run_id_to_base_path=False,
     )
@@ -238,13 +242,13 @@ def build_config(
         optimizer=draccus.decode(OptimizerConfig, optimizer),
         data=data,
         trainer=trainer_config,
-        resources=ResourceConfig.with_tpu("v4-32"),
+        resources=ResourceConfig.with_tpu(f"v4-{2 * tpu_chips}"),
         eval=(
             None
             if calibration
             else train.GrugEvalConfig(
                 eval_batch_size=256,
-                steps_per_eval=1000,
+                steps_per_eval=max(1, 1000 * 16 // batch_size),
                 compute_bpb=True,
                 dropless_eval=True,
                 dropless_eval_moe_implementation="scatter",
@@ -287,7 +291,9 @@ def main(argv=None):
     parser.add_argument("--calibration", action="store_true")
     parser.add_argument("--logging-check", action="store_true")
     parser.add_argument("--variant", choices=tuple(MODELS), default="cplm")
-    parser.add_argument("--width", type=int, choices=(512, 768), default=512)
+    parser.add_argument("--width", type=int, choices=(512, 768, 1024, 1280), default=512)
+    parser.add_argument("--batch-size", type=int, choices=(16, 128, 256), default=16)
+    parser.add_argument("--tpu-chips", type=int, choices=(16, 32), default=16)
     parser.add_argument("--steps", type=int, default=10980)
     parser.add_argument("--compute-budget", type=Path)
     args = parser.parse_args(argv)
@@ -347,6 +353,8 @@ def main(argv=None):
         tokenizer_path=args.tokenizer,
         width=args.width,
         steps=args.steps,
+        batch_size=args.batch_size,
+        tpu_chips=args.tpu_chips,
     )
     budget = None
     if args.compute_budget is not None:
@@ -357,6 +365,8 @@ def main(argv=None):
         )
         if budget["steps"] != args.steps or budget["model_config"] != json.loads(json.dumps(asdict(config.model))):
             raise ValueError("Execution configuration differs from frozen compute budget")
+        if budget.get("batch_size", 16) != args.batch_size or budget.get("tpu_chips", 16) != args.tpu_chips:
+            raise ValueError("Execution batch or hardware differs from frozen compute budget")
         persist("compute-budget.json", budget)
     tables = None
     if args.variant == "plus":
@@ -370,8 +380,8 @@ def main(argv=None):
 
     def checked_initialize():
         initialize()
-        if len(jax.devices()) != 16 or any(d.device_kind != "TPU v4" for d in jax.devices()):
-            raise ValueError("This baseline requires TPU v4-32 (16 physical chips)")
+        if len(jax.devices()) != args.tpu_chips or any(d.device_kind != "TPU v4" for d in jax.devices()):
+            raise ValueError(f"This run requires TPU v4 with {args.tpu_chips} physical chips")
         if jax.process_index() == 0:
             handler = MetricsFileHandler(args.output / "native-metrics.jsonl", artifact_root + "/native-metrics.jsonl")
             handlers.append(handler)
@@ -391,10 +401,12 @@ def main(argv=None):
                 batch = grug_lm_example_from_named(batch)
 
             def microbatch(index):
-                chunk = jax.tree.map(lambda x: jax.lax.dynamic_slice_in_dim(x, index * 16, 16, axis=0), batch)
+                chunk = jax.tree.map(
+                    lambda x: jax.lax.dynamic_slice_in_dim(x, index * args.tpu_chips, args.tpu_chips, axis=0), batch
+                )
                 return native_loss(params, chunk)
 
-            values = jax.lax.map(microbatch, jnp.arange(batch.tokens.shape[0] // 16))
+            values = jax.lax.map(microbatch, jnp.arange(batch.tokens.shape[0] // args.tpu_chips))
             return jax.tree.map(
                 lambda x: jax.lax.reshape(
                     x, (x.shape[0] * x.shape[1], *x.shape[2:]), out_sharding=P(model._BATCH_AXES, None)
@@ -416,15 +428,27 @@ def main(argv=None):
         def preflight(leaves, batch, loop_active=None, router_tie_active=None):
             state = jax.tree.unflatten(treedef, leaves)
             params = train._apply_qb_betas(state.params, state.pending_qb_betas)
-            (loss, _), grads = train._loss_and_grads(
-                params,
-                batch,
-                config.trainer.trainer.mp,
-                None,
-                state.step,
-                loop_active,
-                router_tie_active=router_tie_active,
-            )
+            if config.trainer.grad_accum_microbatches > 1:
+                (loss, _), grads = train._accumulated_loss_and_grads(
+                    config.trainer.grad_accum_microbatches,
+                    params,
+                    batch,
+                    config.trainer.trainer.mp,
+                    None,
+                    state.step,
+                    loop_active,
+                    router_tie_active,
+                )
+            else:
+                (loss, _), grads = train._loss_and_grads(
+                    params,
+                    batch,
+                    config.trainer.trainer.mp,
+                    None,
+                    state.step,
+                    loop_active,
+                    router_tie_active=router_tie_active,
+                )
             finite = jnp.all(jnp.stack([jnp.all(jnp.isfinite(x)) for x in jax.tree.leaves(grads)]))
             names = [] if args.variant == "belay" else ["cp_query", "cp_key", "cp_gate", "cp_sink"]
             if args.variant == "plus":
@@ -447,6 +471,9 @@ def main(argv=None):
                             "checkpoint_root": args.checkpoint_path,
                             "variant": args.variant,
                             "width": args.width,
+                            "logical_batch_size": args.batch_size,
+                            "physical_batch_size": args.tpu_chips,
+                            "grad_accum_microbatches": config.trainer.grad_accum_microbatches,
                             "process_group_id": attempt,
                             "iris_attempt_uid": os.environ.get("IRIS_ATTEMPT_UID"),
                             "compute_budget": (
