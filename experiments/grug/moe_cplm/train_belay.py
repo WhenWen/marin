@@ -350,8 +350,11 @@ def main(argv=None):
     )
     budget = None
     if args.compute_budget is not None:
-        budget = next(row for row in json.loads(args.compute_budget.read_text())["rows"]
-                      if row["variant"] == args.variant and row["width"] == args.width)
+        budget = next(
+            row
+            for row in json.loads(args.compute_budget.read_text())["rows"]
+            if row["variant"] == args.variant and row["width"] == args.width
+        )
         if budget["steps"] != args.steps or budget["model_config"] != json.loads(json.dumps(asdict(config.model))):
             raise ValueError("Execution configuration differs from frozen compute budget")
         persist("compute-budget.json", budget)
@@ -446,8 +449,11 @@ def main(argv=None):
                             "width": args.width,
                             "process_group_id": attempt,
                             "iris_attempt_uid": os.environ.get("IRIS_ATTEMPT_UID"),
-                            "compute_budget": None if budget is None else {
-                                k: v for k, v in budget.items() if k not in ("model_config", "parameter_count")},
+                            "compute_budget": (
+                                None
+                                if budget is None
+                                else {k: v for k, v in budget.items() if k not in ("model_config", "parameter_count")}
+                            ),
                         }
                     )
                     persist("tracking.json", {"url": wandb.run.url, "resumed": False, "restored_step": restored_step})
