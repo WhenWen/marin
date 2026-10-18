@@ -319,7 +319,7 @@ def main(argv=None):
     memory_schedule = args.width == 768 and args.batch_size == 64
     compiler_dump = args.output / "compiler-dump"
     flags = ["--xla_allow_excess_precision=false"]
-    tpu_flags = ["--xla_memory_scheduler=kBrkga"] if memory_schedule else []
+    tpu_flags = ["--xla_memory_scheduler=brkga"] if memory_schedule else []
     if memory_schedule:
         flags += [
             f"--xla_dump_to={compiler_dump}",
