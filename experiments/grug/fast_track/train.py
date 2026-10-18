@@ -5,7 +5,6 @@ import concurrent.futures
 import dataclasses
 import faulthandler
 import functools
-import gc
 import glob
 import io
 import json
@@ -62,7 +61,7 @@ from levanter.utils.jax_utils import parameter_count
 from levanter.utils.logging import LoadingTimeTrackerIterator
 
 from experiments.grug.checkpointing import (
-    restore_grug_state_from_checkpoint,
+    initialize_or_restore_grug_state,
 )
 from experiments.grug.fast_track.attention_rows_probe import attention_rows_probe
 from experiments.grug.fast_track.byte_targets import token_byte_table
@@ -191,24 +190,6 @@ class WatchMode(StrEnum):
 
     INLINE = "inline"
     DIAGNOSTIC = "diagnostic"
-
-
-def restore_template_from(state):
-    """ShapeDtypeStructs carrying each leaf's concrete sharding, releasing the leaves.
-
-    `jax.eval_shape` drops the `pinned_host` memory kind that `initial_state` puts on
-    offloaded optimizer state, which is most of a large checkpoint. Reading the sharding off a
-    built state keeps it.
-    """
-    template = jax.tree.map(
-        lambda leaf: (
-            jax.ShapeDtypeStruct(leaf.shape, leaf.dtype, sharding=leaf.sharding) if isinstance(leaf, jax.Array) else leaf
-        ),
-        state,
-    )
-    jax.tree.map(lambda leaf: leaf.delete() if isinstance(leaf, jax.Array) else None, state)
-    gc.collect()
-    return template
 
 
 def _apply_runtime_defaults(
@@ -2489,21 +2470,16 @@ def _run_grug_local(config: GrugRunConfig) -> None:
                 ),
             )
 
-        state = _init_state(model_key)
-        released_initial_state = trainer.load_checkpoint is not False and not trainer.allow_partial_checkpoint
-        if released_initial_state:
-            state = restore_template_from(state)
-
-        state = restore_grug_state_from_checkpoint(
-            state,
+        state = initialize_or_restore_grug_state(
+            initialize=lambda: _init_state(model_key),
+            # Unlike eval_shape, lowered output metadata retains pinned-host
+            # placement without executing the initializer or allocating state.
+            restore_template=lambda: _init_state.lower(model_key).out_info,
             checkpoint_search_paths=trainer.checkpoint_search_paths(run_id),
             load_checkpoint_setting=trainer.load_checkpoint,
             mesh=mesh,
             allow_partial=trainer.allow_partial_checkpoint,
         )
-        if released_initial_state and any(isinstance(leaf, jax.ShapeDtypeStruct) for leaf in jax.tree.leaves(state)):
-            state = _init_state(model_key)
-
         levanter.tracker.log_summary({"parameter_count": parameter_count(state.params)})
 
         train_dataset = build_train_dataset(

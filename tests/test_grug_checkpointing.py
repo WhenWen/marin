@@ -9,10 +9,16 @@ from pathlib import Path
 import jax
 import jax.numpy as jnp
 import pytest
+import numpy as np
+from jax.sharding import AxisType, Mesh, NamedSharding, PartitionSpec as P
 from jax.tree_util import register_dataclass
 from levanter.checkpoint import Checkpointer, CheckpointInterval, latest_checkpoint_path
 
-from experiments.grug.checkpointing import init_weights_only_from_checkpoint, restore_grug_state_from_checkpoint
+from experiments.grug.checkpointing import (
+    init_weights_only_from_checkpoint,
+    initialize_or_restore_grug_state,
+    restore_grug_state_from_checkpoint,
+)
 
 
 @register_dataclass
@@ -40,6 +46,96 @@ def _save_checkpoint(checkpoint_root: Path, state: _TestGrugState) -> str:
     checkpointer.on_step(tree=state, step=int(state.step), force=True)
     checkpointer.wait_until_finished()
     return latest_checkpoint_path(str(checkpoint_root))
+
+
+def test_fresh_run_allocates_state_once(tmp_path: Path):
+    allocations = 0
+
+    def initialize():
+        nonlocal allocations
+        allocations += 1
+        return {"step": jnp.array(0), "params": jnp.array([2.0, 3.0])}
+
+    def no_template():
+        raise AssertionError("A fresh run must not construct a restore template")
+
+    state = initialize_or_restore_grug_state(
+        initialize=initialize,
+        restore_template=no_template,
+        checkpoint_search_paths=[str(tmp_path / "absent")],
+        load_checkpoint_setting=None,
+        mesh=None,
+        allow_partial=False,
+    )
+    assert allocations == 1
+    assert int(state["step"]) == 0
+    np.testing.assert_array_equal(state["params"], [2.0, 3.0])
+
+
+def test_full_resume_preserves_sharding_and_pinned_host_without_initializing(tmp_path: Path):
+    mesh = Mesh(np.asarray(jax.devices()[:1]), ("data",), axis_types=(AxisType.Explicit,))
+    device = NamedSharding(mesh, P("data"))
+    host = device.with_memory_kind("pinned_host")
+
+    @jax.jit
+    def initializer():
+        return _TestGrugState(
+            step=jnp.array(0),
+            params=jax.device_put(jnp.zeros(8), device),
+            opt_state=jax.device_put(jnp.zeros(8), host),
+            ema_params=None,
+            pending_qb_betas=jax.device_put(jnp.zeros(8), device),
+        )
+
+    def no_initialize():
+        raise AssertionError("Full resume must not allocate a random initialized state")
+
+    with jax.set_mesh(mesh):
+        source = _TestGrugState(
+            step=jnp.array(17),
+            params=jax.device_put(jnp.arange(8, dtype=jnp.float32), device),
+            opt_state=jax.device_put(jnp.arange(8, dtype=jnp.float32) + 20, host),
+            ema_params=None,
+            pending_qb_betas=jax.device_put(jnp.ones(8), device),
+        )
+        _save_checkpoint(tmp_path, source)
+        restored = initialize_or_restore_grug_state(
+            initialize=no_initialize,
+            restore_template=lambda: initializer.lower().out_info,
+            checkpoint_search_paths=[str(tmp_path)],
+            load_checkpoint_setting=None,
+            mesh=mesh,
+            allow_partial=False,
+        )
+    assert int(restored.step) == 17
+    np.testing.assert_array_equal(restored.params, source.params)
+    np.testing.assert_array_equal(restored.opt_state, source.opt_state)
+    assert restored.params.sharding == device
+    assert restored.opt_state.sharding == host
+
+
+@pytest.mark.parametrize("metadata", ['{"step": 4}', 'unreadable-json'])
+def test_existing_broken_checkpoint_never_initializes_fresh(tmp_path: Path, metadata: str):
+    directory = tmp_path / "step-4"
+    directory.mkdir()
+    (directory / "metadata.json").write_text(metadata)
+
+    def no_initialize():
+        raise AssertionError("An existing broken checkpoint must not start from scratch")
+
+    def missing_data(*args, **kwargs):
+        raise FileNotFoundError("checkpoint arrays missing")
+
+    with pytest.raises(FileNotFoundError, match="Could not load"):
+        initialize_or_restore_grug_state(
+            initialize=no_initialize,
+            restore_template=lambda: {"params": jax.ShapeDtypeStruct((8,), jnp.float32)},
+            checkpoint_search_paths=[str(tmp_path)],
+            load_checkpoint_setting=None,
+            mesh=None,
+            allow_partial=False,
+            _load_fn=missing_data,
+        )
 
 
 @pytest.mark.parametrize(

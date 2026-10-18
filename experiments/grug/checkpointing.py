@@ -11,7 +11,9 @@ from typing import ClassVar, Protocol, TypeVar, cast
 
 import fsspec
 import jax
+import numpy as np
 from fsspec import AbstractFileSystem
+from jax.experimental import multihost_utils
 from levanter.checkpoint import latest_checkpoint_path, load_checkpoint
 from levanter.utils.jax_utils import barrier_sync_named
 
@@ -104,6 +106,58 @@ def _scan_checkpoint_root(root_path: str) -> list[tuple[int, str, str]]:
         results.append((step_num, timestamp_key, candidate))
 
     return results
+
+
+def initialize_or_restore_grug_state(
+    *,
+    initialize: Callable[[], StateT],
+    restore_template: Callable[[], StateT],
+    checkpoint_search_paths: Sequence[str],
+    load_checkpoint_setting: bool | None,
+    mesh: jax.sharding.Mesh | None,
+    allow_partial: bool,
+    _load_fn: Callable[..., StateT] = load_checkpoint,
+) -> StateT:
+    """Discover checkpoint metadata before allocating a fresh training state.
+
+    Full restores use an allocation-free template that preserves sharding and
+    memory kind. Partial restores need initialized values for missing leaves.
+    Unreadable metadata still counts as an existing checkpoint and must fail
+    restoration rather than silently initializing a new run.
+    """
+    if load_checkpoint_setting is False:
+        return initialize()
+    discovery = 0
+    discovery_error = None
+    if jax.process_index() == 0:
+        try:
+            for root in checkpoint_search_paths:
+                fs, path = _get_fs_and_plain_path(root)
+                if fs.exists(os.path.join(path, "metadata.json")) or fs.glob(os.path.join(path, "*", "metadata.json")):
+                    discovery = 1
+                    break
+        except Exception as exc:
+            discovery, discovery_error = -1, exc
+    # Every rank takes the same allocation/restore branch, even if their object
+    # store listings would have observed different concurrent writes.
+    if jax.process_count() > 1:
+        discovery = int(multihost_utils.broadcast_one_to_all(np.array(discovery, np.int32)))
+    if discovery < 0:
+        raise RuntimeError("Checkpoint metadata discovery failed on process 0") from discovery_error
+    if discovery == 0:
+        if load_checkpoint_setting is True:
+            raise FileNotFoundError(f"No checkpoint metadata under {checkpoint_search_paths}")
+        logger.info("No checkpoint metadata under %s. Initializing once.", checkpoint_search_paths)
+        return initialize()
+    state = initialize() if allow_partial else restore_template()
+    return restore_grug_state_from_checkpoint(
+        state,
+        checkpoint_search_paths=checkpoint_search_paths,
+        load_checkpoint_setting=True,
+        mesh=mesh,
+        allow_partial=allow_partial,
+        _load_fn=_load_fn,
+    )
 
 
 def restore_grug_state_from_checkpoint(
