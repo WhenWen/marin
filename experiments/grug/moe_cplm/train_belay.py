@@ -43,6 +43,7 @@ from experiments.grug.moe.kda_state_tpu import state_pass
 from experiments.grug.moe_cplm import case_classes, plus
 from experiments.grug.moe_cplm.belay import Belay, CopyPasteBelay
 from experiments.grug.moe_cplm.checkpoint_io import python_zarr_checkpoint_writes
+from experiments.grug.moe_cplm.head_validation import validate_head
 
 RECIPE = Path(__file__).with_name("belay_recipe.json")
 DATA = Path(__file__).with_name("july_data.json")
@@ -310,6 +311,12 @@ def main(argv=None):
     args.output = args.output / attempt
     args.output.mkdir(parents=True, exist_ok=True)
     artifact_root = args.artifact_root.rstrip("/") + "/" + attempt
+    def persist(name, value):
+        if jax.process_index() == 0:
+            content = json.dumps(value, default=str, indent=2).encode()
+            (args.output / name).write_bytes(content)
+            StoragePath(artifact_root + "/" + name).write_bytes(content)
+
     identities = json.loads(Path(__file__).with_name("tokenizer_identity.json").read_text())
     for name, expected in identities.items():
         if hashlib.sha256((Path(args.tokenizer) / name).read_bytes()).hexdigest() != expected:
@@ -329,7 +336,9 @@ def main(argv=None):
     tables = None
     if args.variant == "plus":
         tables = case_classes.build(Path(args.tokenizer) / "tokenizer.json", config.model.vocab_size)
-        (args.output / "case-classes.json").write_text(json.dumps(case_classes.summary(*tables)))
+        persist("case-classes.json", case_classes.summary(*tables))
+    head_check = validate_head(args.variant, args.width)
+    persist("head-preflight.json", head_check)
     config.trainer.trainer.distributed = replace(config.trainer.trainer.distributed, initialize_jax_distributed=False)
     handlers = []
     initialize = config.trainer.trainer.initialize
@@ -343,7 +352,7 @@ def main(argv=None):
             handlers.append(handler)
             handler.setFormatter(logging.Formatter("%(message)s"))
             logging.getLogger("levanter.json_logger").addHandler(handler)
-            (args.output / "resolved-config.json").write_text(json.dumps(asdict(config), default=str, indent=2))
+            persist("resolved-config.json", asdict(config))
 
     config.trainer.trainer.initialize = checked_initialize
     evaluator = train.TaggedEvaluator
@@ -417,15 +426,15 @@ def main(argv=None):
                             "iris_attempt_uid": os.environ.get("IRIS_ATTEMPT_UID"),
                         }
                     )
-                    (args.output / "tracking.json").write_text(json.dumps({"url": wandb.run.url, "resumed": False}))
+                    persist("tracking.json", {"url": wandb.run.url, "resumed": False,
+                                              "restored_step": restored_step})
                 loss, finite, norms = jax.device_get(preflight(leaves, batch, **kwargs))
                 # A zero predecessor gain intentionally blocks W_prev's first gradient.
-                positive = norms[:4] if args.variant != "belay" else norms
+                positive = np.delete(norms, 4) if args.variant == "plus" else norms
                 if not (bool(finite) and np.isfinite(loss) and np.all(positive > 0)):
                     raise ValueError("Full-model preflight failed before optimizer updates")
                 if jax.process_index() == 0:
-                    (args.output / "full-model-preflight.json").write_text(
-                        json.dumps(
+                    persist("full-model-preflight.json",
                             {
                                 "loss": float(loss),
                                 "all_gradients_finite": True,
@@ -433,7 +442,6 @@ def main(argv=None):
                                 "training_updates": 0,
                                 "restored_step": restored_step,
                             }
-                        )
                     )
                 preflight.clear_cache()
             result = native(leaves, batch, **kwargs)
