@@ -399,6 +399,8 @@ def main(argv=None):
             row
             for row in json.loads(args.compute_budget.read_text())["rows"]
             if row["variant"] == args.variant and row["width"] == args.width
+            and row.get("grad_accum_microbatches", 1) == args.grad_accum_microbatches
+            and row.get("expert_axis_size", 1) == args.expert_axis_size
         )
         if budget["steps"] != args.steps or budget["model_config"] != json.loads(json.dumps(asdict(config.model))):
             raise ValueError("Execution configuration differs from frozen compute budget")
