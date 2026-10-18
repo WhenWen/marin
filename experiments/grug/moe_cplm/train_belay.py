@@ -18,6 +18,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import draccus
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -359,7 +360,7 @@ def main(argv=None):
         tpu_chips=args.tpu_chips,
     )
     budget = None
-    execution_policy = "ordered-saved" if args.width == 768 and args.batch_size == 64 else "native-saved"
+    execution_policy = "native-saved-integrated-check" if args.width == 768 and args.batch_size == 64 else "native-saved"
     if args.compute_budget is not None:
         budget = next(
             row
@@ -457,8 +458,29 @@ def main(argv=None):
 
     def flat_step(step_fn, treedef):
         native = native_flat(step_fn, treedef)
+        checked_native = native_flat(step_fn, treedef)
         completed = 0
         started = None
+        integrated_check = execution_policy == "native-saved-integrated-check"
+        original_loss_and_grads = train._loss_and_grads
+        names = [] if args.variant == "belay" else ["cp_query", "cp_key", "cp_gate", "cp_sink"]
+        if args.variant == "plus":
+            names += ["cp_prev_key", "cp_prev_gain", "cp_variant", "cp_variant_bias"]
+
+        def gradient_checks(loss, grads):
+            finite = jnp.all(jnp.stack([jnp.all(jnp.isfinite(x)) for x in jax.tree.leaves(grads)]))
+            norms = jnp.array([jnp.linalg.norm(getattr(grads, k)) for k in names])
+            positive = jnp.concatenate((norms[:4], norms[5:])) if args.variant == "plus" else norms
+            good = finite & jnp.isfinite(loss) & jnp.all(jnp.isfinite(positive) & (positive > 0))
+            return good, finite, norms
+
+        def checked_loss_and_grads(*values, **options):
+            (loss, metrics), grads = original_loss_and_grads(*values, **options)
+            good, finite, norms = gradient_checks(loss, grads)
+            # This data dependency rejects invalid gradients before the optimizer
+            # consumes them. Only the first compiled update contains the check.
+            grads = eqx.error_if(grads, ~good, "Full-model gradients failed before the first optimizer update")
+            return (loss, {**metrics, "preflight/finite": finite, "preflight/copy_norms": norms}), grads
 
         @partial(jax.jit, static_argnames=("loop_active", "router_tie_active"))
         def preflight(leaves, batch, loop_active=None, router_tie_active=None):
@@ -485,11 +507,7 @@ def main(argv=None):
                     loop_active,
                     router_tie_active=router_tie_active,
                 )
-            finite = jnp.all(jnp.stack([jnp.all(jnp.isfinite(x)) for x in jax.tree.leaves(grads)]))
-            names = [] if args.variant == "belay" else ["cp_query", "cp_key", "cp_gate", "cp_sink"]
-            if args.variant == "plus":
-                names += ["cp_prev_key", "cp_prev_gain", "cp_variant", "cp_variant_bias"]
-            norms = jnp.array([jnp.linalg.norm(getattr(grads, k)) for k in names])
+            _, finite, norms = gradient_checks(loss, grads)
             return loss, finite, norms
 
         def run(leaves, batch, **kwargs):
@@ -523,8 +541,17 @@ def main(argv=None):
                         }
                     )
                     persist("tracking.json", {"url": wandb.run.url, "resumed": False, "restored_step": restored_step})
-                loss, finite, norms = jax.device_get(preflight(leaves, batch, **kwargs))
-                record_startup_memory("after_full_model_preflight")
+                if integrated_check:
+                    with patch.object(train, "_loss_and_grads", checked_loss_and_grads):
+                        result = checked_native(leaves, batch, **kwargs)
+                    metrics = result[1]
+                    loss, finite, norms = jax.device_get(
+                        (metrics["train/loss"], metrics.pop("preflight/finite"), metrics.pop("preflight/copy_norms"))
+                    )
+                    record_startup_memory("after_checked_first_optimizer_step")
+                else:
+                    loss, finite, norms = jax.device_get(preflight(leaves, batch, **kwargs))
+                    record_startup_memory("after_full_model_preflight")
                 # A zero predecessor gain intentionally blocks W_prev's first gradient.
                 positive = np.delete(norms, 4) if args.variant == "plus" else norms
                 if not (bool(finite) and np.isfinite(loss) and np.all(positive > 0)):
@@ -536,12 +563,15 @@ def main(argv=None):
                             "loss": float(loss),
                             "all_gradients_finite": True,
                             "copy_gradient_norms": norms.tolist(),
-                            "training_updates": 0,
+                            "training_updates": 1 if integrated_check else 0,
+                            "validated_before_optimizer": True,
+                            "method": "integrated-first-update" if integrated_check else "separate-gradient-preflight",
                             "restored_step": restored_step,
                         },
                     )
                 preflight.clear_cache()
-            result = native(leaves, batch, **kwargs)
+            if completed != 0 or not integrated_check:
+                result = native(leaves, batch, **kwargs)
             completed += 1
             if completed == 1:
                 jax.block_until_ready(result)
