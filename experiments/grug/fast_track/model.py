@@ -6823,6 +6823,46 @@ def _attn_res_layer_passthrough(diff_args, mask, token_ids, use_long, layer_inde
 
 
 @eqx.filter_custom_vjp
+def _attn_res_layer_saved(diff_args, mask, token_ids, use_long, layer_index, eps, noise_key):
+    """Save the layer's pullback and finish its cotangents before the preceding layer.
+
+    The forward executes once, as in SAVE. Barriers prevent deferred weight
+    gradients from retaining multiple layers' backward intermediates together.
+    """
+    return _attn_res_layer_passthrough(diff_args, mask, token_ids, use_long, layer_index, eps, noise_key)
+
+
+@_attn_res_layer_saved.def_fwd
+def _attn_res_layer_saved_fwd(perturbed, diff_args, mask, token_ids, use_long, layer_index, eps, noise_key):
+    del perturbed
+
+    def forward(args):
+        partial, stats = _attn_res_layer(args, mask, token_ids, use_long, layer_index, eps, noise_key)
+        # SAVE also supports AttnRes z-loss, which RECOMPUTE excludes.
+        differentiable = {k: stats[k] for k in (*_DIFFERENTIABLE_STATS, _ATTN_RES_Z) if k in stats}
+        return (partial, differentiable), stats
+
+    (partial, differentiable), pullback, stats = eqx.filter_vjp(forward, diff_args, has_aux=True)
+    _, blocks, block_logits, _, _, _ = diff_args
+    return (partial, blocks, block_logits, stats), (pullback, tuple(differentiable))
+
+
+@_attn_res_layer_saved.def_bwd
+def _attn_res_layer_saved_bwd(residuals, grad_out, perturbed, diff_args, mask, token_ids, use_long, layer_index, eps, noise_key):
+    del perturbed, diff_args, mask, token_ids, use_long, eps, noise_key
+    pullback, keys = residuals
+    with jax.named_scope(f"attn_res_saved_bwd{layer_index}"):
+        d_partial, d_blocks, d_block_logits, d_stats = jax.lax.optimization_barrier(grad_out)
+        ((d_layer, own_blocks, own_logits, d_partial_in, d_queries, d_extras),) = pullback(
+            (d_partial, {k: d_stats[k] for k in keys})
+        )
+        add = lambda a, b: b if a is None else a if b is None else a + b  # noqa: E731
+        d_blocks = jax.tree.map(add, d_blocks, own_blocks, is_leaf=_is_none)
+        d_block_logits = jax.tree.map(add, d_block_logits, own_logits, is_leaf=_is_none)
+        return jax.lax.optimization_barrier((d_layer, d_blocks, d_block_logits, d_partial_in, d_queries, d_extras))
+
+
+@eqx.filter_custom_vjp
 def _attn_res_layer_remat(diff_args, mask, token_ids, use_long, layer_index, eps, noise_key):
     """``_attn_res_layer_passthrough`` with a backward shaped for the unrolled layer loop.
 
@@ -8004,7 +8044,7 @@ class Transformer(eqx.Module):
         layer_fn = (
             _attn_res_layer_remat
             if cfg.attn_res_layer_backward == AttnResLayerBackward.RECOMPUTE
-            else _attn_res_layer_passthrough
+            else _attn_res_layer_saved
         )
 
         weight_logs: dict[int, tuple[jax.Array, bool]] = {}
