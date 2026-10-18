@@ -319,17 +319,18 @@ def main(argv=None):
     memory_schedule = args.width == 768 and args.batch_size == 64
     compiler_dump = args.output / "compiler-dump"
     flags = ["--xla_allow_excess_precision=false"]
+    tpu_flags = ["--xla_memory_scheduler=kBrkga"] if memory_schedule else []
     if memory_schedule:
         flags += [
-            "--xla_memory_scheduler=kBrkga",
             f"--xla_dump_to={compiler_dump}",
             "--xla_dump_hlo_as_proto=true",
             "--xla_dump_hlo_as_text=true",
             "--xla_dump_hlo_module_re=jit_train_step",
         ]
-    for flag in flags:
-        if flag not in os.environ.get("XLA_FLAGS", "").split():
-            os.environ["XLA_FLAGS"] = os.environ.get("XLA_FLAGS", "") + " " + flag
+    for variable, values in (("XLA_FLAGS", flags), ("LIBTPU_INIT_ARGS", tpu_flags)):
+        for flag in values:
+            if flag not in os.environ.get(variable, "").split():
+                os.environ[variable] = os.environ.get(variable, "") + " " + flag
     # Iris task-attempt IDs differ by host. Broadcast one fresh process-group
     # identity before constructing tracker and checkpoint paths.
     jax_settings = json.loads(RECIPE.read_text())["trainer"]["trainer"]["jax_config"]
@@ -399,7 +400,12 @@ def main(argv=None):
         persist("compute-budget.json", budget)
     persist(
         "execution-policy.json",
-        {"backward": execution_policy, "additional_forward_recomputation": False, "xla_flags": flags},
+        {
+            "backward": execution_policy,
+            "additional_forward_recomputation": False,
+            "xla_flags": flags,
+            "libtpu_init_args": tpu_flags,
+        },
     )
     tables = None
     if args.variant == "plus":
