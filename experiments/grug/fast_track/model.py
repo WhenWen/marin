@@ -2470,7 +2470,7 @@ class CausalSelfAttention(eqx.Module):
                 ),
                 w_uv=reshard(_init_weight(k_uv, (kvl, n_v * h), std), P(None, "model")),
                 value_embed=(
-                    reshard(_init_weight(k_ve, (cfg.vocab_size, n_v * h), std), P(None, None)) if use_ve else None
+                    reshard(_init_weight(k_ve, (cfg.vocab_size, n_v * h), std), P(_FSDP_AXES, None)) if use_ve else None
                 ),
                 ve_lambda=_ve_lambda_init(cfg.value_embeds),
                 ve_gate=(
@@ -2718,7 +2718,7 @@ class CausalSelfAttention(eqx.Module):
         v = rearrange(_proj(self.cfg, v_latent, self.w_uv), "... (n d) -> ... n d", d=head_dim)
         if self.value_embed is not None:
             assert self.ve_lambda is not None and token_ids is not None
-            ve = _embedding_gather(self.value_embed.astype(x.dtype), token_ids)
+            ve = _replicated_fp32_gather(self.value_embed.astype(x.dtype), token_ids)
             ve = rearrange(ve, "... (n d) -> ... n d", d=head_dim)
             lam = self.ve_lambda.astype(x.dtype)
             ve_weight = _value_embed_weight(self.cfg.value_embeds, x, self.ve_gate, lam)
