@@ -414,6 +414,7 @@ def main(argv=None):
             and row.get("grad_accum_microbatches", 1) == args.grad_accum_microbatches
             and row.get("expert_axis_size", 1) == args.expert_axis_size
             and row["model_config"]["moe_ragged_chunks"] == args.expert_chunks
+            and row.get("memory_scheduler", "default") == args.memory_scheduler
         )
         if budget["steps"] != args.steps or budget["model_config"] != json.loads(json.dumps(asdict(config.model))):
             raise ValueError("Execution configuration differs from frozen compute budget")
