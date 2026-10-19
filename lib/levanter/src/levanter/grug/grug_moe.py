@@ -396,9 +396,7 @@ class MoEExpertMlp(eqx.Module):
         up_spec = _drop_absent_mesh_axes(mesh, pspecs.w_gate_up) if not mesh.empty else None
         down_spec = _drop_absent_mesh_axes(mesh, pspecs.w_down) if not mesh.empty else None
         # Allocate random expert banks in their final layout, including under stacked initialization.
-        w_gate = _init_weight(
-            k_gate, (num_experts, hidden_dim, intermediate_dim), gate_up_std, out_sharding=up_spec
-        )
+        w_gate = _init_weight(k_gate, (num_experts, hidden_dim, intermediate_dim), gate_up_std, out_sharding=up_spec)
         w_up = _init_weight(k_up, (num_experts, hidden_dim, intermediate_dim), gate_up_std, out_sharding=up_spec)
         w_down = _reshard_for_init(
             _init_weight(k_down, (num_experts, intermediate_dim, output_dim), initializer_std, out_sharding=down_spec),

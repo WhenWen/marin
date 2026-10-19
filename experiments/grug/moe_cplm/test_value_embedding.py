@@ -79,14 +79,27 @@ def test_stacked_expert_initialization_keeps_seeded_values_in_sharded_storage():
     )
     keys = jax.random.split(jax.random.key(31), 3)
     with jax.set_mesh(mesh):
-        actual = jax.jit(jax.vmap(lambda key: MoEExpertMlp.init(
-            num_experts=8, hidden_dim=32, output_dim=32, intermediate_dim=16,
-            initializer_std=0.02, key=key, implementation="ragged_all_to_all",
-        )))(keys)
-        expected = jax.jit(jax.vmap(lambda key: tuple(
-            0.02 * jax.random.truncated_normal(k, -3, 3, shape)
-            for k, shape in zip(jax.random.split(key, 3), ((8, 32, 16), (8, 32, 16), (8, 16, 32)), strict=True)
-        )))(keys)
+        actual = jax.jit(
+            jax.vmap(
+                lambda key: MoEExpertMlp.init(
+                    num_experts=8,
+                    hidden_dim=32,
+                    output_dim=32,
+                    intermediate_dim=16,
+                    initializer_std=0.02,
+                    key=key,
+                    implementation="ragged_all_to_all",
+                )
+            )
+        )(keys)
+        expected = jax.jit(
+            jax.vmap(
+                lambda key: tuple(
+                    0.02 * jax.random.truncated_normal(k, -3, 3, shape)
+                    for k, shape in zip(jax.random.split(key, 3), ((8, 32, 16), (8, 32, 16), (8, 16, 32)), strict=True)
+                )
+            )
+        )(keys)
     for value, reference in zip((actual.w_gate, actual.w_up, actual.w_down), expected, strict=True):
         np.testing.assert_array_equal(value, reference)
         assert value.addressable_shards[0].data.size * len(jax.devices()) == value.size
