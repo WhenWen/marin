@@ -52,8 +52,13 @@ def test_mla_value_embedding_is_partitioned_without_changing_initial_values():
         axis_types=(AxisType.Explicit,) * 4,
     )
     cfg = model.GrugModelConfig(
-        vocab_size=64, hidden_dim=32, num_heads=2, head_dim=16,
-        mla=True, mla_kv_latent_dim=16, value_embeds=model.ValueEmbeds.GATED,
+        vocab_size=64,
+        hidden_dim=32,
+        num_heads=2,
+        head_dim=16,
+        mla=True,
+        mla_kv_latent_dim=16,
+        value_embeds=model.ValueEmbeds.GATED,
     )
     key = jax.random.key(19)
     with jax.set_mesh(mesh):

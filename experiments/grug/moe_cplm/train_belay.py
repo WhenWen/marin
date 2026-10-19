@@ -331,15 +331,16 @@ def main(argv=None):
         tracker.finish()
         return
     memory_schedule = args.width == 768 and args.batch_size == 64
+    capture_memory = memory_schedule or args.width >= 1024
     compiler_dump = args.output / "compiler-dump"
     flags = ["--xla_allow_excess_precision=false"]
     tpu_flags = ["--xla_memory_scheduler=brkga"] if args.memory_scheduler == "brkga" else []
-    if memory_schedule:
+    if capture_memory:
         flags += [
             f"--xla_dump_to={compiler_dump}",
             "--xla_dump_hlo_as_proto=true",
             "--xla_dump_hlo_as_text=true",
-            "--xla_dump_hlo_module_re=jit_train_step",
+            "--xla_dump_hlo_module_re=jit_train_step|jit__init_state",
         ]
     for variable, values in (("XLA_FLAGS", flags), ("LIBTPU_INIT_ARGS", tpu_flags)):
         for flag in values:
@@ -366,7 +367,7 @@ def main(argv=None):
             StoragePath(artifact_root + "/" + name).write_bytes(content)
 
     def retain_compiler_dump():
-        if memory_schedule and compiler_dump.exists():
+        if capture_memory and compiler_dump.exists():
             try:
                 archive = args.output / f"compiler-dump-host{jax.process_index()}.tar.gz"
                 with tarfile.open(archive, "w:gz", compresslevel=1) as packed:
@@ -433,6 +434,7 @@ def main(argv=None):
             "additional_forward_recomputation": args.width >= 1024,
             "attn_res_layer_backward": config.model.attn_res_layer_backward,
             "attn_res_remat_attention": config.model.attn_res_remat_attention,
+            "mla_value_embedding_storage": "fsdp-rows",
             "xla_flags": flags,
             "libtpu_init_args": tpu_flags,
             "grad_accum_microbatches": args.grad_accum_microbatches,

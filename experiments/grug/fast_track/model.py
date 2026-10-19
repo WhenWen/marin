@@ -2368,7 +2368,7 @@ class CausalSelfAttention(eqx.Module):
 
     @staticmethod
     def init(cfg: GrugModelConfig, *, key: PRNGKeyArray, layer_index: jax.Array) -> "CausalSelfAttention":
-        """``layer_index`` (0-indexed, may be traced under the stacked init) sets the DIFF ``lambda_init``."""
+        """Zero-based ``layer_index`` sets DIFF ``lambda_init``, including during stacked init."""
         d, n, m, h = cfg.hidden_dim, cfg.num_heads, cfg.stored_kv_heads, cfg.inferred_head_dim
         std = cfg.initializer_std
         attn_gate_up = None
