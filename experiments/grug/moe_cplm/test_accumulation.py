@@ -24,9 +24,9 @@ from experiments.grug.moe_cplm import accumulation, belay
 from experiments.grug.moe_cplm.train_belay import DATA, build_config
 
 
-def _mesh():
+def _mesh(ep=1):
     return Mesh(
-        np.asarray(jax.devices()).reshape(1, len(jax.devices()), 1, 1),
+        np.asarray(jax.devices()).reshape(1, len(jax.devices()) // ep, ep, 1),
         ("replica_dcn", "data", "expert", "model"),
         axis_types=(AxisType.Explicit,) * 4,
     )
@@ -123,8 +123,11 @@ def test_dropless_capacity_retains_all_assignments_when_one_receiver_chunk_gets_
 @pytest.mark.timeout(180)
 @pytest.mark.parametrize("kind", [belay.Belay, belay.CopyPasteBelay])
 @pytest.mark.parametrize("micros", [2, 4])
-def test_accumulation_matches_whole_batch_nll_gradients_and_router_statistics(kind, micros):
-    mesh = _mesh()
+@pytest.mark.parametrize("ep", [pytest.param(1, id="ep1"), pytest.param(2, id="ep2")])
+def test_accumulation_matches_whole_batch_nll_gradients_and_router_statistics(kind, micros, ep):
+    if len(jax.devices()) % ep:
+        pytest.skip("Expert-parallel numerical checks need an even device count")
+    mesh = _mesh(ep)
     cfg = model.GrugModelConfig(
         vocab_size=32,
         hidden_dim=32,
@@ -145,7 +148,11 @@ def test_accumulation_matches_whole_batch_nll_gradients_and_router_statistics(ki
         attn_res=True,
         attn_res_num_blocks=2,
         attn_res_layer_backward=model.AttnResLayerBackward.SAVE,
-        moe_implementation="ragged_all_to_all",
+        # CPU has no ragged-all-to-all thunk. The portable pooled transport
+        # exercises the same EP collective reductions; ragged is checked separately.
+        moe_implementation="ragged_all_to_all" if ep == 1 else "fixed_pooled_wave_all_to_all",
+        capacity_factor=4.0,
+        pooled_transport_capacity_factor=4.0,
     )
     batch_size = 4 * len(jax.devices())
     tokens = (jnp.arange(batch_size * 16).reshape(batch_size, 16) % 29).astype(jnp.int32)
