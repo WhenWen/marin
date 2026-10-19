@@ -66,7 +66,7 @@ from experiments.grug.fast_track.activations import polynorm, polynorm_over_inpu
 from experiments.grug.fast_track.expert_write_mask import expert_write_block_ids, expert_write_mask
 from experiments.grug.fast_track.gating import _load_error_grad, mixture_weights, switchhead_weights
 from experiments.grug.fast_track.head_loss import prototype_target_logits, reduce_token_loss
-from experiments.grug.fast_track.qb_balancing import qb_beta_hist
+from experiments.grug.fast_track.qb_balancing import qb_bank_stats, qb_beta_hist
 from experiments.grug.fast_track.router_metrics import (
     local_routing_stats,
     reduce_router_stats,
@@ -1021,7 +1021,7 @@ class GrugModelConfig:
     qb_freeze_step: int | None = None
     """Stop updating the QB router biases from this step on (they keep their last value)."""
     qb_defer_update: bool = False
-    """Return detached margins and additive router statistics to the Belay accumulation driver."""
+    """Defer QB until after accumulation."""
     qb_bias_damping: float | None = None
     """Damped QB bias update (StableMoE arXiv 2204.08396; phi-balancing arXiv 2605.15403): ``b <- (1 - gamma) b +
     gamma (-beta)`` instead of ``b <- -beta``. Setting it (1.0 is the undamped update) also logs
@@ -2020,6 +2020,8 @@ class GrugModelConfig:
             )
         if self.qb_bias_damping is not None and not 0.0 < self.qb_bias_damping <= 1.0:
             raise ValueError(f"qb_bias_damping must be in (0, 1], got {self.qb_bias_damping}")
+        if self.qb_defer_update and (self.num_null_experts or self.qb_bias_damping is not None):
+            raise ValueError("Deferred QB needs non-null, undamped experts")
         if self.simbal_loss_weight > 0 and (self.dense_mlp or self.router_rank):
             raise ValueError("simbal_loss_weight needs a MoE with a full-rank router")
         if self.latent_out_dim is not None and (
@@ -4545,29 +4547,14 @@ class MoEMLP(eqx.Module):
             batch_axes=_BATCH_AXES,
             token_stride=self.cfg.router_stats_stride,
         )
-        # Sharded QB: estimate each expert's threshold beta from the margins `s - alpha` by binning
-        # them into fixed bins over the live global range and reading the (1-K/E) quantile.
-        if self.cfg.qb_defer_update:
-            if len(banks) != 1 or self.cfg.num_null_experts or self.cfg.qb_bias_damping is not None:
-                raise ValueError("Deferred QB requires one expert bank without null experts or churn diagnostics")
-            router_stats["qb_margins"] = jax.lax.stop_gradient(
-                reshard(router_logits - bank_alpha[0], P(_BATCH_AXES, None))
-            )
-            bank_stats = [(jnp.zeros((num_real,), jnp.float32), jnp.array(0.0), jnp.array(0.0))]
-        elif self.cfg.num_null_experts:
+        if self.cfg.num_null_experts:
             bank_stats = [self._null_qb_stats(router_logits - bank_alpha[0], selected_experts, mesh)]
         else:
-            bank_stats = [
-                qb_beta_hist(
-                    reshard(router_logits[:, start : start + size] - alpha, P(_BATCH_AXES, None)),
-                    mesh,
-                    target_share=bank_k / size,
-                    num_experts=size,
-                    n_bins=_QB_HIST_BINS,
-                    batch_axes=_BATCH_AXES,
-                )
-                for (start, size, bank_k), alpha in zip(banks, bank_alpha, strict=True)
-            ]
+            bank_stats, deferred = qb_bank_stats(
+                router_logits, banks, bank_alpha, mesh, n_bins=_QB_HIST_BINS,
+                batch_axes=_BATCH_AXES, defer=self.cfg.qb_defer_update,
+            )
+            router_stats.update(deferred)
         beta = jnp.concatenate([b for b, _, _ in bank_stats], axis=-1)
         margin_min = functools.reduce(jnp.minimum, [lo for _, lo, _ in bank_stats])
         margin_max = functools.reduce(jnp.maximum, [hi for _, _, hi in bank_stats])
@@ -7855,10 +7842,7 @@ class Transformer(eqx.Module):
                 "margin_min_per_layer": stacked_router_stats["margin_min"],
                 "margin_max_per_layer": stacked_router_stats["margin_max"],
             }
-            if cfg.qb_defer_update:
-                router_metrics["qb_margins"] = stacked_router_stats["qb_margins"]
-                router_metrics["router_prob_sum"] = jnp.sum(stacked_router_stats["router_prob_sum_local"], axis=1)
-                router_metrics["router_z_sq_sum"] = jnp.sum(stacked_router_stats["router_z_sq_sum_local"], axis=1)
+            router_metrics.update({k: v for k, v in reduced_router_stats.items() if k.startswith("qb_accum_")})
             router_metrics.update(
                 {
                     k: v

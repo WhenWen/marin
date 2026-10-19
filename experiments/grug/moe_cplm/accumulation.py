@@ -53,15 +53,15 @@ def accumulated_loss_and_grads(num_microbatches, params, batch, mp, z_loss, step
         raw = metrics["router"]
         additive = {
             "counts": raw["routing_counts_per_layer"],
-            "prob_sum": raw["router_prob_sum"],
-            "z_sq_sum": raw["router_z_sq_sum"],
+            "prob_sum": raw["qb_accum_prob_sum"],
+            "z_sq_sum": raw["qb_accum_z_sq_sum"],
             "capacity_overflow_per_layer": raw["capacity_overflow_per_layer"],
             "sender_capacity_overflow_per_layer": raw["sender_capacity_overflow_per_layer"],
             "receiver_capacity_overflow_per_layer": raw["receiver_capacity_overflow_per_layer"],
             "token_means": jax.tree.map(lambda x: x / num_microbatches, metrics["token_means"]),
             "weighted_means": jax.tree.map(lambda x: x * scale, metrics["weighted_means"]),
         }
-        return (loss, additive, grads), raw["qb_margins"]
+        return (loss, additive, grads), raw["qb_accum_margins"]
 
     shapes, _ = jax.eval_shape(one, jax.tree.map(lambda x: x[0], micro))
     zeros = jax.tree.map(lambda s: jnp.zeros(s.shape, s.dtype, out_sharding=s.sharding.spec), shapes)

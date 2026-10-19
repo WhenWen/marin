@@ -42,7 +42,8 @@ def test_pooled_qb_uses_the_whole_batch_range(micros, constant):
     expected = []
     for layer in values:
         lo, hi = layer.min(), layer.max()
-        width = (np.maximum(hi, lo + np.float32(1e-6)) - lo) / np.float32(bins)
+        # XLA lowers division by the constant bin count to multiplication by its float32 reciprocal.
+        width = (np.maximum(hi, lo + np.float32(1e-6)) - lo) * np.float32(1 / bins)
         indices = np.clip(((layer - lo) / width).astype(np.int32), 0, bins - 1)
         thresholds = []
         for column in indices.T:
@@ -51,7 +52,7 @@ def test_pooled_qb_uses_the_whole_batch_range(micros, constant):
             rank = tokens * 2 / experts
             crossing = np.clip(np.count_nonzero(cumulative >= rank) - 1, 0, bins - 1)
             # The production quantile uses float32, including the crossing-bin interpolation.
-            lower = np.float32(lo + np.float32(crossing) * width)
+            lower = np.float32(np.float64(lo) + np.float64(crossing) * np.float64(width))
             offset = np.float32(width * np.float32(cumulative[crossing] - rank) / np.float32(max(counts[crossing], 1)))
             thresholds.append(np.float32(lower + offset))
         expected.append(thresholds)

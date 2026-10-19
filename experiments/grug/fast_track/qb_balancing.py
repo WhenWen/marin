@@ -213,3 +213,21 @@ def qb_beta_hist(
     return shard_map(_fn, mesh=mesh, in_specs=(P(batch_axes, None), P()), out_specs=(P(), P(), P()))(
         s_ma, reshard(target_rank, P())
     )
+
+
+def qb_bank_stats(logits, banks, alphas, mesh, *, n_bins, batch_axes, defer):
+    """Estimate live-grid thresholds, or preserve margins for whole-batch accumulation."""
+    if defer:
+        if len(banks) != 1:
+            raise ValueError("Deferred QB requires one expert bank")
+        margins = jax.lax.stop_gradient(reshard(logits - alphas[0], P(batch_axes, None)))
+        return [(jnp.zeros((logits.shape[-1],), jnp.float32), jnp.array(0.0), jnp.array(0.0))], {
+            "qb_margins": margins
+        }
+    return [
+        qb_beta_hist(
+            reshard(logits[:, start : start + size] - alpha, P(batch_axes, None)), mesh,
+            target_share=k / size, num_experts=size, n_bins=n_bins, batch_axes=batch_axes,
+        )
+        for (start, size, k), alpha in zip(banks, alphas, strict=True)
+    ], {}

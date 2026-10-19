@@ -81,9 +81,17 @@ def reduce_router_stats(
     counts = jnp.sum(stacked["routing_counts_local"], axis=1)
     prob_sum = jnp.sum(stacked["router_prob_sum_local"], axis=1)
     z_sq_sum = jnp.sum(stacked["router_z_sq_sum_local"], axis=1)
+    deferred = {}
+    if "qb_margins" in stacked:
+        deferred = {
+            "qb_accum_margins": stacked["qb_margins"],
+            "qb_accum_prob_sum": prob_sum,
+            "qb_accum_z_sq_sum": z_sq_sum,
+        }
     return {
         **router_metrics_from_sums(counts, prob_sum, z_sq_sum, num_tokens, num_experts_per_token, num_experts),
         "qb_beta": stacked["qb_beta"],
+        **deferred,
     }
 
 
