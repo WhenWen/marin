@@ -398,7 +398,8 @@ def main(argv=None):
         budget = next(
             row
             for row in json.loads(args.compute_budget.read_text())["rows"]
-            if row["variant"] == args.variant and row["width"] == args.width
+            if row["variant"] == args.variant
+            and row["width"] == args.width
             and row.get("grad_accum_microbatches", 1) == args.grad_accum_microbatches
             and row.get("expert_axis_size", 1) == args.expert_axis_size
         )
@@ -413,7 +414,8 @@ def main(argv=None):
         if budget.get("execution_policy", "native-saved") != execution_policy:
             raise ValueError("Execution backward scheduling differs from frozen compute budget")
         if (budget.get("grad_accum_microbatches", 1), budget.get("expert_axis_size", 1)) != (
-            args.grad_accum_microbatches, args.expert_axis_size
+            args.grad_accum_microbatches,
+            args.expert_axis_size,
         ):
             raise ValueError("Execution accumulation or expert mesh differs from frozen compute budget")
         persist("compute-budget.json", budget)

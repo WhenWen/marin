@@ -4551,8 +4551,13 @@ class MoEMLP(eqx.Module):
             bank_stats = [self._null_qb_stats(router_logits - bank_alpha[0], selected_experts, mesh)]
         else:
             bank_stats, deferred = qb_bank_stats(
-                router_logits, banks, bank_alpha, mesh, n_bins=_QB_HIST_BINS,
-                batch_axes=_BATCH_AXES, defer=self.cfg.qb_defer_update,
+                router_logits,
+                banks,
+                bank_alpha,
+                mesh,
+                n_bins=_QB_HIST_BINS,
+                batch_axes=_BATCH_AXES,
+                defer=self.cfg.qb_defer_update,
             )
             router_stats.update(deferred)
         beta = jnp.concatenate([b for b, _, _ in bank_stats], axis=-1)

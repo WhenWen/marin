@@ -47,8 +47,14 @@ def accumulated_loss_and_grads(num_microbatches, params, batch, mp, z_loss, step
     def one(microbatch):
         scale = jnp.maximum(jnp.sum(microbatch.loss_weight.astype(jnp.float32)), 1.0) / denominator
         (loss, metrics), grads = train._loss_and_grads(
-            params, microbatch, mp, z_loss, step, loop_active,
-            router_tie_active=router_tie_active, loss_scale=scale,
+            params,
+            microbatch,
+            mp,
+            z_loss,
+            step,
+            loop_active,
+            router_tie_active=router_tie_active,
+            loss_scale=scale,
         )
         raw = metrics["router"]
         additive = {
@@ -73,8 +79,12 @@ def accumulated_loss_and_grads(num_microbatches, params, batch, mp, z_loss, step
     (loss, totals, grads), margins = jax.lax.scan(accumulate, zeros, micro)
     beta, lo, hi = pooled_qb(margins, num_experts_per_token=params.config.num_experts_per_token)
     reduced = router_metrics_from_sums(
-        totals.pop("counts"), totals.pop("prob_sum"), totals.pop("z_sq_sum"),
-        batch.tokens.size, params.config.num_experts_per_token, params.config.num_experts,
+        totals.pop("counts"),
+        totals.pop("prob_sum"),
+        totals.pop("z_sq_sum"),
+        batch.tokens.size,
+        params.config.num_experts_per_token,
+        params.config.num_experts,
     )
     token_means, weighted_means = totals.pop("token_means"), totals.pop("weighted_means")
     router = {f"{key}_per_layer": value for key, value in reduced.items()}

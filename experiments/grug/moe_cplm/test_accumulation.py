@@ -71,12 +71,24 @@ def test_pooled_qb_uses_the_whole_batch_range(micros, constant):
 def test_accumulation_matches_whole_batch_nll_gradients_and_router_statistics(kind, micros):
     mesh = _mesh()
     cfg = model.GrugModelConfig(
-        vocab_size=32, hidden_dim=32, intermediate_dim=16,
-        shared_expert_intermediate_dim=16, num_shared_experts=1,
-        num_experts=4, num_experts_per_token=2, latent_dim=16,
-        num_layers=2, num_heads=2, num_kv_heads=1, local_kv_heads=1,
-        global_kv_heads=1, head_dim=16, max_seq_len=16,
-        global_every=1, attn_res=True, attn_res_num_blocks=2,
+        vocab_size=32,
+        hidden_dim=32,
+        intermediate_dim=16,
+        shared_expert_intermediate_dim=16,
+        num_shared_experts=1,
+        num_experts=4,
+        num_experts_per_token=2,
+        latent_dim=16,
+        num_layers=2,
+        num_heads=2,
+        num_kv_heads=1,
+        local_kv_heads=1,
+        global_kv_heads=1,
+        head_dim=16,
+        max_seq_len=16,
+        global_every=1,
+        attn_res=True,
+        attn_res_num_blocks=2,
         attn_res_layer_backward=model.AttnResLayerBackward.SAVE,
         moe_implementation="ragged_all_to_all",
     )
@@ -88,29 +100,45 @@ def test_accumulation_matches_whole_batch_nll_gradients_and_router_statistics(ki
     # CPU executes the dense vocabulary reference of the same softcap-10 head.
     reference_head = partial(belay.local_head, tile=4, reference=True)
     vocabulary = partial(belay.vocabulary_statistics, reference=True)
-    with jax.set_mesh(mesh), patch.object(belay, "local_head", reference_head), patch.object(
-        belay, "vocabulary_statistics", vocabulary
+    with (
+        jax.set_mesh(mesh),
+        patch.object(belay, "local_head", reference_head),
+        patch.object(belay, "vocabulary_statistics", vocabulary),
     ):
         params = kind.init(cfg, key=jax.random.key(8))
         deferred = kind.init(replace(cfg, qb_defer_update=True), key=jax.random.key(8))
         spec = NamedSharding(mesh, P(model._BATCH_AXES, None))
         batch = GrugLmExample(
-            tokens=jax.device_put(tokens, spec), loss_weight=jax.device_put(weights, spec),
+            tokens=jax.device_put(tokens, spec),
+            loss_weight=jax.device_put(weights, spec),
             attn_mask=AttentionMask(is_causal=True, segment_ids=(jax.device_put(segments, spec),) * 2),
         )
         (want_loss, want_metrics), want_grad = jax.jit(partial(train._loss_and_grads, mp=mp, z_loss=None))(params, batch)
         (got_loss, got_metrics), got_grad = jax.jit(
-            partial(accumulation.accumulated_loss_and_grads, micros, mp=mp, z_loss=None, step=None,
-                    loop_active=None, router_tie_active=None)
+            partial(
+                accumulation.accumulated_loss_and_grads,
+                micros,
+                mp=mp,
+                z_loss=None,
+                step=None,
+                loop_active=None,
+                router_tie_active=None,
+            )
         )(deferred, batch)
     np.testing.assert_allclose(got_loss, want_loss, rtol=3e-6, atol=3e-6)
     for actual, expected in zip(jax.tree.leaves(got_grad), jax.tree.leaves(want_grad), strict=True):
         np.testing.assert_allclose(actual, expected, rtol=3e-5, atol=3e-6)
     for key in (
-        "qb_beta_per_layer", "train/router/routing_counts_per_layer",
-        "train/router/routing_entropy_mean", "train/router/load_balancing_loss",
-        "train/router/router_z_loss", "train/router/margin_min", "train/router/margin_max",
-        "train/aux/cplm/native_head_nll", "train/aux/cplm/copy_gate", "train/aux/cplm/effective_copy",
+        "qb_beta_per_layer",
+        "train/router/routing_counts_per_layer",
+        "train/router/routing_entropy_mean",
+        "train/router/load_balancing_loss",
+        "train/router/router_z_loss",
+        "train/router/margin_min",
+        "train/router/margin_max",
+        "train/aux/cplm/native_head_nll",
+        "train/aux/cplm/copy_gate",
+        "train/aux/cplm/effective_copy",
     ):
         np.testing.assert_allclose(got_metrics[key], want_metrics[key], rtol=3e-5, atol=3e-6)
     for layer in range(cfg.num_layers):
