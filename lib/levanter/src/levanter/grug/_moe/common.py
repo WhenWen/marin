@@ -213,8 +213,10 @@ def split_moe_w13_output(
     return halves[..., 0, :], halves[..., 1, :]
 
 
-def _init_weight(key: Key[Array, ""], shape: tuple[int, ...], std: float) -> Float[Array, "..."]:
-    return std * jax.random.truncated_normal(key, -3, 3, shape)
+def _init_weight(
+    key: Key[Array, ""], shape: tuple[int, ...], std: float, *, out_sharding: P | None = None
+) -> Float[Array, "..."]:
+    return std * jax.random.truncated_normal(key, -3, 3, shape, out_sharding=out_sharding)
 
 
 @named_call

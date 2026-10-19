@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 from jax.sharding import AxisType, NamedSharding
 from jax.sharding import PartitionSpec as P
+from levanter.grug.grug_moe import MoEExpertMlp
 
 from experiments.grug.fast_track import model
 from experiments.grug.fast_track.column_sharded_embedding import column_sharded_embedding
@@ -68,3 +69,24 @@ def test_mla_value_embedding_is_partitioned_without_changing_initial_values():
     np.testing.assert_array_equal(attention.value_embed, expected)
     assert attention.value_embed.sharding.spec == P(model._FSDP_AXES, None)
     assert attention.value_embed.addressable_shards[0].data.size * len(jax.devices()) == attention.value_embed.size
+
+
+def test_stacked_expert_initialization_keeps_seeded_values_in_sharded_storage():
+    mesh = jax.make_mesh(
+        (1, len(jax.devices()), 1, 1),
+        ("replica_dcn", "data", "expert", "model"),
+        axis_types=(AxisType.Explicit,) * 4,
+    )
+    keys = jax.random.split(jax.random.key(31), 3)
+    with jax.set_mesh(mesh):
+        actual = jax.jit(jax.vmap(lambda key: MoEExpertMlp.init(
+            num_experts=8, hidden_dim=32, output_dim=32, intermediate_dim=16,
+            initializer_std=0.02, key=key, implementation="ragged_all_to_all",
+        )))(keys)
+        expected = jax.jit(jax.vmap(lambda key: tuple(
+            0.02 * jax.random.truncated_normal(k, -3, 3, shape)
+            for k, shape in zip(jax.random.split(key, 3), ((8, 32, 16), (8, 32, 16), (8, 16, 32)), strict=True)
+        )))(keys)
+    for value, reference in zip((actual.w_gate, actual.w_up, actual.w_down), expected, strict=True):
+        np.testing.assert_array_equal(value, reference)
+        assert value.addressable_shards[0].data.size * len(jax.devices()) == value.size

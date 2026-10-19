@@ -392,10 +392,16 @@ class MoEExpertMlp(eqx.Module):
         # `w_gate`/`w_up` contract over `hidden_dim`, so their fan-in moves when the experts run
         # in a latent space; `w_down` contracts over `intermediate_dim` and is unaffected.
         gate_up_std = initializer_std if gate_up_initializer_std is None else gate_up_initializer_std
-        w_gate = _init_weight(k_gate, (num_experts, hidden_dim, intermediate_dim), gate_up_std)
-        w_up = _init_weight(k_up, (num_experts, hidden_dim, intermediate_dim), gate_up_std)
+        mesh = _current_mesh()
+        up_spec = _drop_absent_mesh_axes(mesh, pspecs.w_gate_up) if not mesh.empty else None
+        down_spec = _drop_absent_mesh_axes(mesh, pspecs.w_down) if not mesh.empty else None
+        # Allocate random expert banks in their final layout, including under stacked initialization.
+        w_gate = _init_weight(
+            k_gate, (num_experts, hidden_dim, intermediate_dim), gate_up_std, out_sharding=up_spec
+        )
+        w_up = _init_weight(k_up, (num_experts, hidden_dim, intermediate_dim), gate_up_std, out_sharding=up_spec)
         w_down = _reshard_for_init(
-            _init_weight(k_down, (num_experts, intermediate_dim, output_dim), initializer_std),
+            _init_weight(k_down, (num_experts, intermediate_dim, output_dim), initializer_std, out_sharding=down_spec),
             pspecs.w_down,
         )
         return MoEExpertMlp(
