@@ -24,7 +24,6 @@ import jax.numpy as jnp
 import jax.scipy as jsp
 from haliax.jax_utils import named_call
 from jax import shard_map
-from jax.sharding import AxisType
 from jax.sharding import PartitionSpec as P
 from jax.sharding import reshard
 from jaxtyping import Array, Bool, Float, Int
@@ -394,10 +393,8 @@ class MoEExpertMlp(eqx.Module):
         # in a latent space; `w_down` contracts over `intermediate_dim` and is unaffected.
         gate_up_std = initializer_std if gate_up_initializer_std is None else gate_up_initializer_std
         mesh = _current_mesh()
-        # Random primitives accept only explicit mesh axes; auto meshes retain compiler placement.
-        explicit_mesh = not mesh.empty and all(axis_type == AxisType.Explicit for axis_type in mesh.axis_types)
-        up_spec = _drop_absent_mesh_axes(mesh, pspecs.w_gate_up) if explicit_mesh else None
-        down_spec = _drop_absent_mesh_axes(mesh, pspecs.w_down) if explicit_mesh else None
+        up_spec = _drop_absent_mesh_axes(mesh, pspecs.w_gate_up) if not mesh.empty else None
+        down_spec = _drop_absent_mesh_axes(mesh, pspecs.w_down) if not mesh.empty else None
         # Allocate random expert banks in their final layout, including under stacked initialization.
         w_gate = _init_weight(k_gate, (num_experts, hidden_dim, intermediate_dim), gate_up_std, out_sharding=up_spec)
         w_up = _init_weight(k_up, (num_experts, hidden_dim, intermediate_dim), gate_up_std, out_sharding=up_spec)

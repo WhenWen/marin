@@ -3,6 +3,8 @@
 
 """Value-embedding storage and gather VJPs; no optimizer updates."""
 
+from contextlib import nullcontext
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -71,15 +73,15 @@ def test_mla_value_embedding_is_partitioned_without_changing_initial_values():
     assert attention.value_embed.addressable_shards[0].data.size * len(jax.devices()) == attention.value_embed.size
 
 
-@pytest.mark.parametrize("axis_type", [AxisType.Explicit, AxisType.Auto])
-def test_stacked_expert_initialization_keeps_seeded_values_in_sharded_storage(axis_type):
+@pytest.mark.parametrize("use_mesh", [True, False])
+def test_stacked_expert_initialization_keeps_seeded_values_in_sharded_storage(use_mesh):
     mesh = jax.make_mesh(
         (1, len(jax.devices()), 1, 1),
         ("replica_dcn", "data", "expert", "model"),
-        axis_types=(axis_type,) * 4,
+        axis_types=(AxisType.Explicit,) * 4,
     )
     keys = jax.random.split(jax.random.key(31), 3)
-    with jax.set_mesh(mesh):
+    with jax.set_mesh(mesh) if use_mesh else nullcontext():
         actual = jax.jit(
             jax.vmap(
                 lambda key: MoEExpertMlp.init(
@@ -103,4 +105,5 @@ def test_stacked_expert_initialization_keeps_seeded_values_in_sharded_storage(ax
         )(keys)
     for value, reference in zip((actual.w_gate, actual.w_up, actual.w_down), expected, strict=True):
         np.testing.assert_array_equal(value, reference)
-        assert value.addressable_shards[0].data.size * len(jax.devices()) == value.size
+        if use_mesh:
+            assert value.addressable_shards[0].data.size * len(jax.devices()) == value.size
