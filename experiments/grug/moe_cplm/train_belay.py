@@ -304,7 +304,7 @@ def main(argv=None):
     parser.add_argument("--logging-check", action="store_true")
     parser.add_argument("--variant", choices=tuple(MODELS), default="cplm")
     parser.add_argument("--width", type=int, choices=(512, 768, 1024, 1280), default=512)
-    parser.add_argument("--batch-size", type=int, choices=(16, 64, 128, 256), default=16)
+    parser.add_argument("--batch-size", type=int, choices=(16, 32, 64, 128, 256), default=16)
     parser.add_argument("--tpu-chips", type=int, choices=(16, 32), default=16)
     parser.add_argument("--grad-accum-microbatches", type=int, choices=(1, 2, 4, 8), default=1)
     parser.add_argument("--expert-axis-size", type=int, choices=(1, 2, 4), default=1)
@@ -397,6 +397,8 @@ def main(argv=None):
     )
     budget = None
     execution_policy = "native-saved-global-qb" if args.grad_accum_microbatches > 1 else "native-saved"
+    if args.width >= 1024:
+        execution_policy = "native-ladder-recompute"
     if args.memory_scheduler == "brkga":
         execution_policy += "-memory-schedule"
     if args.compute_budget is not None:
@@ -428,7 +430,9 @@ def main(argv=None):
         "execution-policy.json",
         {
             "backward": execution_policy,
-            "additional_forward_recomputation": False,
+            "additional_forward_recomputation": args.width >= 1024,
+            "attn_res_layer_backward": config.model.attn_res_layer_backward,
+            "attn_res_remat_attention": config.model.attn_res_remat_attention,
             "xla_flags": flags,
             "libtpu_init_args": tpu_flags,
             "grad_accum_microbatches": args.grad_accum_microbatches,
@@ -444,7 +448,7 @@ def main(argv=None):
         persist("case-classes.json", case_classes.summary(*tables))
     head_check = validate_head(args.variant, args.width)
     persist("head-preflight.json", head_check)
-    if args.batch_size in (64, 128):
+    if args.batch_size in (32, 64, 128):
         histogram_check = validate_histogram(args.batch_size * 8192 // args.tpu_chips)
         persist("histogram-preflight.json", histogram_check)
         StoragePath(artifact_root + f"/histogram-preflight-host{jax.process_index()}.json").write_bytes(
