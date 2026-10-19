@@ -71,11 +71,12 @@ def test_mla_value_embedding_is_partitioned_without_changing_initial_values():
     assert attention.value_embed.addressable_shards[0].data.size * len(jax.devices()) == attention.value_embed.size
 
 
-def test_stacked_expert_initialization_keeps_seeded_values_in_sharded_storage():
+@pytest.mark.parametrize("axis_type", [AxisType.Explicit, AxisType.Auto])
+def test_stacked_expert_initialization_keeps_seeded_values_in_sharded_storage(axis_type):
     mesh = jax.make_mesh(
         (1, len(jax.devices()), 1, 1),
         ("replica_dcn", "data", "expert", "model"),
-        axis_types=(AxisType.Explicit,) * 4,
+        axis_types=(axis_type,) * 4,
     )
     keys = jax.random.split(jax.random.key(31), 3)
     with jax.set_mesh(mesh):
