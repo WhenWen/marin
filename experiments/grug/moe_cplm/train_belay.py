@@ -114,6 +114,7 @@ def build_config(
     tpu_chips: int = 16,
     grad_accum_microbatches: int = 1,
     expert_axis_size: int = 1,
+    expert_chunks: int = 2,
 ) -> train.GrugRunConfig:
     """Freeze the optimizer batch and schedule; calibration stops after 400 updates."""
     if batch_size % tpu_chips or batch_size < tpu_chips:
@@ -133,6 +134,7 @@ def build_config(
         kda_xla_scan_impl="parallel_stacked_split",
         hidden_dim=width,
         qb_defer_update=grad_accum_microbatches > 1,
+        moe_ragged_chunks=expert_chunks,
         vocab_size=128256,
         max_seq_len=8192,
     )
@@ -308,6 +310,7 @@ def main(argv=None):
     parser.add_argument("--tpu-chips", type=int, choices=(16, 32), default=16)
     parser.add_argument("--grad-accum-microbatches", type=int, choices=(1, 2, 4, 8), default=1)
     parser.add_argument("--expert-axis-size", type=int, choices=(1, 2, 4), default=1)
+    parser.add_argument("--expert-chunks", type=int, choices=(1, 2), default=2)
     parser.add_argument("--memory-scheduler", choices=("default", "brkga"), default="default")
     parser.add_argument("--steps", type=int, default=10980)
     parser.add_argument("--compute-budget", type=Path)
@@ -394,6 +397,7 @@ def main(argv=None):
         tpu_chips=args.tpu_chips,
         grad_accum_microbatches=args.grad_accum_microbatches,
         expert_axis_size=args.expert_axis_size,
+        expert_chunks=args.expert_chunks,
     )
     budget = None
     execution_policy = "native-saved-global-qb" if args.grad_accum_microbatches > 1 else "native-saved"
@@ -409,6 +413,7 @@ def main(argv=None):
             and row["width"] == args.width
             and row.get("grad_accum_microbatches", 1) == args.grad_accum_microbatches
             and row.get("expert_axis_size", 1) == args.expert_axis_size
+            and row["model_config"]["moe_ragged_chunks"] == args.expert_chunks
         )
         if budget["steps"] != args.steps or budget["model_config"] != json.loads(json.dumps(asdict(config.model))):
             raise ValueError("Execution configuration differs from frozen compute budget")
@@ -438,6 +443,7 @@ def main(argv=None):
             "grad_accum_microbatches": args.grad_accum_microbatches,
             "physical_batch_size": args.batch_size // args.grad_accum_microbatches,
             "expert_axis_size": args.expert_axis_size,
+            "expert_chunks": args.expert_chunks,
             "dropless": True,
             "capacity_factor": config.model.capacity_factor,
         },

@@ -70,7 +70,10 @@ def test_pooled_qb_uses_the_whole_batch_range(micros, constant):
 
 @pytest.mark.parametrize("ep", [2, 4])
 @pytest.mark.parametrize("padded", [False, True])
-def test_dropless_capacity_retains_all_assignments_when_one_receiver_chunk_gets_every_token(tmp_path, ep, padded):
+@pytest.mark.parametrize("expert_chunks", [1, 2])
+def test_dropless_capacity_retains_all_assignments_when_one_receiver_chunk_gets_every_token(
+    tmp_path, ep, padded, expert_chunks
+):
     cfg = build_config(
         data_path=DATA,
         output=tmp_path,
@@ -83,6 +86,7 @@ def test_dropless_capacity_retains_all_assignments_when_one_receiver_chunk_gets_
         width=768,
         batch_size=64,
         expert_axis_size=ep,
+        expert_chunks=expert_chunks,
     ).model
     experts, chunks, tokens, k = cfg.num_experts, cfg.moe_ragged_chunks, 64 * 8192 // 16, cfg.num_experts_per_token
     local_experts = experts // ep
