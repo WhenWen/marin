@@ -1021,7 +1021,6 @@ class GrugModelConfig:
     qb_freeze_step: int | None = None
     """Stop updating the QB router biases from this step on (they keep their last value)."""
     qb_defer_update: bool = False
-    """Defer QB until after accumulation."""
     qb_bias_damping: float | None = None
     """Damped QB bias update (StableMoE arXiv 2204.08396; phi-balancing arXiv 2605.15403): ``b <- (1 - gamma) b +
     gamma (-beta)`` instead of ``b <- -beta``. Setting it (1.0 is the undamped update) also logs
@@ -2021,7 +2020,7 @@ class GrugModelConfig:
         if self.qb_bias_damping is not None and not 0.0 < self.qb_bias_damping <= 1.0:
             raise ValueError(f"qb_bias_damping must be in (0, 1], got {self.qb_bias_damping}")
         if self.qb_defer_update and (self.num_null_experts or self.qb_bias_damping is not None):
-            raise ValueError("Deferred QB needs non-null, undamped experts")
+            raise ValueError("Deferred QB needs undamped real experts")
         if self.simbal_loss_weight > 0 and (self.dense_mlp or self.router_rank):
             raise ValueError("simbal_loss_weight needs a MoE with a full-rank router")
         if self.latent_out_dim is not None and (

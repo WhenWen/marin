@@ -150,6 +150,11 @@ def build_config(
     ):
         assert model_values[name] * width % 512 == 0
         model_values[name] = model_values[name] * width // 512
+    if expert_axis_size > 1:
+        # Each receiver chunk can accept every valid assignment in its EP group.
+        # The backend divides capacity by both EP size and chunk count, so this
+        # makes clipping an identity even if all tokens route to one chunk.
+        model_values["capacity_factor"] = expert_axis_size * model_values["moe_ragged_chunks"]
     model_config = draccus.decode(model.GrugModelConfig, model_values)
     optimizer = source["optimizer"]
     optimizer["type"] = "grug_fast_track_muonh_v1"
@@ -429,6 +434,8 @@ def main(argv=None):
             "grad_accum_microbatches": args.grad_accum_microbatches,
             "physical_batch_size": args.batch_size // args.grad_accum_microbatches,
             "expert_axis_size": args.expert_axis_size,
+            "dropless": True,
+            "capacity_factor": config.model.capacity_factor,
         },
     )
     tables = None
@@ -615,6 +622,9 @@ def main(argv=None):
                 if memory_schedule:
                     loss = float(jax.device_get(result[1]["train/loss"]))
                     finite = bool(jax.device_get(state_is_finite(result[0])))
+                    dropped = int(np.asarray(jax.device_get(result[1]["moe/dropped_assignments"])).sum())
+                    if dropped:
+                        raise ValueError(f"Dropless execution lost {dropped} expert assignments")
                     if not (np.isfinite(loss) and finite):
                         raise ValueError("Nonfinite loss or state after the first native optimizer update")
                     persist(
@@ -622,6 +632,7 @@ def main(argv=None):
                         {
                             "loss": loss,
                             "all_state_finite": finite,
+                            "dropped_assignments": dropped,
                             "training_updates": 1,
                             "restored_step": restored_step,
                         },

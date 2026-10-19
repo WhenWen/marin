@@ -16,9 +16,12 @@ from jax.sharding import AxisType, Mesh, NamedSharding
 from jax.sharding import PartitionSpec as P
 from levanter.data.text.examples import GrugLmExample
 from levanter.grug.attention import AttentionMask
+from levanter.grug._moe.common import _scaled_capacity
+from levanter.grug._moe.ep_common import _clip_receiver_group_sizes
 
 from experiments.grug.fast_track import model, train
 from experiments.grug.moe_cplm import accumulation, belay
+from experiments.grug.moe_cplm.train_belay import DATA, build_config
 
 
 def _mesh():
@@ -63,6 +66,43 @@ def test_pooled_qb_uses_the_whole_batch_range(micros, constant):
     np.testing.assert_allclose(beta, expected, rtol=2e-7, atol=2e-6)
     np.testing.assert_array_equal(lo, values.min(axis=(1, 2)))
     np.testing.assert_array_equal(hi, values.max(axis=(1, 2)))
+
+
+@pytest.mark.parametrize("ep", [2, 4])
+@pytest.mark.parametrize("padded", [False, True])
+def test_dropless_capacity_retains_all_assignments_when_one_receiver_chunk_gets_every_token(tmp_path, ep, padded):
+    cfg = build_config(
+        data_path=DATA, output=tmp_path, checkpoint_path=str(tmp_path / "checkpoints"),
+        run_name="capacity-reference", wandb_entity="marin-community", wandb_project="auto-understanding-arch",
+        calibration=False, tokenizer_path=str(tmp_path / "tokenizer"), width=768, batch_size=64,
+        expert_axis_size=ep,
+    ).model
+    experts, chunks, tokens, k = cfg.num_experts, cfg.moe_ragged_chunks, 64 * 8192 // 16, cfg.num_experts_per_token
+    local_experts = experts // ep
+    # Every token chooses k distinct experts in receiver 0's first chunk.
+    counts = np.zeros((ep, experts), np.int32)
+    for sender in range(ep):
+        counts[sender, :k] = tokens - (sender * tokens // ep if padded else 0)
+    counts = jnp.asarray(counts)
+    physical_capacity = int(np.ceil(cfg.capacity_factor * tokens * k))
+
+    @jax.jit
+    def accepted(group_sizes):
+        logical = _scaled_capacity(
+            jnp.sum(group_sizes), capacity_factor=cfg.capacity_factor, divisor=ep,
+            minimum=local_experts, maximum=physical_capacity,
+        )
+        per_chunk = jnp.maximum((logical + chunks - 1) // chunks, local_experts // chunks)
+        chunk_ids = (jnp.arange(experts) % local_experts) // (local_experts // chunks)
+        return sum(
+            _clip_receiver_group_sizes(
+                jnp.where(chunk_ids[None] == chunk, group_sizes, 0),
+                local_expert_size=local_experts, receiver_capacity=per_chunk,
+            )
+            for chunk in range(chunks)
+        )
+
+    np.testing.assert_array_equal(accepted(counts), counts)
 
 
 @pytest.mark.timeout(180)
