@@ -7,7 +7,7 @@ import argparse
 import json
 from pathlib import Path
 
-import matplotlib
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 
 
@@ -28,7 +28,7 @@ def main():
     parser.add_argument("--until", type=int)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    matplotlib.rcParams.update({
+    mpl.rcParams.update({
         "font.family": "DejaVu Sans", "font.size": 12, "axes.labelsize": 14,
         "axes.linewidth": 1.2, "legend.fontsize": 11, "pdf.fonttype": 42, "svg.fonttype": "none",
     })
