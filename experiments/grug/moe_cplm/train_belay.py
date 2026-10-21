@@ -45,6 +45,7 @@ from experiments.grug.moe_cplm import accumulation, case_classes, plus
 from experiments.grug.moe_cplm.belay import Belay, CopyPasteBelay
 from experiments.grug.moe_cplm.checkpoint_io import python_zarr_checkpoint_writes
 from experiments.grug.moe_cplm.frame_kda_model import FrameKDAPlus
+from experiments.grug.moe_cplm.frame_kda_validation import validate_frame_kda
 from experiments.grug.moe_cplm.head_validation import validate_head, validate_histogram
 
 RECIPE = Path(__file__).with_name("belay_recipe.json")
@@ -459,6 +460,9 @@ def main(argv=None):
         persist("case-classes.json", case_classes.summary(*tables))
     head_check = validate_head("plus" if plus_variant else args.variant, args.width)
     persist("head-preflight.json", head_check)
+    if args.variant == "plus-frame-kda":
+        frame_check = validate_frame_kda(config.model)
+        persist("frame-kda-preflight.json", frame_check)
     if args.batch_size in (32, 64, 128):
         histogram_check = validate_histogram(args.batch_size * 8192 // args.tpu_chips)
         persist("histogram-preflight.json", histogram_check)
