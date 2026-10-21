@@ -103,13 +103,16 @@ and generation caches are outside this experiment.
 ## Device qualification, 2026-10-21
 
 The native experiment runs source `50baefeea7e5c5a1a47561aed80878a98077ca09`.
-Eight remote CPU tests passed. On TPU v4, the T=256 objective/input/state-adjoint
+Eight remote CPU tests in [test_frame_kda.py](test_frame_kda.py) passed.
+On TPU v4, the T=256 objective/input/state-adjoint
 comparison had maximum absolute error 2.3842e-6. Five drained forward/backward
 measurements at B1×T8192 gave median 44.851 ms (44.826–44.947 ms). XLA reported
 810741760 temporary bytes, about 773 MiB, for this standalone memory kernel.
 These timings include the benchmark objective and exclude projections, the
 backbone, optimizer and cross-device synchronization. They are not whole-model
 training overhead measurements.
+The objective is the sum of sine applied to every read and final-state element.
+Each timed sample waits for all returned values with `block_until_ready`.
 
 The full native model passed its zero-update finite-gradient check. Initial
 loss was 11.868136405944824, identical to the historical Plus first-batch loss.
@@ -117,6 +120,13 @@ The new gain gradient norm was 4.91277e-5. The resolved optimizer configurations
 match exactly. The only backbone configuration difference is an explicitly false
 `qb_defer_update` field, preserving the old immediate-update path. Data differs
 only in the spelling of the local tokenizer path; the checked files match.
+Source inspection found unchanged copy-head implementation, optimizer, recipe,
+data manifest and tokenizer identity. The inherited QB refactor with
+`qb_defer_update=False` calls the same immediate histogram update; accumulation
+hooks are inactive at accumulation factor one. The inherited loss-scaling
+argument defaults to one, as used here. Both checkpoint initialization paths
+start at restored step zero, without restored weights. These checks cover the
+identified inherited changes but are not a proof of identical full-run dynamics.
 This supports comparison under the recorded source changes; it does not imply
 bitwise equality of later mixed-precision training trajectories.
 
