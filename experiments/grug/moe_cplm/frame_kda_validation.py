@@ -88,9 +88,11 @@ def validate_frame_kda(sequence_length: int, *, chunk: int | None = None):
             "reference_length": check_length,
             "value_and_gradient_max_errors": errors,
             "native_objective": float(native_result[0]),
-            "native_inputs_sha256": hashlib.sha256(
-                b"".join(np.asarray(x).tobytes() for x in jax.tree.leaves(jax.device_get((xs, initial))))
-            ).hexdigest(),
+            "native_inputs_sha256": (
+                hashlib.sha256(
+                    b"".join(np.asarray(x).tobytes() for x in jax.tree.leaves(jax.device_get((xs, initial))))
+                ).hexdigest()
+            ),
             "compile_seconds": compile_seconds,
             "forward_backward_seconds": durations,
             "compiled_temp_bytes": memory.temp_size_in_bytes,
