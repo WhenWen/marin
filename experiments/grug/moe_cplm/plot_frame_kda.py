@@ -66,8 +66,8 @@ def main():
     ax.set_xlabel("Optimizer step")
     labels = {
         "train/loss": "Training NLL (nats/token)",
-        "eval/paloma/macro_loss": "Paloma macro NLL (nats/token)",
-        "eval/uncheatable_eval/macro_loss": "Uncheatable macro NLL (nats/token)",
+        "eval/paloma/macro_loss": "Paloma macro NLL\n(nats/token)",
+        "eval/uncheatable_eval/macro_loss": "Uncheatable macro NLL\n(nats/token)",
     }
     ax.set_ylabel(labels.get(args.metric, args.metric))
     ax.legend(framealpha=0.95)
