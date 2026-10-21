@@ -100,6 +100,8 @@ def build_config(
     wandb_project: str,
     calibration: bool,
     tokenizer_path: str,
+    orca_strength: float = 0.0,
+    orca_active_fraction: float = 0.25,
 ) -> train.GrugRunConfig:
     """Freeze the optimizer batch and schedule; calibration stops after 400 updates."""
     source = json.loads(RECIPE.read_text())
@@ -205,7 +207,11 @@ def build_config(
     )
     return train.GrugRunConfig(
         model=model_config,
-        optimizer=draccus.decode(OptimizerConfig, optimizer),
+        optimizer=replace(
+            draccus.decode(OptimizerConfig, optimizer),
+            orca_strength=orca_strength,
+            orca_active_fraction=orca_active_fraction,
+        ),
         data=data,
         trainer=trainer_config,
         resources=ResourceConfig.with_tpu("v4-32"),
@@ -256,6 +262,8 @@ def main(argv=None):
     parser.add_argument("--wandb-project", required=True)
     parser.add_argument("--calibration", action="store_true")
     parser.add_argument("--logging-check", action="store_true")
+    parser.add_argument("--orca-strength", type=float, default=0.0)
+    parser.add_argument("--orca-active-fraction", type=float, default=0.25)
     args = parser.parse_args(argv)
     run_name = args.run_name
     args.output.mkdir(parents=True, exist_ok=True)
@@ -269,6 +277,7 @@ def main(argv=None):
             id="logcheck-" + uuid.uuid4().hex,
             mode="online",
             resume="never",
+            save_code=False,
             background=False,
         ).init(None)
         tracker.log_hyperparameters({"training_updates": 0})
@@ -304,6 +313,8 @@ def main(argv=None):
         wandb_project=args.wandb_project,
         calibration=args.calibration,
         tokenizer_path=args.tokenizer,
+        orca_strength=args.orca_strength,
+        orca_active_fraction=args.orca_active_fraction,
     )
     config.trainer.trainer.distributed = replace(config.trainer.trainer.distributed, initialize_jax_distributed=False)
     handlers = []

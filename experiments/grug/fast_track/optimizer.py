@@ -20,6 +20,7 @@ from experiments.grug.fast_track.eig_muon import EIG_MODES, scale_by_eig_directi
 from experiments.grug.fast_track.expert_write_mask import expert_write_mask
 from experiments.grug.fast_track.grugmuon_stacked import _grug_scale_with_muon, _target_named_sharding
 from experiments.grug.fast_track.okls import OKLS_MATMUL_DTYPES, scale_with_grug_okls
+from experiments.grug.fast_track.orca import add_early_orthogonal_correction
 from experiments.grug.fast_track.stiefel import scale_with_stiefel_muon
 
 
@@ -1575,6 +1576,9 @@ class GrugMoeMuonHConfig(OptimizerConfig):
     beta2: float = 0.95
     epsilon: float = 1e-8
     muon_epsilon: float = 1e-8
+    orca_strength: float = 0.0
+    """Pre-update orthogonality correction added outside MuonH's retraction."""
+    orca_active_fraction: float = 0.25
     max_grad_norm: float | None = None
     coefficient_type: CoefficientType = "quintic"
     gate_router_weight_decay: float = 0.02
@@ -1914,6 +1918,12 @@ class GrugMoeMuonHConfig(OptimizerConfig):
                         step_ref_steps=self.muonh_step_ref_steps,
                     )
                 )
+                if self.orca_strength:
+                    components.append(
+                        add_early_orthogonal_correction(
+                            lr, self.orca_strength, int(self.orca_active_fraction * num_train_steps)
+                        )
+                    )
                 components.append(_match_named_update_sharding())
                 return optax.chain(*components)
 
@@ -2218,6 +2228,8 @@ class GrugMoeMuonHConfig(OptimizerConfig):
         return inner
 
     def __post_init__(self):
+        if self.orca_strength < 0 or not 0 <= self.orca_active_fraction <= 1:
+            raise ValueError("ORCA requires nonnegative strength and an active fraction in [0, 1]")
         if self.muon_truncate_family is not None and self.muon_truncate_family not in _TRUNCATE_FAMILIES:
             raise ValueError(f"muon_truncate_family must be one of {sorted(_TRUNCATE_FAMILIES)}")
         if (self.muon_truncate_family is None) != (

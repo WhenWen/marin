@@ -1,5 +1,40 @@
 # Belay+CPLM on TPU v4
 
+## ORCA regularization experiment
+
+Pass `--orca-strength 1 --orca-active-fraction 0.25` to add the early
+orthogonality correction from [ORCA](https://arxiv.org/abs/2610.06116) to this
+recipe's MuonH groups. The model, seed, data, batch, learning-rate schedules,
+momentum, and Adam/AdamH groups stay fixed. This is ORCA-on-MuonH, rather than
+the paper's standard-Muon optimizer. The correction is evaluated on the pre-update weights and added to the final
+MuonH parameter delta after its norm-preserving projection. Norms may therefore
+change during the active phase. Expert matrices are regularized independently.
+For a matrix with rows no greater than columns the gradient is
+`(W @ W.T - I) @ W`; otherwise it is `W @ (W.T @ W - I)`. Products use FP32.
+Expert matrices are distributed across devices for these products, then returned
+to their original parameter sharding.
+
+For the fixed 10980-step training schedule, the correction is active at
+zero-based steps 0–2744 and absent from step 2745 onward. Its coefficient γ is
+constant during that interval; the correction is still multiplied by the
+scheduled learning rate. This uses the paper's default 25% window. The paper's
+MoE setting instead switches off regularization at different steps by layer,
+from 20% to 60% of training. Omit the flags for the original control.
+The ORCA variant and control use separate online W&B runs and incremental loss
+logs. Compare validation NLL at the same step and token count, and record
+throughput separately because regularization adds optimizer computation.
+A single seed provides an initial comparison.
+
+Numerical checks cover autodiff parity, wide/tall matrices, stacked experts,
+explicit sharding, the release boundary, and unchanged Adam/AdamH groups:
+
+```bash
+JAX_PLATFORMS=cpu XLA_FLAGS=--xla_force_host_platform_device_count=4 \
+  uv run pytest -n 0 experiments/grug/fast_track/test_orca.py
+```
+
+## Baseline
+
 This variant adds the [Copy-Paste Language Model](https://arxiv.org/abs/2610.19247v1)
 head to Belay base16 d512. It uses the original Belay development branch
 `ladderclimb_v1_batch14` (`358283f7`), with the qualified TPU execution changes
