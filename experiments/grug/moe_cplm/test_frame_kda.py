@@ -120,7 +120,8 @@ def test_residual_initialization_and_learned_control_gradients():
         return local_read(x, segments, w, gain, action_bias, heads=2, depth=3, rank=2, width=3, chunk=4)
 
     np.testing.assert_array_equal(residual(hidden, weights, jnp.zeros(8), bias), jnp.zeros_like(hidden))
-    objective = lambda x, w, g, b: jnp.sum(jnp.sin(residual(x, w, g, b)))
+    def objective(x, w, g, b):
+        return jnp.sum(jnp.sin(residual(x, w, g, b)))
     initial_grad = jax.jit(jax.grad(objective, argnums=(0, 1, 2, 3)))(hidden, weights, jnp.zeros(8), bias)
     assert float(jnp.linalg.norm(initial_grad[2])) > 0
     for x in jax.tree.leaves((initial_grad[0], initial_grad[1], initial_grad[3])):

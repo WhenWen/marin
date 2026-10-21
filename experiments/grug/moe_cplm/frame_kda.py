@@ -62,7 +62,7 @@ def step(state, inputs):
 
 def recurrent(inputs, initial):
     """Literal token recurrence; inputs have time as their first dimension."""
-    return jax.lax.scan(step, initial, inputs)
+    return jax.lax.scan(jax.checkpoint(step), initial, inputs)
 
 
 def _compose(earlier, later):

@@ -39,7 +39,8 @@ def validate_frame_kda(cfg):
         output, final = fn(xs, state)
         return jnp.sum(jnp.sin(output)) + jnp.sum(jnp.sin(final))
 
-    fast = lambda xs, state: frame_kda.chunked(xs, state, chunk)
+    def fast(xs, state):
+        return frame_kda.chunked(xs, state, chunk)
     with jax.default_device(jax.local_devices()[0]):
         initial = jnp.asarray(rng.normal(size=(1, heads, depth, rank, width)), jnp.float32)
         xs = make_inputs(4 * chunk)
