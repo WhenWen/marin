@@ -52,13 +52,13 @@ def polar_retract(z: jax.Array, iters: int = RETRACTION_ITERS) -> jax.Array:
     return z
 
 
-def _whole_matrices(fn, *values):
+def _whole_matrices(fn, *values, replicated_args=()):
     """Run a local matrix operation with whole matrices and sharded expert banks."""
     weight = values[0]
     mesh = jax.sharding.get_abstract_mesh()
     target = _target_named_sharding(weight)
     if mesh.empty or target is None or target.mesh.empty:
-        return fn(*values)
+        return fn(*values, *replicated_args)
     axes = tuple(name for name, _ in _intra_rack_axes(mesh))
     shards = math.prod(mesh.shape[name] for name in axes)
     if weight.ndim == 4 and axes and weight.shape[1] % shards == 0:
@@ -66,7 +66,14 @@ def _whole_matrices(fn, *values):
     else:
         whole = P(*tuple(target.spec)[: weight.ndim - 2], None, None)
     values = tuple(reshard(value, whole) for value in values)
-    result = jax.shard_map(fn, mesh=mesh, in_specs=(whole,) * len(values), out_specs=whole, check_vma=False)(*values)
+    replicated_args = tuple(reshard(jnp.asarray(value), P()) for value in replicated_args)
+    result = jax.shard_map(
+        fn,
+        mesh=mesh,
+        in_specs=(whole,) * len(values) + (P(),) * len(replicated_args),
+        out_specs=whole,
+        check_vma=False,
+    )(*values, *replicated_args)
     return reshard(result, target)
 
 
@@ -128,7 +135,7 @@ def _stiefel_step(x, direction, learning_rate):
 def stiefel_step(x: jax.Array, direction: jax.Array, learning_rate) -> jax.Array:
     """Scaled Skewon update, independently per matrix, restoring parameter sharding."""
     with jax.default_matmul_precision("highest"):
-        return _whole_matrices(lambda w, m: _stiefel_step(w, m, learning_rate), x, direction)
+        return _whole_matrices(_stiefel_step, x, direction, replicated_args=(learning_rate,))
 
 
 def scale_with_stiefel_muon(*, momentum: float, nesterov: bool, learning_rate) -> optax.GradientTransformation:

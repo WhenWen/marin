@@ -21,11 +21,12 @@ def test_sharded_manifold_init_and_steps_keep_maximum_effective_rank(shape):
     spec = P(*([None] * (len(shape) - 2)), "data", None)
     weight = jax.device_put(jax.random.normal(jax.random.key(5), shape) * 0.2, NamedSharding(mesh, spec))
     expected_norm = np.linalg.norm(np.asarray(weight), axis=(-2, -1))
+    learning_rate = jax.device_put(np.asarray(0.03, np.float32), NamedSharding(mesh, P()))
     with jax.set_mesh(mesh):
         value = jax.jit(semiorthogonal_init)(weight)
         for step in range(5):
             grad = jax.device_put(jax.random.normal(jax.random.key(step), shape), NamedSharding(mesh, spec))
-            value += jax.jit(stiefel_step)(value, grad, 0.03)
+            value += jax.jit(stiefel_step)(value, grad, learning_rate)
     assert value.sharding.spec == spec
     singular = np.linalg.svd(np.asarray(value), compute_uv=False)
     np.testing.assert_allclose(
