@@ -94,9 +94,7 @@ def _summaries(xs, initial):
         actions, _, key, value, decay, beta, _, keep = token
         state = transition(state, actions, key, decay, beta, keep)
         write = (actions[..., 0] + actions[..., 2] + actions[..., 3]) * beta
-        state = state.at[..., 0, :, size:].add(
-            write[..., None, None] * key[..., :, None] * value[..., None, :]
-        )
+        state = state.at[..., 0, :, size:].add(write[..., None, None] * key[..., :, None] * value[..., None, :])
         return state, None
 
     augmented, _ = jax.lax.scan(summarize, augmented, xs)

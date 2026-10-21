@@ -14,6 +14,7 @@ from experiments.grug.moe_cplm.frame_kda_model import local_read
 
 def reference(inputs, initial):
     """Explicitly form four possible stacks and average their outcomes."""
+
     def token(state, xs):
         action, query, key, value, decay, beta, address, keep = xs
         state = state * keep[..., None, None, None]
@@ -38,14 +39,22 @@ def reference(inputs, initial):
 def fixture(length=12, depth=3, rank=2, width=3):
     rng = np.random.default_rng(128)
     batch, heads = 2, 2
+
     def normal(size):
         return jnp.asarray(rng.normal(size=(batch, length, heads, size)), jnp.float32)
+
     def unit(x):
         return x / jnp.sqrt(jnp.sum(x * x, -1, keepdims=True) + 1e-6)
+
     inputs = (
-        jax.nn.softmax(normal(4), -1), unit(normal(rank)), unit(normal(rank)), normal(width),
-        jax.nn.sigmoid(normal(rank)), jax.nn.sigmoid(normal(1)[..., 0]),
-        jax.nn.softmax(normal(depth), -1), jnp.ones((batch, length, heads), jnp.float32),
+        jax.nn.softmax(normal(4), -1),
+        unit(normal(rank)),
+        unit(normal(rank)),
+        normal(width),
+        jax.nn.sigmoid(normal(rank)),
+        jax.nn.sigmoid(normal(1)[..., 0]),
+        jax.nn.softmax(normal(depth), -1),
+        jnp.ones((batch, length, heads), jnp.float32),
     )
     keep = inputs[-1].at[0, 5].set(0).at[1, 8].set(0)
     inputs = (*inputs[:-1], keep)
@@ -59,9 +68,11 @@ def test_chunked_outputs_and_all_gradients_match_branch_reference(chunk):
     rng = np.random.default_rng(45)
     dy = jnp.asarray(rng.normal(size=(2, 12, 2, 3)), jnp.float32)
     df = jnp.asarray(rng.normal(size=initial.shape), jnp.float32)
+
     def objective(fn, xs, state):
         out, final = fn(xs, state)
         return jnp.sum(out * dy) + jnp.sum(final * df)
+
     fast = partial_chunk(chunk)
     want = reference(inputs, initial)
     got = jax.jit(fast)(inputs, initial)
@@ -120,8 +131,10 @@ def test_residual_initialization_and_learned_control_gradients():
         return local_read(x, segments, w, gain, action_bias, heads=2, depth=3, rank=2, width=3, chunk=4)
 
     np.testing.assert_array_equal(residual(hidden, weights, jnp.zeros(8), bias), jnp.zeros_like(hidden))
+
     def objective(x, w, g, b):
         return jnp.sum(jnp.sin(residual(x, w, g, b)))
+
     initial_grad = jax.jit(jax.grad(objective, argnums=(0, 1, 2, 3)))(hidden, weights, jnp.zeros(8), bias)
     assert float(jnp.linalg.norm(initial_grad[2])) > 0
     for x in jax.tree.leaves((initial_grad[0], initial_grad[1], initial_grad[3])):
@@ -132,5 +145,7 @@ def test_residual_initialization_and_learned_control_gradients():
     changed = hidden.at[:, :6].add(10)
     np.testing.assert_allclose(
         residual(changed, weights, jnp.ones(8), bias)[:, 6:],
-        residual(hidden, weights, jnp.ones(8), bias)[:, 6:], atol=3e-6, rtol=3e-5,
+        residual(hidden, weights, jnp.ones(8), bias)[:, 6:],
+        atol=3e-6,
+        rtol=3e-5,
     )

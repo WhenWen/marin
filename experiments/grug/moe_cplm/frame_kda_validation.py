@@ -26,9 +26,14 @@ def validate_frame_kda(cfg):
             return x * jax.lax.rsqrt(jnp.sum(x * x, -1, keepdims=True) + 1e-6)
 
         return (
-            jax.nn.softmax(normal(4), -1), unit(normal(rank)), unit(normal(rank)), normal(width),
-            jax.nn.sigmoid(normal(rank)), jax.nn.sigmoid(normal(1)[..., 0]),
-            jax.nn.softmax(normal(depth), -1), jnp.ones((1, length, heads)).at[:, length // 2].set(0),
+            jax.nn.softmax(normal(4), -1),
+            unit(normal(rank)),
+            unit(normal(rank)),
+            normal(width),
+            jax.nn.sigmoid(normal(rank)),
+            jax.nn.sigmoid(normal(1)[..., 0]),
+            jax.nn.softmax(normal(depth), -1),
+            jnp.ones((1, length, heads)).at[:, length // 2].set(0),
         )
 
     def reference(xs, state):
@@ -41,6 +46,7 @@ def validate_frame_kda(cfg):
 
     def fast(xs, state):
         return frame_kda.chunked(xs, state, chunk)
+
     with jax.default_device(jax.local_devices()[0]):
         initial = jnp.asarray(rng.normal(size=(1, heads, depth, rank, width)), jnp.float32)
         xs = make_inputs(4 * chunk)

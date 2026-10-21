@@ -51,7 +51,9 @@ class FrameKDAPlus(plus.BelayCPLMPlus):
         d, depth = cfg.hidden_dim, cfg.frame_kda_depth
         shapes = [(d, heads * size) for size in (rank, rank, width, rank, 1, 4, depth)] + [(heads * width, d)]
         keys = jax.random.split(jax.random.fold_in(key, 261021301), len(shapes))
-        weights = tuple(jax.sharding.reshard(0.02 * jax.random.normal(k, shape), P()) for k, shape in zip(keys, shapes, strict=True))
+        weights = tuple(
+            jax.sharding.reshard(0.02 * jax.random.normal(k, shape), P()) for k, shape in zip(keys, shapes, strict=True)
+        )
         return FrameKDAPlus(
             **{field.name: getattr(base, field.name) for field in dataclasses.fields(base)},
             frame_weights=weights,
@@ -67,8 +69,14 @@ class FrameKDAPlus(plus.BelayCPLMPlus):
         args = jax.tree.map(jax.sharding.reshard, args, specs)
 
         def read(*values):
-            return local_read(*values, heads=cfg.frame_kda_heads, depth=cfg.frame_kda_depth,
-                              rank=cfg.frame_kda_rank, width=cfg.frame_kda_width, chunk=cfg.frame_kda_chunk)
+            return local_read(
+                *values,
+                heads=cfg.frame_kda_heads,
+                depth=cfg.frame_kda_depth,
+                rank=cfg.frame_kda_rank,
+                width=cfg.frame_kda_width,
+                chunk=cfg.frame_kda_chunk,
+            )
 
         delta = jax.shard_map(read, in_specs=specs, out_specs=hs, check_vma=False)(*args)
         return plus.BelayCPLMPlus.copy_head(self, jax.sharding.reshard(hidden, hs) + delta, token_ids, labels, segments)
