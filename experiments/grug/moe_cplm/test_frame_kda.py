@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from experiments.grug.moe_cplm.frame_kda import chunked
+from experiments.grug.moe_cplm.frame_kda_model import local_read
 
 
 def reference(inputs, initial):
@@ -105,3 +106,30 @@ def test_chunked_causality_document_reset_and_streaming_continuation():
     changed[3] = inputs[3].at[0, :5].add(100)
     reset_out, _ = chunked(tuple(changed), initial, 3)
     np.testing.assert_allclose(reset_out[0, 5:], full[0, 5:], atol=3e-6, rtol=3e-5)
+
+
+def test_residual_initialization_and_learned_control_gradients():
+    rng = np.random.default_rng(73)
+    hidden = jnp.asarray(rng.normal(size=(1, 12, 8)), jnp.float32)
+    segments = jnp.array([[0] * 6 + [1] * 6])
+    shapes = [(8, 2 * size) for size in (2, 2, 3, 2, 1, 4, 3)] + [(6, 8)]
+    weights = tuple(jnp.asarray(rng.normal(size=shape) * 0.02, jnp.float32) for shape in shapes)
+    bias = jnp.zeros((2, 4))
+
+    def residual(x, w, gain, action_bias):
+        return local_read(x, segments, w, gain, action_bias, heads=2, depth=3, rank=2, width=3, chunk=4)
+
+    np.testing.assert_array_equal(residual(hidden, weights, jnp.zeros(8), bias), jnp.zeros_like(hidden))
+    objective = lambda x, w, g, b: jnp.sum(jnp.sin(residual(x, w, g, b)))
+    initial_grad = jax.jit(jax.grad(objective, argnums=(0, 1, 2, 3)))(hidden, weights, jnp.zeros(8), bias)
+    assert float(jnp.linalg.norm(initial_grad[2])) > 0
+    for x in jax.tree.leaves((initial_grad[0], initial_grad[1], initial_grad[3])):
+        np.testing.assert_array_equal(x, jnp.zeros_like(x))
+    active_grad = jax.jit(jax.grad(objective, argnums=(0, 1, 2, 3)))(hidden, weights, jnp.ones(8), bias)
+    for x in jax.tree.leaves(active_grad):
+        assert np.isfinite(x).all() and float(jnp.linalg.norm(x)) > 0
+    changed = hidden.at[:, :6].add(10)
+    np.testing.assert_allclose(
+        residual(changed, weights, jnp.ones(8), bias)[:, 6:],
+        residual(hidden, weights, jnp.ones(8), bias)[:, 6:], atol=3e-6, rtol=3e-5,
+    )

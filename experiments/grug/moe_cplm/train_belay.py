@@ -613,6 +613,20 @@ def main(argv=None):
                             ),
                         }
                     )
+                    if args.variant == "plus-frame-kda":
+                        contract = {
+                            "issue_url": "https://github.com/WhenWen/astra-d8-research/issues/59",
+                            "motivating_task_url": "https://github.com/WhenWen/astra-d8-research/issues/58",
+                            "synthetic_task_evaluated": False,
+                            "synthetic_gate_waiver": "User explicitly requested direct native LM testing",
+                            "baseline_run_id": "4434036161f49ae783d3",
+                            "comparison": "equal tokens; additional branch arithmetic is reported separately",
+                            "additional_parameters": 313872,
+                            "data_manifest_sha256": hashlib.sha256(args.data_config.read_bytes()).hexdigest(),
+                            "tokenizer_files_sha256": identities,
+                        }
+                        wandb.config.update(contract)
+                        persist("frame-kda-contract.json", contract)
                     persist("tracking.json", {"url": wandb.run.url, "resumed": False, "restored_step": restored_step})
                 if not memory_schedule:
                     loss, finite, norms = jax.device_get(preflight(leaves, batch, **kwargs))
