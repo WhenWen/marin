@@ -14,8 +14,9 @@ from experiments.grug.moe_cplm import frame_kda
 
 def validate_frame_kda(cfg):
     """Check values and all adjoints, then measure a native-length local shard."""
-    heads, depth, rank, width = cfg.frame_kda_heads, cfg.frame_kda_depth, cfg.frame_kda_rank, cfg.frame_kda_width
-    chunk = cfg.frame_kda_chunk
+    frame = frame_kda.FRAME_CONFIG
+    heads, depth, rank, width = frame.heads, frame.depth, frame.rank, frame.width
+    chunk = frame.chunk
     rng = np.random.default_rng(261021)
 
     def make_inputs(length):

@@ -8,12 +8,27 @@ frame. Only chunk boundaries use dense affine composition. Controllers depend
 on the input stream, never on the recurrent state. All recurrence math is FP32.
 """
 
+from dataclasses import dataclass
 from functools import partial
 
 import jax
 import jax.numpy as jnp
 
 PRECISION = jax.lax.Precision.HIGHEST
+
+
+@dataclass(frozen=True)
+class FrameConfig:
+    """Frozen branch dimensions, separate from the unchanged backbone config."""
+
+    heads: int = 4
+    depth: int = 8
+    rank: int = 4
+    width: int = 64
+    chunk: int = 64
+
+
+FRAME_CONFIG = FrameConfig()
 
 
 def transition(state, actions, key, decay, beta, keep):

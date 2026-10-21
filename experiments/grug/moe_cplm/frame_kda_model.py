@@ -47,8 +47,9 @@ class FrameKDAPlus(plus.BelayCPLMPlus):
     @staticmethod
     def init(cfg, *, key):
         base = plus.BelayCPLMPlus.init(cfg, key=key)
-        heads, rank, width = cfg.frame_kda_heads, cfg.frame_kda_rank, cfg.frame_kda_width
-        d, depth = cfg.hidden_dim, cfg.frame_kda_depth
+        frame = frame_kda.FRAME_CONFIG
+        heads, rank, width = frame.heads, frame.rank, frame.width
+        d, depth = cfg.hidden_dim, frame.depth
         shapes = [(d, heads * size) for size in (rank, rank, width, rank, 1, 4, depth)] + [(heads * width, d)]
         keys = jax.random.split(jax.random.fold_in(key, 261021301), len(shapes))
         weights = tuple(
@@ -62,7 +63,7 @@ class FrameKDAPlus(plus.BelayCPLMPlus):
         )
 
     def copy_head(self, hidden, token_ids, labels, segments):
-        cfg = self.config
+        cfg = frame_kda.FRAME_CONFIG
         hs, ts = P(model._BATCH_AXES, None, None), P(model._BATCH_AXES, None)
         specs = (hs, ts, tuple(P() for _ in self.frame_weights), P(), P())
         args = (hidden, segments, self.frame_weights, self.frame_gain, self.frame_action_bias)
@@ -71,11 +72,11 @@ class FrameKDAPlus(plus.BelayCPLMPlus):
         def read(*values):
             return local_read(
                 *values,
-                heads=cfg.frame_kda_heads,
-                depth=cfg.frame_kda_depth,
-                rank=cfg.frame_kda_rank,
-                width=cfg.frame_kda_width,
-                chunk=cfg.frame_kda_chunk,
+                heads=cfg.heads,
+                depth=cfg.depth,
+                rank=cfg.rank,
+                width=cfg.width,
+                chunk=cfg.chunk,
             )
 
         delta = jax.shard_map(read, in_specs=specs, out_specs=hs, check_vma=False)(*args)

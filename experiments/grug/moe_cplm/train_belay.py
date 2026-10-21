@@ -44,6 +44,7 @@ from experiments.grug.moe.kda_state_tpu import state_pass
 from experiments.grug.moe_cplm import accumulation, case_classes, plus
 from experiments.grug.moe_cplm.belay import Belay, CopyPasteBelay
 from experiments.grug.moe_cplm.checkpoint_io import python_zarr_checkpoint_writes
+from experiments.grug.moe_cplm.frame_kda import FRAME_CONFIG
 from experiments.grug.moe_cplm.frame_kda_model import FrameKDAPlus
 from experiments.grug.moe_cplm.frame_kda_validation import validate_frame_kda
 from experiments.grug.moe_cplm.head_validation import validate_head, validate_histogram
@@ -622,6 +623,7 @@ def main(argv=None):
                             "baseline_run_id": "4434036161f49ae783d3",
                             "comparison": "equal tokens; additional branch arithmetic is reported separately",
                             "additional_parameters": 313872,
+                            "frame_kda": asdict(FRAME_CONFIG),
                             "data_manifest_sha256": hashlib.sha256(args.data_config.read_bytes()).hexdigest(),
                             "tokenizer_files_sha256": identities,
                         }

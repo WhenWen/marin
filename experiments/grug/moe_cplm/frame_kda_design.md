@@ -71,6 +71,7 @@ still require ordinary data-parallel gradient reductions.
 
 The source parent is Marin 73279f54be6785b7a4a1b89acfca30d820bf352c. The exact
 configuration is `train_belay.build_config`, based on `belay_recipe.json`, with
+branch dimensions frozen in `frame_kda.FRAME_CONFIG` and recorded in W&B, with
 variant `plus-frame-kda`, width 512 and steps 10676. KDA runs in layers 0, 1, 2,
 4 and MLA in layers 3, 5. The historical
 Plus d512 comparison is run 4434036161f49ae783d3, seed 0, 10676 updates, with
