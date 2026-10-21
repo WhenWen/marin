@@ -29,7 +29,7 @@ def local_read(hidden, segments, weights, gain, bias, *, heads, depth, rank, wid
     value = value * jax.lax.rsqrt(jnp.mean(value * value, -1, keepdims=True) + 1e-6)
     decay = jnp.exp(-jax.nn.softplus(project(wg, rank) - 4.0))
     beta = jax.nn.sigmoid(project(wb, 1)[..., 0])
-    actions = jax.nn.softmax(project(wa, 4) + bias, -1)
+    actions = jax.nn.softmax(project(wa, 4) + bias.reshape(heads, 4), -1)
     address = jax.nn.softmax(project(wd, depth), -1)
     starts = jnp.pad(segments[:, 1:] != segments[:, :-1], ((0, 0), (1, 0)), constant_values=True)
     keep = jnp.broadcast_to((~starts)[..., None], (batch, length, heads)).astype(jnp.float32)
@@ -56,7 +56,7 @@ class FrameKDAPlus(plus.BelayCPLMPlus):
             **{field.name: getattr(base, field.name) for field in dataclasses.fields(base)},
             frame_weights=weights,
             frame_gain=jax.sharding.reshard(jnp.zeros(d), P()),
-            frame_action_bias=jax.sharding.reshard(jnp.tile(jnp.array([0.0, 0.0, 1.0, 0.0]), (heads, 1)), P()),
+            frame_action_bias=jax.sharding.reshard(jnp.tile(jnp.array([0.0, 0.0, 1.0, 0.0]), heads), P()),
         )
 
     def copy_head(self, hidden, token_ids, labels, segments):
