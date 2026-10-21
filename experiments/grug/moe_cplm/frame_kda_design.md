@@ -71,7 +71,7 @@ still require ordinary data-parallel gradient reductions.
 
 The source parent is Marin 73279f54be6785b7a4a1b89acfca30d820bf352c. The exact
 configuration is `train_belay.build_config`, based on `belay_recipe.json`, with
-branch dimensions frozen in `frame_kda.FRAME_CONFIG` and recorded in W&B, with
+branch dimensions frozen in `frame_kda.FRAME_CONFIG` and recorded in W&B. Use
 variant `plus-frame-kda`, width 512 and steps 10676. KDA runs in layers 0, 1, 2,
 4 and MLA in layers 3, 5. The historical
 Plus d512 comparison is run 4434036161f49ae783d3, seed 0, 10676 updates, with
@@ -99,3 +99,34 @@ for its scalar objective and every input/state gradient; failure stops training.
 Independent branch-enumeration tests additionally cover hard pop restoration,
 packed-document isolation and streaming state continuation. Full-model decoding
 and generation caches are outside this experiment.
+
+## Device qualification, 2026-10-21
+
+The native experiment runs source `50baefeea7e5c5a1a47561aed80878a98077ca09`.
+Eight remote CPU tests passed. On TPU v4, the T=256 objective/input/state-adjoint
+comparison had maximum absolute error 2.3842e-6. Five drained forward/backward
+measurements at B1×T8192 gave median 44.851 ms (44.826–44.947 ms). XLA reported
+810741760 temporary bytes, about 773 MiB, for this standalone memory kernel.
+These timings include the benchmark objective and exclude projections, the
+backbone, optimizer and cross-device synchronization. They are not whole-model
+training overhead measurements.
+
+The full native model passed its zero-update finite-gradient check. Initial
+loss was 11.868136405944824, identical to the historical Plus first-batch loss.
+The new gain gradient norm was 4.91277e-5. The resolved optimizer configurations
+match exactly. The only backbone configuration difference is an explicitly false
+`qb_defer_update` field, preserving the old immediate-update path. Data differs
+only in the spelling of the local tokenizer path; the checked files match.
+This supports comparison under the recorded source changes; it does not imply
+bitwise equality of later mixed-precision training trajectories.
+
+The full seed-0 run is
+[tracked in W&B](https://wandb.ai/marin-community/auto-understanding-arch/runs/frame-kda-d512-s0-v1-85822ec3537e493db4e5bf2f91beb9a2).
+Iris job `/kaiyuew@stanford.edu/frame-kda-d512-s0-20261021-v1` uses four hosts
+and 16 physical TPU v4 chips, batch priority, the default preemption retries,
+and no imposed experiment wall-clock limit. Regional evidence is under
+`gs://marin-us-central2/kaiyuew/frame-local-kda-20261021/results/85822ec3537e493db4e5bf2f91beb9a2/`.
+The historical comparison is
+[Plus seed 0](https://wandb.ai/marin-community/auto-understanding-arch/runs/plus-d512-s0-v1-1e589eb42c014e2497196c73e553b6c0).
+These qualification checks establish implementation compatibility. Training
+progress and validation quality require the run's measured losses.
