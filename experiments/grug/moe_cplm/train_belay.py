@@ -40,6 +40,7 @@ from experiments.grug.fast_track.router_lookup import unrolled_router_logits
 from experiments.grug.moe import kda
 from experiments.grug.moe.kda_state_tpu import state_pass
 from experiments.grug.moe_cplm.belay import CopyPasteBelay
+from experiments.grug.moe_cplm.original_orca import BelayOrcaConfig
 
 RECIPE = Path(__file__).with_name("belay_recipe.json")
 DATA = Path(__file__).with_name("july_data.json")
@@ -103,6 +104,7 @@ def build_config(
     orca_strength: float = 0.0,
     orca_active_fraction: float = 0.25,
     stiefel_active_fraction: float = 0.0,
+    original_orca_lr: float | None = None,
 ) -> train.GrugRunConfig:
     """Freeze the optimizer batch and schedule; calibration stops after 400 updates."""
     source = json.loads(RECIPE.read_text())
@@ -206,14 +208,24 @@ def build_config(
         block_cross_document_attention=True,
         mixture_block_size=data_values["mixture_block_size"],
     )
+    optimizer_config = replace(
+        draccus.decode(OptimizerConfig, optimizer),
+        orca_strength=orca_strength,
+        orca_active_fraction=orca_active_fraction,
+        stiefel_active_fraction=stiefel_active_fraction,
+    )
+    if original_orca_lr is not None:
+        if original_orca_lr <= 0 or orca_strength or stiefel_active_fraction:
+            raise ValueError("Original ORCA requires a positive LR and cannot combine with MuonH interventions")
+        optimizer_config = BelayOrcaConfig(
+            grouping=optimizer_config,
+            learning_rate=original_orca_lr,
+            adam_lr=optimizer_config.adam_lr,
+            head_dim=model_config.inferred_head_dim,
+        )
     return train.GrugRunConfig(
         model=model_config,
-        optimizer=replace(
-            draccus.decode(OptimizerConfig, optimizer),
-            orca_strength=orca_strength,
-            orca_active_fraction=orca_active_fraction,
-            stiefel_active_fraction=stiefel_active_fraction,
-        ),
+        optimizer=optimizer_config,
         data=data,
         trainer=trainer_config,
         resources=ResourceConfig.with_tpu("v4-32"),
@@ -267,6 +279,7 @@ def main(argv=None):
     parser.add_argument("--orca-strength", type=float, default=0.0)
     parser.add_argument("--orca-active-fraction", type=float, default=0.25)
     parser.add_argument("--stiefel-active-fraction", type=float, default=0.0)
+    parser.add_argument("--original-orca-lr", type=float)
     parser.add_argument("--retain-allocation", action="store_true")
     args = parser.parse_args(argv)
     run_name = args.run_name
@@ -320,6 +333,7 @@ def main(argv=None):
         orca_strength=args.orca_strength,
         orca_active_fraction=args.orca_active_fraction,
         stiefel_active_fraction=args.stiefel_active_fraction,
+        original_orca_lr=args.original_orca_lr,
     )
     config.trainer.trainer.distributed = replace(config.trainer.trainer.distributed, initialize_jax_distributed=False)
     handlers = []
@@ -451,8 +465,28 @@ def main(argv=None):
                 preflight.clear_cache()
             if completed in {0, 1, 100, release_step - 1, release_step, release_step + 1, 3000}:
                 log_spectrum(leaves, treedef, completed)
+            sampled = args.original_orca_lr is not None and (completed < 2 or completed % 100 == 99)
+            before = {}
+            if sampled and jax.process_index() == 0:
+                state = jax.tree.unflatten(treedef, leaves)
+                before = {
+                    name: np.array(jax.device_get(getattr(state.params, name)), copy=True)
+                    for name in ("cp_query", "cp_key")
+                }
             result = native(leaves, batch, **kwargs)
             completed += 1
+            if before:
+                state = jax.tree.unflatten(treedef, result[0])
+                metrics = {"global_step": completed}
+                for name, old in before.items():
+                    new = np.asarray(jax.device_get(getattr(state.params, name)))
+                    prefix = "orca/" + name
+                    metrics[prefix + "/weight_rms"] = float(np.sqrt(np.mean(new**2)))
+                    metrics[prefix + "/relative_update"] = float(
+                        np.linalg.norm(new - old) / max(np.linalg.norm(old), 1e-30)
+                    )
+                wandb.log(metrics, step=completed, commit=False)
+                logging.getLogger("levanter.json_logger").info(json.dumps(metrics))
             if args.calibration and completed in (100, 400):
                 jax.block_until_ready(result)
                 sync_global_devices(f"belay-window-{completed}")

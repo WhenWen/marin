@@ -33,6 +33,35 @@ JAX_PLATFORMS=cpu XLA_FLAGS=--xla_force_host_platform_device_count=4 \
   uv run pytest -n 0 experiments/grug/fast_track/test_orca.py
 ```
 
+## Original ORCA with a matrix learning-rate sweep
+
+`--original-orca-lr 0.008` selects standard Muon with ORCA shaping and
+ordinary AdamW for the fallback groups, including the output head. This is a
+separate optimizer from the MuonH intervention above. The model remains
+Belay with the basic CPLM head.
+
+The matrix update uses Nesterov momentum 0.95, eight Polar Express iterations,
+and per-matrix direction RMS 0.2 before multiplying by LR, following the
+[ORCA paper's LR sweep](https://arxiv.org/abs/2610.06116). Attention
+Q/K projections are split by head; other matrices, including each expert weight matrix and
+copy Q/K, are processed independently without splitting. With scheduled LR η,
+each update computes `Wa = (1 - 0.1η) W`, then
+`Wnew = Wa - ηγ (Wa Waᵀ Wa - Wa) - η U`, where U is the Muon direction.
+The shaping coefficient γ is 1 for zero-indexed updates 0–2744 and zero
+thereafter for all Muon matrices. Momentum continues when shaping stops.
+
+The sweep uses matrix peak LRs 0.004, 0.008 and 0.016, seed 0 and 10,980 steps.
+Muon and AdamW LR schedules use 1,000-step linear warmup, a plateau, and linear decay
+over the final 15% to 10% of peak. Adam's base peak LR stays 0.0024965274;
+Belay's fallback LR multipliers and Adam moment coefficients remain fixed.
+Fallback weight decay is 0.1 on matrices except norm weights and AttnRes
+query vectors. Initialization and data order match the baseline.
+
+Compare validation NLL after release and at the final step. The copy-Q/K
+weight RMS and one-step relative displacement `||Wnew-W||F / ||W||F` are
+logged for both copy matrices every 100 updates.
+Use separate W&B and artifact identities, plus `--retain-allocation` for each run.
+
 ## Early Manifold Muon experiment
 
 `--stiefel-active-fraction 0.25` runs [Skewon](https://arxiv.org/abs/2608.06218)
