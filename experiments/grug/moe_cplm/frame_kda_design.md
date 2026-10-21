@@ -140,3 +140,35 @@ The historical comparison is
 [Plus seed 0](https://wandb.ai/marin-community/auto-understanding-arch/runs/plus-d512-s0-v1-1e589eb42c014e2497196c73e553b6c0).
 These qualification checks establish implementation compatibility. Training
 progress and validation quality require the run's measured losses.
+
+## Early training snapshot: steps 0–224
+
+The native run has performed optimizer updates on TPU. At logged step 224,
+training NLL is 4.61545 nats/token versus 4.65907 for historical Plus at the
+same step. The unsmoothed mean over steps 125–224 is 5.00040 versus 5.06197.
+This single-seed early training comparison is not validation-quality evidence.
+The candidate has not reached its first scheduled validation at this snapshot.
+
+Over the matched interval 100–224, median native training throughput is
+364740 tokens/s versus 415415 tokens/s for Plus, a 12.2% throughput reduction.
+This early window exceeds the 10% sustained-throughput reduction target in the
+[dated pre-training prediction](https://github.com/WhenWen/astra-d8-research/issues/59#issuecomment-6311975558);
+a later steady-state window is still needed to judge that target.
+The field is `throughput/tokens_per_second`, based on the native step duration
+from dispatch or previous step completion to the loss becoming host-readable.
+It waits for the loss but does not add separate data-loading, logging,
+checkpoint or evaluation durations. Pipelined host work may overlap device
+execution, so this is not whole-run wall-clock throughput.
+The hardware class and global token batch match; these historical runs
+are not a simultaneous controlled timing experiment. No MoE assignments were
+dropped in the candidate observations. The full 10676-step run remains active;
+this snapshot neither ends its schedule nor establishes a quality improvement.
+
+The [evidence bundle](https://console.cloud.google.com/storage/browser/marin-us-central2/kaiyuew/frame-local-kda-20261021/analysis/step-224)
+contains the frozen run manifest, numerical checks, filtered candidate metrics,
+progress summary, and unsmoothed `train-prefix` and `train-full` curves in PNG,
+PDF and SVG. Each curve includes its exact plotted-data CSV and summary JSON.
+`train-prefix` compares steps 0–224; `train-full` retains all available baseline
+steps and the candidate's partial curve. The reproducible renderer is
+[plot_frame_kda.py](plot_frame_kda.py). Raw native metrics remain in the regional
+run directory above and in the historical run's artifact directory.
