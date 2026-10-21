@@ -28,10 +28,17 @@ def main():
     parser.add_argument("--until", type=int)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    mpl.rcParams.update({
-        "font.family": "DejaVu Sans", "font.size": 12, "axes.labelsize": 14,
-        "axes.linewidth": 1.2, "legend.fontsize": 11, "pdf.fonttype": 42, "svg.fonttype": "none",
-    })
+    mpl.rcParams.update(
+        {
+            "font.family": "DejaVu Sans",
+            "font.size": 12,
+            "axes.labelsize": 14,
+            "axes.linewidth": 1.2,
+            "legend.fontsize": 11,
+            "pdf.fonttype": 42,
+            "svg.fonttype": "none",
+        }
+    )
     fig, ax = plt.subplots(figsize=(8.2, 3.7))
     ax.set_axisbelow(True)
     ax.grid(color="#B0B0B0", linestyle="--", linewidth=0.85, alpha=0.65)
