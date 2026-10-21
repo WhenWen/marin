@@ -4,6 +4,7 @@
 """Plot unsmoothed native metrics, preserving each configuration and seed."""
 
 import argparse
+import csv
 import json
 from pathlib import Path
 
@@ -44,6 +45,7 @@ def main():
     ax.grid(color="#B0B0B0", linestyle="--", linewidth=0.85, alpha=0.65)
     colors = ["#5F6368", "#1F77B4"]
     summary = {}
+    table = []
     for index, item in enumerate(args.run):
         label, path = item.split("=", 1)
         points = observations(Path(path), args.metric, args.until)
@@ -52,6 +54,7 @@ def main():
         x, y = zip(*points, strict=True)
         ax.plot(x, y, color=colors[index % len(colors)], linewidth=1.5, label=label)
         summary[label] = {"metric": args.metric, "points": len(points), "first": points[0], "last": points[-1]}
+        table.extend((label, step, value) for step, value in points)
     ax.set_xlabel("Optimizer step")
     ax.set_ylabel("Training NLL (nats/token)" if args.metric == "train/loss" else args.metric)
     ax.legend(framealpha=0.95)
@@ -60,6 +63,10 @@ def main():
     for extension in ("png", "pdf", "svg"):
         fig.savefig(args.output.with_suffix("." + extension), dpi=220, bbox_inches="tight")
     args.output.with_suffix(".json").write_text(json.dumps(summary, indent=2) + "\n")
+    with args.output.with_suffix(".csv").open("w", newline="") as stream:
+        writer = csv.writer(stream)
+        writer.writerow(("configuration_and_seed", "optimizer_step", args.metric))
+        writer.writerows(table)
     plt.close(fig)
 
 
