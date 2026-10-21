@@ -187,15 +187,16 @@ snapshot does not show a quality gain. Lower NLL is better:
 
 Eight of the 23 domain losses are lower; these correlated domain comparisons
 are descriptive, not independent trials or a significance test. Training NLL
-at this step is 3.734013 versus 3.733811. Over steps 100–999, the native
-throughput medians are 364730 and 415390 tokens/s respectively, a 12.2%
-reduction across 900 observations per run. No candidate MoE assignments were
-dropped. The complete 10676-step experiment and its final comparison remain
+at this step is 3.734013 for Frame KDA + Plus versus 3.733811 for historical
+Plus. Over steps 100–999, native throughput medians are 364730 tokens/s for
+Frame KDA + Plus and 415390 tokens/s for historical Plus, a 12.2% reduction
+across 900 observations per run. No candidate MoE assignments were dropped
+in this snapshot's observations. The complete 10676-step experiment and its final comparison remain
 pending; this early checkpoint does not settle the quality hypothesis.
 
-The [step-999 evidence bundle](https://console.cloud.google.com/storage/browser/marin-us-central2/kaiyuew/frame-local-kda-20261021/analysis/step-999)
+The [step-999 evidence bundle](https://console.cloud.google.com/storage/browser/marin-us-central2/kaiyuew/frame-local-kda-20261021/analysis/step-999-v2)
 contains all domain losses, matched timing statistics, raw filtered metrics,
 and training, Paloma and Uncheatable curves. Each curve has both a matched
 prefix and a full available-range view, PNG/PDF/SVG exports and exact CSVs.
 Sparse validation observations are shown as points, including this first one.
-The plot source is `79002deb1`; the training source remains `50baefeea`.
+The plot source is `9643b975c`; the training source remains `50baefeea`.
