@@ -208,6 +208,9 @@ after the current LM run finishes. The mathematical recurrence and parameters
 stay fixed. Compare chunk sizes 64, 16, 32 and 128 on TPU v4 at B1×T8192, with
 five drained forward/backward samples per size. Smaller chunks reduce local
 scan depth but increase boundary-composition work; a speedup is a hypothesis.
+The inputs are seeded random controls at the native shard shape, with a
+nonzero initial state and a midpoint document reset. They are not controls
+captured from an LM training batch.
 Each schedule must pass the same T=256 serial objective/all-adjoint check
 (atol 1e-5, rtol 1e-4), use byte-identical native inputs, and produce finite
 native-length objective/gradients. Record compilation time separately, raw
