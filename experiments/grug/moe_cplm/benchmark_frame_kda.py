@@ -32,13 +32,20 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--artifact-root", required=True)
     args = parser.parse_args()
+    source = Path(__file__).parent
+    jax_settings = json.loads((source / "belay_recipe.json").read_text())["trainer"]["trainer"]["jax_config"]
+    jax_settings["jax_enable_pgle"] = False
+    for name, value in jax_settings.items():
+        jax.config.update(name, value)
+    precision_flag = "--xla_allow_excess_precision=false"
+    if precision_flag not in os.environ.get("XLA_FLAGS", "").split():
+        os.environ["XLA_FLAGS"] = os.environ.get("XLA_FLAGS", "") + " " + precision_flag
     if any(device.device_kind != "TPU v4" for device in jax.local_devices()):
         raise ValueError("Performance qualification requires TPU v4")
     attempt = uuid.uuid4().hex
     output = args.output / attempt
     artifact_root = args.artifact_root.rstrip("/") + "/" + attempt
     output.mkdir(parents=True, exist_ok=False)
-    source = Path(__file__).parent
     manifest = {
         "training_updates": 0,
         "execution_id": attempt,
@@ -47,12 +54,13 @@ def main():
         "motivating_task": "scoped_binding@1 (#58), not evaluated",
         "jax": jax.__version__,
         "jaxlib": jaxlib.__version__,
+        "jax_settings": jax_settings,
         "xla_flags": os.environ.get("XLA_FLAGS", ""),
         "length": args.length,
         "chunks": args.chunks,
         "source_sha256": {
             name: hashlib.sha256((source / name).read_bytes()).hexdigest()
-            for name in ("frame_kda.py", "frame_kda_validation.py", "benchmark_frame_kda.py")
+            for name in ("frame_kda.py", "frame_kda_validation.py", "benchmark_frame_kda.py", "belay_recipe.json")
         },
     }
     write_record(output, artifact_root, "manifest.json", manifest)
