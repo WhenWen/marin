@@ -753,6 +753,12 @@ class GrugModelConfig:
 
     vocab_size: int = 16384
     hidden_dim: int = 512
+    frame_kda_heads: int = 4
+    frame_kda_depth: int = 8
+    frame_kda_rank: int = 4
+    frame_kda_width: int = 64
+    frame_kda_chunk: int = 64
+    """Protected-frame memory dimensions, used only by the plus-frame-kda variant."""
     intermediate_dim: int = 256
     shared_expert_intermediate_dim: int = 256
     num_shared_experts: int = 2
