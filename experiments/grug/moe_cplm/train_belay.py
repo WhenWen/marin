@@ -462,7 +462,7 @@ def main(argv=None):
     head_check = validate_head("plus" if plus_variant else args.variant, args.width)
     persist("head-preflight.json", head_check)
     if args.variant == "plus-frame-kda":
-        frame_check = validate_frame_kda(config.model)
+        frame_check = validate_frame_kda(config.model.max_seq_len)
         persist("frame-kda-preflight.json", frame_check)
     if args.batch_size in (32, 64, 128):
         histogram_check = validate_histogram(args.batch_size * 8192 // args.tpu_chips)

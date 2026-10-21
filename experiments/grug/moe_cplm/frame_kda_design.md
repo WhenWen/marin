@@ -200,3 +200,20 @@ and training, Paloma and Uncheatable curves. Each curve has both a matched
 prefix and a full available-range view, PNG/PDF/SVG exports and exact CSVs.
 Sparse validation observations are shown as points, including this first one.
 The plot source is `9643b975c`; the training source remains `50baefeea`.
+
+## Planned schedule benchmark
+
+The observed throughput reduction motivates a zero-update schedule comparison
+after the current LM run finishes. The mathematical recurrence and parameters
+stay fixed. Compare chunk sizes 64, 16, 32 and 128 on TPU v4 at B1×T8192, with
+five drained forward/backward samples per size. Smaller chunks reduce local
+scan depth but increase boundary-composition work; a speedup is a hypothesis.
+Each schedule must pass the same T=256 serial objective/all-adjoint check
+(atol 1e-5, rtol 1e-4), use byte-identical native inputs, and produce finite
+native-length objective/gradients. Record compilation time separately, raw
+timings, temporary memory, software versions and source/input hashes through
+`benchmark_frame_kda.py`. This is a prepared protocol, not a measured result.
+An isolated kernel speedup would still require a native end-to-end timing
+check before claiming the 10% throughput target. The running LM trial retains
+chunk size 64 and source `50baefeea`; later scheduling changes cannot be
+attributed to its training trajectory.
