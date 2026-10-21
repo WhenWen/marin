@@ -102,6 +102,7 @@ def build_config(
     tokenizer_path: str,
     orca_strength: float = 0.0,
     orca_active_fraction: float = 0.25,
+    stiefel_active_fraction: float = 0.0,
 ) -> train.GrugRunConfig:
     """Freeze the optimizer batch and schedule; calibration stops after 400 updates."""
     source = json.loads(RECIPE.read_text())
@@ -211,6 +212,7 @@ def build_config(
             draccus.decode(OptimizerConfig, optimizer),
             orca_strength=orca_strength,
             orca_active_fraction=orca_active_fraction,
+            stiefel_active_fraction=stiefel_active_fraction,
         ),
         data=data,
         trainer=trainer_config,
@@ -264,6 +266,8 @@ def main(argv=None):
     parser.add_argument("--logging-check", action="store_true")
     parser.add_argument("--orca-strength", type=float, default=0.0)
     parser.add_argument("--orca-active-fraction", type=float, default=0.25)
+    parser.add_argument("--stiefel-active-fraction", type=float, default=0.0)
+    parser.add_argument("--retain-allocation", action="store_true")
     args = parser.parse_args(argv)
     run_name = args.run_name
     args.output.mkdir(parents=True, exist_ok=True)
@@ -315,6 +319,7 @@ def main(argv=None):
         tokenizer_path=args.tokenizer,
         orca_strength=args.orca_strength,
         orca_active_fraction=args.orca_active_fraction,
+        stiefel_active_fraction=args.stiefel_active_fraction,
     )
     config.trainer.trainer.distributed = replace(config.trainer.trainer.distributed, initialize_jax_distributed=False)
     handlers = []
@@ -356,6 +361,39 @@ def main(argv=None):
 
         kwargs["loss_fn"] = evaluate
         return evaluator(**kwargs)
+
+    native_initial = train.initial_state
+
+    def initial_state(*initial_args, **initial_kwargs):
+        state = native_initial(*initial_args, **initial_kwargs)
+        if args.stiefel_active_fraction:
+            params = config.optimizer.initialize_stiefel_weights(state.params)
+            state = replace(
+                state,
+                params=params,
+                opt_state=initial_kwargs["optimizer"].init(params),
+                ema_params=params if state.ema_params is not None else None,
+            )
+        return state
+
+    release_step = int(args.stiefel_active_fraction * config.trainer.trainer.num_train_steps)
+
+    def log_spectrum(leaves, treedef, step):
+        # These two replicated matrices can be inspected without gathering expert banks.
+        if not args.stiefel_active_fraction or jax.process_index() != 0:
+            return
+        state = jax.tree.unflatten(treedef, leaves)
+        metrics = {"global_step": step, "stiefel/active": int(step < release_step)}
+        for name in ("cp_query", "cp_key"):
+            singular = np.linalg.svd(np.asarray(jax.device_get(getattr(state.params, name))), compute_uv=False)
+            probs = singular / max(float(singular.sum()), 1e-30)
+            prefix = "stiefel/" + name
+            metrics[prefix + "/effective_rank"] = float(np.exp(-np.sum(probs * np.log(np.maximum(probs, 1e-30)))))
+            metrics[prefix + "/stable_rank"] = float(np.sum(singular**2) / max(float(singular.max() ** 2), 1e-30))
+            metrics[prefix + "/frobenius_norm"] = float(np.linalg.norm(singular))
+            metrics[prefix + "/singular_ratio"] = float(singular.min() / max(float(singular.max()), 1e-30))
+        wandb.log(metrics, step=step, commit=False)
+        logging.getLogger("levanter.json_logger").info(json.dumps(metrics))
 
     native_flat = train._flat_train_step
 
@@ -411,6 +449,8 @@ def main(argv=None):
                         )
                     )
                 preflight.clear_cache()
+            if completed in {0, 1, 100, release_step - 1, release_step, release_step + 1, 3000}:
+                log_spectrum(leaves, treedef, completed)
             result = native(leaves, batch, **kwargs)
             completed += 1
             if args.calibration and completed in (100, 400):
@@ -438,19 +478,39 @@ def main(argv=None):
         run.lower = native.lower
         return run
 
+    outcome = "failed"
     try:
         with (
             execution(),
             patch.object(train, "TaggedEvaluator", bounded_evaluator),
+            patch.object(train, "initial_state", initial_state),
             patch.object(train, "_flat_train_step", flat_step),
         ):
             train._run_grug_local(config)
+        outcome = "completed"
     finally:
-        for handler in handlers:
-            handler.upload()
-        if jax.process_index() == 0:
-            for path in args.output.glob("*.json"):
-                StoragePath(artifact_root + "/" + path.name).write_bytes(path.read_bytes())
+        try:
+            for handler in handlers:
+                handler.upload()
+            if jax.process_index() == 0:
+                for path in args.output.glob("*.json"):
+                    StoragePath(artifact_root + "/" + path.name).write_bytes(path.read_bytes())
+        finally:
+            if args.retain_allocation:
+                if outcome == "failed":
+                    logging.exception("Belay training failed; retaining allocation")
+                try:
+                    if wandb.run is not None:
+                        wandb.finish(exit_code=0 if outcome == "completed" else 1)
+                    status = {"training_status": outcome, "allocation_status": "idle", "process_group_id": attempt}
+                    (args.output / "allocation-status.json").write_text(json.dumps(status))
+                    StoragePath(artifact_root + f"/allocation-status-{jax.process_index()}.json").write_text(
+                        json.dumps(status)
+                    )
+                finally:
+                    logging.warning("BELAY_ALLOCATION_IDLE training_status=%s; awaiting explicit release", outcome)
+                    while True:
+                        time.sleep(60)
 
 
 if __name__ == "__main__":

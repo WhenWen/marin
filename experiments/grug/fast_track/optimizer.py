@@ -21,7 +21,7 @@ from experiments.grug.fast_track.expert_write_mask import expert_write_mask
 from experiments.grug.fast_track.grugmuon_stacked import _grug_scale_with_muon, _target_named_sharding
 from experiments.grug.fast_track.okls import OKLS_MATMUL_DTYPES, scale_with_grug_okls
 from experiments.grug.fast_track.orca import add_early_orthogonal_correction
-from experiments.grug.fast_track.stiefel import scale_with_stiefel_muon
+from experiments.grug.fast_track.stiefel import scale_with_stiefel_muon, semiorthogonal_init, stiefel_step
 
 
 def _match_named_update_sharding() -> optax.GradientTransformation:
@@ -971,6 +971,7 @@ def scale_with_grug_muonh(
     step_mode: "MuonHStep" = MuonHStep.RELATIVE,
     spectral_scale: float = 1.0,
     step_ref_steps: int = 100,
+    stiefel_release_step: int = 0,
 ) -> optax.GradientTransformation:
     """MuonH transform for the stacked model: Newton-Schulz direction + Frobenius hyperball step.
 
@@ -998,7 +999,23 @@ def scale_with_grug_muonh(
     if retraction not in MUONH_RETRACTIONS:
         raise ValueError(f"retraction must be one of {MUONH_RETRACTIONS}, got {retraction!r}")
     spectral = retraction == "spectral"
-    external_momentum = momentum_schedule is not None or bimaxwell_switch_step is not None or magma_keep_prob is not None
+    external_momentum = (
+        momentum_schedule is not None
+        or bimaxwell_switch_step is not None
+        or magma_keep_prob is not None
+        or stiefel_release_step > 0
+    )
+    if stiefel_release_step and (
+        spectral
+        or neuron_norm_beta2 is not None
+        or magma_keep_prob is not None
+        or direction_mask is not None
+        or log_hyperball_decay
+        or step_mode != MuonHStep.RELATIVE
+        or cautious_wd
+        or precond_beta2 is not None
+    ):
+        raise ValueError("Early Skewon requires plain Frobenius MuonH without optional direction/retraction modifiers")
     if log_hyperball_decay and (spectral or not external_momentum):
         raise ValueError("log_hyperball_decay needs the Frobenius retraction and the external momentum stage")
     step_mode = MuonHStep(step_mode)
@@ -1105,6 +1122,21 @@ def scale_with_grug_muonh(
             muonh_updates, sphere = retract(params, directions, None, sphere)
             return muonh_updates, (core_state, sphere) if spectral else core_state
         mixed, momentum_state = momentum_stage.update(updates, state.momentum, params)
+        if stiefel_release_step:
+
+            def manifold(_):
+                delta = jax.tree.map(lambda p, m: stiefel_step(p, m, learning_rate), params, mixed)
+                return delta, state.core
+
+            def hyperball(_):
+                directions, core_state = core_direction(mixed, state.core, params)
+                delta, _ = retract(params, directions, None, None)
+                return delta, core_state
+
+            delta, core_state = jax.lax.cond(
+                state.momentum.count < stiefel_release_step, manifold, hyperball, operand=None
+            )
+            return delta, state._replace(momentum=momentum_state, core=core_state)
         directions, core_state = core_direction(mixed, state.core, params)
         directions = masked(directions, params)
         lr_mults, magma_state = None, None
@@ -1579,6 +1611,8 @@ class GrugMoeMuonHConfig(OptimizerConfig):
     orca_strength: float = 0.0
     """Pre-update orthogonality correction added outside MuonH's retraction."""
     orca_active_fraction: float = 0.25
+    stiefel_active_fraction: float = 0.0
+    """Early Skewon on semi-orthogonal weights, followed by MuonH with continuous momentum."""
     max_grad_norm: float | None = None
     coefficient_type: CoefficientType = "quintic"
     gate_router_weight_decay: float = 0.02
@@ -1916,6 +1950,7 @@ class GrugMoeMuonHConfig(OptimizerConfig):
                         step_mode=MuonHStep(self.muonh_step),
                         spectral_scale=self.muonh_spectral_scale,
                         step_ref_steps=self.muonh_step_ref_steps,
+                        stiefel_release_step=int(self.stiefel_active_fraction * num_train_steps),
                     )
                 )
                 if self.orca_strength:
@@ -2228,6 +2263,10 @@ class GrugMoeMuonHConfig(OptimizerConfig):
         return inner
 
     def __post_init__(self):
+        if not 0 <= self.stiefel_active_fraction <= 1:
+            raise ValueError("stiefel_active_fraction must be in [0, 1]")
+        if self.stiefel_active_fraction and self.orca_strength:
+            raise ValueError("Early Skewon and ORCA are separate ablations")
         if self.orca_strength < 0 or not 0 <= self.orca_active_fraction <= 1:
             raise ValueError("ORCA requires nonnegative strength and an active fraction in [0, 1]")
         if self.muon_truncate_family is not None and self.muon_truncate_family not in _TRUNCATE_FAMILIES:
@@ -2263,6 +2302,15 @@ class GrugMoeMuonHConfig(OptimizerConfig):
             raise ValueError("router_weight_decay applies to the Adam router; MuonH keeps the router norm fixed")
         if self.muonh_retraction not in MUONH_RETRACTIONS:
             raise ValueError(f"muonh_retraction must be one of {MUONH_RETRACTIONS}, got {self.muonh_retraction!r}")
+
+    def initialize_stiefel_weights(self, params):
+        """Initialize exactly the groups using early Skewon; preserve each matrix norm."""
+        labels = self.create_mask(params)
+        return jax.tree.map(
+            lambda p, label: semiorthogonal_init(p) if label in _MUONH_GROUPS | {"muonh_trunc"} else p,
+            params,
+            labels,
+        )
 
     def create_mask(self, params):
         paths = leaf_key_paths(params)

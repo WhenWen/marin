@@ -33,6 +33,35 @@ JAX_PLATFORMS=cpu XLA_FLAGS=--xla_force_host_platform_device_count=4 \
   uv run pytest -n 0 experiments/grug/fast_track/test_orca.py
 ```
 
+## Early Manifold Muon experiment
+
+`--stiefel-active-fraction 0.25` runs [Skewon](https://arxiv.org/abs/2608.06218)
+for updates 0–2744, then releases the weights to ordinary MuonH for updates
+2745–10979. Every MuonH matrix, including each expert, starts with equal singular
+values from a QR initialization that preserves its original Frobenius norm.
+Skewon maintains that scale and equal singular values during the active phase,
+up to numerical error. Adam and AdamH groups keep their original initialization
+and updates. ORCA is
+disabled for this separate ablation.
+
+Skewon uses five quintic Newton–Schulz iterations, explicit skew-symmetrization,
+and four cubic polar-retraction iterations. Matrices with at least twice as many rows
+as columns use the paper's reduced QR formulation; wide matrices are transposed.
+Before retraction, the tangent-step Frobenius norm equals the learning rate
+times the weight Frobenius norm. Momentum,
+the Bi-Maxwell schedule, and the learning-rate schedule continue across release.
+The hard constraint therefore changes both initialization and early updates;
+this comparison does not isolate those two effects.
+
+The copy-query and copy-key matrices have sampled entropy effective-rank
+(exponentiated entropy of normalized singular values), stable-rank, Frobenius-norm,
+and minimum/maximum singular-value-ratio logs at initialization, early steps, and around release.
+These samples check the constraint but do not summarize every model matrix.
+Use the existing seed-0, 10,980-step recipe and separate W&B/checkpoint paths.
+`--retain-allocation` leaves each TPU host idle after training completes or fails;
+the logs and allocation-status artifacts distinguish that holder from training.
+Scheduler preemption and retries retain their defaults.
+
 ## Baseline
 
 This variant adds the [Copy-Paste Language Model](https://arxiv.org/abs/2610.19247v1)

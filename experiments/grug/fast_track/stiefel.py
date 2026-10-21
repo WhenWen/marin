@@ -13,6 +13,7 @@ values equal ``c``, which is fixed at init. Per step, with Nesterov momentum ``M
   uses cubic Newton-Schulz, which converges in a few iterations because the step leaves ``Xn`` nearly orthogonal.
 """
 
+import math
 from typing import NamedTuple
 
 import jax
@@ -21,6 +22,8 @@ import optax
 from jax.sharding import PartitionSpec as P
 from jax.sharding import reshard
 from levanter.optim.util import NEWTON_SCHULZ_COEFFICIENTS
+
+from experiments.grug.fast_track.grugmuon_stacked import _intra_rack_axes, _target_named_sharding
 
 MSIGN_STEPS = 5
 RETRACTION_ITERS = 4
@@ -49,27 +52,83 @@ def polar_retract(z: jax.Array, iters: int = RETRACTION_ITERS) -> jax.Array:
     return z
 
 
-def stiefel_step(x: jax.Array, direction: jax.Array, learning_rate) -> jax.Array:
-    """The update (new minus old) that moves ``x`` one Skewon step against ``direction`` on its scaled Stiefel
-    manifold. Leading axes are independent matrices (the layer stack)."""
-    spec = jax.typeof(x).sharding.spec
-    replicated = P(*(None,) * x.ndim)
-    x32 = reshard(x.astype(jnp.float32), replicated)
-    m32 = reshard(direction.astype(jnp.float32), replicated)
+def _whole_matrices(fn, *values):
+    """Run a local matrix operation with whole matrices and sharded expert banks."""
+    weight = values[0]
+    mesh = jax.sharding.get_abstract_mesh()
+    target = _target_named_sharding(weight)
+    if mesh.empty or target is None or target.mesh.empty:
+        return fn(*values)
+    axes = tuple(name for name, _ in _intra_rack_axes(mesh))
+    shards = math.prod(mesh.shape[name] for name in axes)
+    if weight.ndim == 4 and axes and weight.shape[1] % shards == 0:
+        whole = P(None, axes, None, None)
+    else:
+        whole = P(*tuple(target.spec)[: weight.ndim - 2], None, None)
+    values = tuple(reshard(value, whole) for value in values)
+    result = jax.shard_map(fn, mesh=mesh, in_specs=(whole,) * len(values), out_specs=whole, check_vma=False)(*values)
+    return reshard(result, target)
+
+
+def _semiorthogonal_init(weight):
+    """QR initialization with the original Frobenius norm for each matrix."""
+    value = weight.astype(jnp.float32)
+    wide = value.shape[-2] < value.shape[-1]
+    if wide:
+        value = jnp.swapaxes(value, -1, -2)
+    q, r = jnp.linalg.qr(value, mode="reduced")
+    signs = jnp.where(jnp.diagonal(r, axis1=-2, axis2=-1) < 0, -1.0, 1.0)
+    scale = jnp.sqrt(jnp.sum(value**2, axis=(-2, -1), keepdims=True) / value.shape[-1])
+    value = q * signs[..., None, :] * scale
+    if wide:
+        value = jnp.swapaxes(value, -1, -2)
+    return value.astype(weight.dtype)
+
+
+def semiorthogonal_init(weight):
+    return _whole_matrices(_semiorthogonal_init, weight)
+
+
+def _skew(value):
+    return 0.5 * (value - jnp.swapaxes(value, -1, -2))
+
+
+def skewon_tangent(xn, momentum, *, reduced=True):
+    """Algorithms 1/2 of arXiv:2608.06218, including the final skew projection."""
+    n, p = xn.shape[-2:]
+    if reduced and 2 * p <= n:
+        # [-X, M] = QR; R J R^T / 2 is only [2p, 2p].
+        q, r = jnp.linalg.qr(jnp.concatenate((-xn, momentum), axis=-1), mode="reduced")
+        a, b = r[..., :p], r[..., p:]
+        small = _skew(a @ jnp.swapaxes(b, -1, -2))
+        y = -_skew(_msign(small))
+        return q @ (y @ (jnp.swapaxes(q, -1, -2) @ xn))
+    nmat = _skew(momentum @ jnp.swapaxes(xn, -1, -2))
+    return -_skew(_msign(nmat)) @ xn
+
+
+def _stiefel_step(x, direction, learning_rate):
+    x32, m32 = x.astype(jnp.float32), direction.astype(jnp.float32)
     wide = x.shape[-2] < x.shape[-1]
     if wide:
         x32, m32 = jnp.swapaxes(x32, -1, -2), jnp.swapaxes(m32, -1, -2)
     p = x32.shape[-1]
     scale = jnp.sqrt(jnp.sum(jnp.square(x32), axis=(-2, -1), keepdims=True) / p)
-    xn = x32 / scale
-    mx = m32 @ jnp.swapaxes(xn, -1, -2)
-    tangent = -_msign(0.5 * (mx - jnp.swapaxes(mx, -1, -2))) @ xn
+    xn = x32 / jnp.maximum(scale, 1e-12)
+    tangent = skewon_tangent(xn, m32)
     tangent_norm = jnp.sqrt(jnp.sum(jnp.square(tangent), axis=(-2, -1), keepdims=True))
     eta = learning_rate * jnp.sqrt(float(p)) / jnp.maximum(tangent_norm, 1e-12)
     delta = scale * polar_retract(xn + eta * tangent) - x32
     if wide:
         delta = jnp.swapaxes(delta, -1, -2)
-    return reshard(delta.astype(x.dtype), spec)
+    return delta.astype(x.dtype)
+
+
+@jax.jit
+def stiefel_step(x: jax.Array, direction: jax.Array, learning_rate) -> jax.Array:
+    """Scaled Skewon update, independently per matrix, restoring parameter sharding."""
+    with jax.default_matmul_precision("highest"):
+        return _whole_matrices(lambda w, m: _stiefel_step(w, m, learning_rate), x, direction)
 
 
 def scale_with_stiefel_muon(*, momentum: float, nesterov: bool, learning_rate) -> optax.GradientTransformation:
