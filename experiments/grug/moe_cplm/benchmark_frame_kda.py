@@ -8,12 +8,21 @@ import hashlib
 import json
 import os
 import statistics
+import uuid
 from pathlib import Path
 
 import jax
 import jaxlib
+import numpy as np
+from rigging.filesystem.storage_path import StoragePath
 
 from experiments.grug.moe_cplm.frame_kda_validation import validate_frame_kda
+
+
+def write_record(output: Path, artifact_root: str, name: str, value):
+    content = (json.dumps(value, indent=2) + "\n").encode()
+    (output / name).write_bytes(content)
+    StoragePath(artifact_root + "/" + name).write_bytes(content)
 
 
 def main():
@@ -21,13 +30,21 @@ def main():
     parser.add_argument("--chunks", type=int, nargs="+", default=[64, 16, 32, 128])
     parser.add_argument("--length", type=int, default=8192)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--artifact-root", required=True)
     args = parser.parse_args()
     if any(device.device_kind != "TPU v4" for device in jax.local_devices()):
         raise ValueError("Performance qualification requires TPU v4")
-    args.output.mkdir(parents=True, exist_ok=False)
+    attempt = uuid.uuid4().hex
+    output = args.output / attempt
+    artifact_root = args.artifact_root.rstrip("/") + "/" + attempt
+    output.mkdir(parents=True, exist_ok=False)
     source = Path(__file__).parent
     manifest = {
         "training_updates": 0,
+        "execution_id": attempt,
+        "artifact_root": artifact_root,
+        "issue_url": "https://github.com/WhenWen/astra-d8-research/issues/59",
+        "motivating_task": "scoped_binding@1 (#58), not evaluated",
         "jax": jax.__version__,
         "jaxlib": jaxlib.__version__,
         "xla_flags": os.environ.get("XLA_FLAGS", ""),
@@ -38,15 +55,19 @@ def main():
             for name in ("frame_kda.py", "frame_kda_validation.py", "benchmark_frame_kda.py")
         },
     }
-    (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    write_record(output, artifact_root, "manifest.json", manifest)
+    print(json.dumps(manifest), flush=True)
     summaries = []
     input_hashes = set()
+    objectives = []
     for chunk in args.chunks:
         result = validate_frame_kda(args.length, chunk=chunk)
-        (args.output / f"chunk-{chunk}.json").write_text(json.dumps(result, indent=2) + "\n")
+        write_record(output, artifact_root, f"chunk-{chunk}.json", result)
         input_hashes.add(result["native_inputs_sha256"])
         if len(input_hashes) != 1:
             raise ValueError("Parallel schedules received different benchmark inputs")
+        objectives.append(result["native_objective"])
+        np.testing.assert_allclose(objectives[-1], objectives[0], atol=1e-5, rtol=1e-4)
         summaries.append(
             {
                 "chunk": chunk,
@@ -56,7 +77,7 @@ def main():
             }
         )
         print(json.dumps(summaries[-1]), flush=True)
-        (args.output / "summary.json").write_text(json.dumps(summaries, indent=2) + "\n")
+        write_record(output, artifact_root, "summary.json", summaries)
 
 
 if __name__ == "__main__":
