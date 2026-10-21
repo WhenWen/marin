@@ -52,11 +52,24 @@ def main():
         if not points:
             raise ValueError(f"No {args.metric} observations for {label}")
         x, y = zip(*points, strict=True)
-        ax.plot(x, y, color=colors[index % len(colors)], linewidth=1.5, label=label)
+        ax.plot(
+            x,
+            y,
+            color=colors[index % len(colors)],
+            linewidth=1.5,
+            marker="o" if len(points) <= 30 else None,
+            markersize=3.5,
+            label=label,
+        )
         summary[label] = {"metric": args.metric, "points": len(points), "first": points[0], "last": points[-1]}
         table.extend((label, step, value) for step, value in points)
     ax.set_xlabel("Optimizer step")
-    ax.set_ylabel("Training NLL (nats/token)" if args.metric == "train/loss" else args.metric)
+    labels = {
+        "train/loss": "Training NLL (nats/token)",
+        "eval/paloma/macro_loss": "Paloma macro NLL (nats/token)",
+        "eval/uncheatable_eval/macro_loss": "Uncheatable macro NLL (nats/token)",
+    }
+    ax.set_ylabel(labels.get(args.metric, args.metric))
     ax.legend(framealpha=0.95)
     fig.tight_layout()
     args.output.parent.mkdir(parents=True, exist_ok=True)
