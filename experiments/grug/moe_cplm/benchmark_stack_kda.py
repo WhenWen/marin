@@ -1,0 +1,117 @@
+# Copyright The Marin Authors
+# SPDX-License-Identifier: Apache-2.0
+
+"""Qualify depth-four KDA against the native TPU recurrence without training."""
+
+import argparse
+import hashlib
+import json
+import os
+import time
+import uuid
+from pathlib import Path
+from unittest.mock import patch
+
+import jax
+import jax.numpy as jnp
+import jaxlib
+import numpy as np
+
+from experiments.grug.fast_track import model
+from experiments.grug.moe import kda
+from experiments.grug.moe_cplm.benchmark_frame_kda import write_record
+from experiments.grug.moe_cplm.stack_kda_validation import fixture, objective, validate_stack_kda
+from experiments.grug.moe_cplm.train_belay import tpu_recurrence
+
+
+def native_baseline(sequence_length):
+    def baseline(xs, state):
+        _, q, key, value, decay, beta, keep = xs
+        segments = jnp.cumsum(1 - keep, axis=-1).astype(jnp.int32)
+        return kda.chunk_kda(
+            q * q.shape[-1] ** 0.5,
+            key,
+            value,
+            jnp.log(decay),
+            beta,
+            initial_state=state[..., 0, :],
+            use_qk_l2norm=False,
+            segment_ids=segments,
+            chunk_size=model.KDA_CHUNK_SIZE,
+            scan_impl="parallel_stacked_split",
+        )
+
+    with jax.default_device(jax.local_devices()[0]), patch.object(kda, "_parallel_chunk_recurrence", tpu_recurrence):
+        inputs, initial = fixture(sequence_length)
+        fn = jax.jit(jax.value_and_grad(lambda x, s: objective(baseline, x, s), argnums=(0, 1)))
+        started = time.perf_counter()
+        executable = fn.lower(inputs, initial).compile()
+        compilation = time.perf_counter() - started
+        values = jax.device_get(executable(inputs, initial))
+        if not all(np.isfinite(x).all() for x in jax.tree.leaves(values)):
+            raise ValueError("Native baseline benchmark is nonfinite")
+        timings = []
+        for _ in range(5):
+            started = time.perf_counter()
+            jax.block_until_ready(executable(inputs, initial))
+            timings.append(time.perf_counter() - started)
+        return {
+            "forward_backward_seconds": timings,
+            "compile_seconds": compilation,
+            "compiled_temp_bytes": executable.memory_analysis().temp_size_in_bytes,
+            "chunk": model.KDA_CHUNK_SIZE,
+            "execution": "native TPU Pallas state_pass; inherited mixed precision",
+        }
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--chunks", type=int, nargs="+", default=[32])
+    parser.add_argument("--length", type=int, default=8192)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--artifact-root", required=True)
+    args = parser.parse_args()
+    source = Path(__file__).parent
+    settings = json.loads((source / "belay_recipe.json").read_text())["trainer"]["trainer"]["jax_config"]
+    settings["jax_enable_pgle"] = False
+    for name, value in settings.items():
+        jax.config.update(name, value)
+    os.environ["XLA_FLAGS"] = os.environ.get("XLA_FLAGS", "") + " --xla_allow_excess_precision=false"
+    if any(device.device_kind != "TPU v4" for device in jax.local_devices()):
+        raise ValueError("Stack KDA performance qualification requires TPU v4")
+    attempt = uuid.uuid4().hex
+    output, root = args.output / attempt, args.artifact_root.rstrip("/") + "/" + attempt
+    output.mkdir(parents=True, exist_ok=False)
+    manifest = {
+        "training_updates": 0,
+        "execution_id": attempt,
+        "artifact_root": root,
+        "issue_url": "https://github.com/WhenWen/astra-d8-research/issues/59",
+        "motivating_task": "scoped_binding@1 (#58), not evaluated",
+        "jax": jax.__version__,
+        "jaxlib": jaxlib.__version__,
+        "jax_settings": settings,
+        "source_sha256": {
+            str(path.relative_to(source.parent)): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in (
+                source.parent / "moe/stack_kda.py",
+                source / "stack_kda_validation.py",
+                source / "benchmark_stack_kda.py",
+                source / "train_belay.py",
+                source / "belay_recipe.json",
+            )
+        },
+    }
+    write_record(output, root, "manifest.json", manifest)
+    print(json.dumps(manifest), flush=True)
+    baseline = native_baseline(args.length)
+    write_record(output, root, "baseline.json", baseline)
+    print(json.dumps({"baseline": baseline}), flush=True)
+    for chunk in args.chunks:
+        result = validate_stack_kda(args.length, chunk)
+        write_record(output, root, f"chunk-{chunk}.json", result)
+        print(json.dumps(result), flush=True)
+
+
+if __name__ == "__main__":
+    main()

@@ -3308,6 +3308,8 @@ def _kda_kernel(q, k, v, g, beta, extras: dict[str, jax.Array], *, options: KdaK
     if "erase_logits" in extras:
         erase, erase_input = extras["erase_logits"], EraseInput.LOGITS
     if jax.default_backend() == "gpu":
+        if "stack_actions" in extras:
+            raise ValueError("Depth-four stack KDA is qualified only on the TPU/XLA path")
         return kda_fused(
             q,
             k,

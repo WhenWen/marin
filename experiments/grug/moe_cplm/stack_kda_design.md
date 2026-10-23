@@ -71,6 +71,11 @@ layout. Action weights require the ordinary replicated gradient reduction.
 Generation cache integration is not added; kernel streaming continuation must
 match full prefill, while full-model generation remains unsupported as in Plus.
 
+The actual native TPU entrypoint replaces the generic XLA parallel boundary
+scan with `train_belay.tpu_recurrence`, calling the ordered Pallas
+`kda_state_tpu.state_pass`. Thus the baseline already has sequential chunk
+boundaries. The generic KDA scan alone does not describe its measured execution.
+
 ## Checks and native comparison
 
 First run remote CPU non-training output and gradient comparisons against

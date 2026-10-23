@@ -48,11 +48,13 @@ from experiments.grug.moe_cplm.frame_kda import FRAME_CONFIG
 from experiments.grug.moe_cplm.frame_kda_model import FrameKDAPlus
 from experiments.grug.moe_cplm.frame_kda_validation import validate_frame_kda
 from experiments.grug.moe_cplm.head_validation import validate_head, validate_histogram
+from experiments.grug.moe_cplm.stack_kda_validation import validate_stack_kda
 
 RECIPE = Path(__file__).with_name("belay_recipe.json")
 DATA = Path(__file__).with_name("july_data.json")
 REFERENCE_PROJECTION = model._proj
 MODELS = {"belay": Belay, "cplm": CopyPasteBelay, "plus": plus.BelayCPLMPlus, "plus-frame-kda": FrameKDAPlus}
+MODELS["plus-stack4-kda"] = plus.BelayCPLMPlus
 
 
 def gathered_projection(cfg, x, weight, out_sharding=None):
@@ -318,7 +320,7 @@ def main(argv=None):
     parser.add_argument("--steps", type=int, default=10980)
     parser.add_argument("--compute-budget", type=Path)
     args = parser.parse_args(argv)
-    plus_variant = args.variant in ("plus", "plus-frame-kda")
+    plus_variant = args.variant in ("plus", "plus-frame-kda", "plus-stack4-kda")
     if args.variant == "plus-frame-kda" and args.width != 512:
         raise ValueError("The protected-frame experiment is frozen at d512")
     run_name = args.run_name
@@ -367,6 +369,9 @@ def main(argv=None):
     args.output = args.output / attempt
     args.output.mkdir(parents=True, exist_ok=True)
     artifact_root = args.artifact_root.rstrip("/") + "/" + attempt
+    if args.variant == "plus-stack4-kda":
+        # Each restart starts a new scientific trajectory and W&B curve.
+        args.checkpoint_path = args.checkpoint_path.rstrip("/") + "/" + attempt
 
     def persist(name, value):
         if jax.process_index() == 0:
@@ -406,6 +411,10 @@ def main(argv=None):
         expert_chunks=args.expert_chunks,
     )
     budget = None
+    if args.variant == "plus-stack4-kda":
+        if args.width != 512:
+            raise ValueError("The layer-internal stack comparison is frozen at d512")
+        config = replace(config, model=replace(config.model, kda_stack_depth=4))
     execution_policy = "native-saved-global-qb" if args.grad_accum_microbatches > 1 else "native-saved"
     if args.width >= 1024:
         execution_policy = "native-ladder-recompute"
@@ -464,6 +473,8 @@ def main(argv=None):
     if args.variant == "plus-frame-kda":
         frame_check = validate_frame_kda(config.model.max_seq_len)
         persist("frame-kda-preflight.json", frame_check)
+    if args.variant == "plus-stack4-kda":
+        persist("stack-kda-preflight.json", validate_stack_kda(config.model.max_seq_len))
     if args.batch_size in (32, 64, 128):
         histogram_check = validate_histogram(args.batch_size * 8192 // args.tpu_chips)
         persist("histogram-preflight.json", histogram_check)
@@ -548,6 +559,12 @@ def main(argv=None):
         def gradient_checks(loss, grads):
             finite = jnp.all(jnp.stack([jnp.all(jnp.isfinite(x)) for x in jax.tree.leaves(grads)]))
             norms = jnp.array([jnp.linalg.norm(getattr(grads, k)) for k in names])
+            if args.variant == "plus-stack4-kda":
+                action_norms = []
+                for path, leaf in jax.tree_util.tree_flatten_with_path(grads)[0]:
+                    if any(isinstance(key, jax.tree_util.GetAttrKey) and key.name == "w_stack_actions" for key in path):
+                        action_norms.append(jnp.linalg.norm(leaf.reshape(-1, *leaf.shape[-2:]), axis=(-2, -1)))
+                norms = jnp.concatenate((norms, *action_norms))
             positive = jnp.concatenate((norms[:4], norms[5:])) if plus_variant else norms
             good = finite & jnp.isfinite(loss) & jnp.all(jnp.isfinite(positive) & (positive > 0))
             return good, finite, norms
@@ -630,6 +647,23 @@ def main(argv=None):
                         wandb.config.update(contract)
                         persist("frame-kda-contract.json", contract)
                     persist("tracking.json", {"url": wandb.run.url, "resumed": False, "restored_step": restored_step})
+                    if args.variant == "plus-stack4-kda":
+                        contract = {
+                            "issue_url": "https://github.com/WhenWen/astra-d8-research/issues/59",
+                            "motivating_task_url": "https://github.com/WhenWen/astra-d8-research/issues/58",
+                            "synthetic_task_evaluated": False,
+                            "synthetic_gate_waiver": "User explicitly requested direct native LM testing",
+                            "baseline_run_id": "4434036161f49ae783d3",
+                            "comparison": "equal tokens; per-layer depth-four KDA replaces the native recurrence",
+                            "additional_parameters": 32832,
+                            "depth": 4,
+                            "read": "top after update",
+                            "action_initial_bias": [0, 0, 6, 0],
+                            "data_manifest_sha256": hashlib.sha256(args.data_config.read_bytes()).hexdigest(),
+                            "tokenizer_files_sha256": identities,
+                        }
+                        wandb.config.update(contract)
+                        persist("stack-kda-contract.json", contract)
                 if not memory_schedule:
                     loss, finite, norms = jax.device_get(preflight(leaves, batch, **kwargs))
                     record_startup_memory("after_full_model_preflight")
