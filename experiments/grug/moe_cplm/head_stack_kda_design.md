@@ -38,6 +38,9 @@ weights and bias [0,0,6,0] for near-stay initialization. Retain native query/key
 normalization, query scale, convolution, output norm/gate/projection, MLA,
 MoE, AttnRes and CPLM Plus prediction head. Near-stay is not exact baseline
 initialization. No new LM training is included in this benchmark.
+Apply softmax to x W+b, where x is the same normalized layer input used by
+the native KDA projections. The operator accepts probabilities; the model
+wrapper differentiates through softmax.
 
 ## Parallel implementation
 
@@ -67,6 +70,26 @@ must reside on one device; the frozen model-axis size is one, so no extra
 communication is needed in this configuration. Head-sharded execution is
 unsupported pending a separate communication design.
 
+Here T is sequence length, C is tokens per chunk, H=D=4 counts heads/slots,
+R is key width, and V is value width. In the algorithm above, call the read
+matrix R_read to distinguish it from key width. At a chunk start F=I and
+W=0. At token t, erase row (t,h) is f_h^T F_before and correction row
+(t,h) is f_h^T W_before. Then update F=E_t F and W=E_t W, injecting
+e_h tensor k_h into column (t,h). Read row (t,h) is
+(e_h tensor q_h)^T F, with attention row (t,h) given by the same read of W.
+The value row G_(t,h) is the write coefficient times v_h. Thus top erase
+uses beta_0*(push+stay) while its value row includes replace as well.
+F is represented by R matrices of shape D by D; W has shape N by L;
+Q and R_read have shape L by N; G has shape L by V; K and A have shape L by L.
+Q and G in the state pass mean their triangular-solved values.
+
+The boundary scan is ordered, not an associative prefix scan. Its affine map
+is S_out=(F-W (I+K)^-1 Q_raw)S_in+W (I+K)^-1 G_raw.
+K and A storage is O((T/C)L^2); their preparation requires O(T H^2 C R)
+reductions. Dense triangular inversion and solves add O((T/C)(L^3+L^2(N+V)))
+arithmetic. This first implementation prioritizes exact numerical equivalence;
+it makes no promise of native-kernel speed at equal state size.
+
 ## Validation and timing
 
 Check against a literal sequential reference, all input and initial-state
@@ -84,3 +107,16 @@ Benchmark C=16 and C=32 with bounded local backward batches 16 and 64. Count
 state bytes directly. Candidate-vs-native equality is expected only for hard
 stay; general soft actions are checked against the independent reference.
 Operator timing does not establish whole-model throughput or LM quality.
+
+The baseline source is the native kda.py, kda_state_tpu.py and train_belay.py
+at Marin commit 0e5182f48. Native prepared state is FP32; its intra-chunk
+products use BF16 as in the inherited implementation. Candidate arrays are
+FP32 and dot precision is jax.lax.Precision.HIGHEST. Persist exact source
+SHA256 hashes with each run. Inputs use NumPy seed 261023+T: Gaussian q/k
+normalized with epsilon 1e-6 (q additionally divided by sqrt(R)), standard
+Gaussian values, exp(-0.1*softplus(N(0,1))) decay, sigmoid(N(0,1)) beta and
+0.1*N(0,1) initial states. Keep is zero at T//2 and one elsewhere. The timing
+actions are softmax(0.2*N(0,1)+[0,0,6,0]); correctness also tests unbiased
+softmax actions and hard branches. Tolerances apply separately to every
+output, final state, objective and gradient leaf. Keep is binary in execution;
+its continuous relaxation is also differentiated for the numerical audit.

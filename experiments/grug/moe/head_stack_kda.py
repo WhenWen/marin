@@ -41,7 +41,7 @@ def _transport(state, actions, decay, keep):
 
 
 def _prepare(inputs):
-    actions, query, key, value, decay, beta, keep = inputs
+    query = inputs[1]
     lead, length, heads, rank = query.shape[:-3], *query.shape[-3:]
     size, count = heads * rank, length * heads
     transport = jnp.broadcast_to(jnp.eye(heads, dtype=jnp.float32)[..., None], (*lead, heads, heads, rank))

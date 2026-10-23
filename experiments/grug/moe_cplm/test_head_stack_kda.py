@@ -9,9 +9,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from experiments.grug.moe import head_stack_kda as stack
 from experiments.grug.fast_track import model
 from experiments.grug.fast_track.test_kda_local import _config, _mesh
+from experiments.grug.moe import head_stack_kda as stack
 from experiments.grug.moe_cplm.benchmark_head_stack_kda import fixture, native, objective
 from experiments.grug.moe_cplm.head_stack_kda_model import HeadStackKimiDeltaAttention, NativeKimiDeltaAttention
 from experiments.grug.moe_cplm.test_stack_kda_model import serial_native

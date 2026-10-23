@@ -77,11 +77,13 @@ def objective(fn, inputs, state):
 
 def correctness(chunk):
     result = {}
+    fn = lambda x, s: stack.chunked(x, s, chunk)  # noqa: E731
     for mixed in (False, True):
         xs, initial = fixture(128, mixed=mixed)
-        fn = lambda x, s: stack.chunked(x, s, chunk)  # noqa: E731
         actual = jax.jit(jax.value_and_grad(lambda x, s: objective(fn, x, s), argnums=(0, 1)))(xs, initial)
-        expected = jax.jit(jax.value_and_grad(lambda x, s: objective(stack.reference, x, s), argnums=(0, 1)))(xs, initial)
+        expected = jax.jit(jax.value_and_grad(lambda x, s: objective(stack.reference, x, s), argnums=(0, 1)))(
+            xs, initial
+        )
         actual = (*jax.jit(fn)(xs, initial), actual)
         expected = (*jax.jit(stack.reference)(xs, initial), expected)
         errors = []
@@ -130,7 +132,9 @@ def benchmark(fn, inputs, initial):
     return {
         "forward": timed(fn, (inputs, initial)),
         "backward": timed(backward, (residuals, cotangent)),
-        "forward_backward": timed(jax.value_and_grad(lambda x, s: objective(fn, x, s), argnums=(0, 1)), (inputs, initial)),
+        "forward_backward": timed(
+            jax.value_and_grad(lambda x, s: objective(fn, x, s), argnums=(0, 1)), (inputs, initial)
+        ),
         "backward_residual_bytes": sum(x.size * x.dtype.itemsize for x in residuals),
         "state_bytes": initial.size * initial.dtype.itemsize,
     }
@@ -192,7 +196,7 @@ def main():
             for chunk in args.chunks:
                 jax.clear_caches()
                 result = {"chunk": chunk, "backward_batch": batch, "errors": correctness(chunk)}
-                result.update(benchmark(lambda x, s: stack.chunked(x, s, chunk), inputs, initial))
+                result.update(benchmark(lambda x, s, c=chunk: stack.chunked(x, s, c), inputs, initial))
                 write_record(output, root, f"batch-{batch}-chunk-{chunk}.json", result)
                 print(json.dumps(result), flush=True)
 
