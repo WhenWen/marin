@@ -86,6 +86,7 @@ def phase_timings(sequence_length, chunk):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--chunks", type=int, nargs="+", default=[32])
+    parser.add_argument("--backward-batches", type=int, nargs="+", default=[stack_kda.BACKWARD_BATCH])
     parser.add_argument("--length", type=int, default=8192)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--artifact-root", required=True)
@@ -127,11 +128,14 @@ def main():
     baseline = native_baseline(args.length)
     write_record(output, root, "baseline.json", baseline)
     print(json.dumps({"baseline": baseline}), flush=True)
-    for chunk in args.chunks:
-        result = validate_stack_kda(args.length, chunk)
-        result["phases"] = phase_timings(args.length, chunk)
-        write_record(output, root, f"chunk-{chunk}.json", result)
-        print(json.dumps(result), flush=True)
+    for batch in args.backward_batches:
+        stack_kda.BACKWARD_BATCH = batch
+        for chunk in args.chunks:
+            jax.clear_caches()
+            result = validate_stack_kda(args.length, chunk)
+            result["phases"] = phase_timings(args.length, chunk)
+            write_record(output, root, f"batch-{batch}-chunk-{chunk}.json", result)
+            print(json.dumps(result), flush=True)
 
 
 if __name__ == "__main__":

@@ -88,6 +88,7 @@ def validate_stack_kda(sequence_length=8192, chunk=stack_kda.CHUNK):
             "training_updates": 0,
             "shape": {"batch": 1, "heads": 4, "length": sequence_length, "rank": 128, "depth": 4, "width": 128},
             "chunk": chunk,
+            "backward_batch": stack_kda.BACKWARD_BATCH,
             "reference_length": 128,
             "reference_max_abs_errors": errors,
             "native_inputs_sha256": digest.hexdigest(),
