@@ -24,7 +24,7 @@ class BoundaryStackKimiDeltaAttention(NativeKimiDeltaAttention):
     stack_action_bias: jax.Array | None = None
 
     @staticmethod
-    def init(cfg, *, key, precision="mixed"):
+    def init(cfg, *, key, precision="mixed", stay_bias=6.0):
         base = NativeKimiDeltaAttention.init(cfg, key=key)
         if any(
             value is not None
@@ -57,7 +57,7 @@ class BoundaryStackKimiDeltaAttention(NativeKimiDeltaAttention):
             **{field.name: getattr(base, field.name) for field in dataclasses.fields(NativeKimiDeltaAttention)},
             precision=precision,
             w_stack_actions=reshard(jnp.zeros((d, 3)), P(None, None)),
-            stack_action_bias=reshard(jnp.array([0.0, 0.0, 6.0]), P(None)),
+            stack_action_bias=reshard(jnp.array([0.0, 0.0, stay_bias]), P(None)),
         )
 
     def __call__(

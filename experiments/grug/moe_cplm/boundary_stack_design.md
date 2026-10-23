@@ -138,3 +138,41 @@ residuals); combined temporary allocation is 343,953,920 versus 489,293,312
 bytes. Compilation takes 1.442/4.013/4.235 seconds for native and
 1.454/4.664/3.678 seconds for boundary forward/backward/combined. These are
 operator measurements, not end-to-end LM throughput or quality results.
+
+## 2026-10-23 initialization diagnosis and bias sweep
+
+The bias-6 run is active on v4-32 with process identity
+13aa3067db7d4c99838d99c61da50fab. Through optimizer step 332, its maximum
+absolute training-NLL difference from the reused seed-0 baseline is 0.0102062.
+Initial losses are 11.86815071 versus 11.86813641; step-332 losses are
+4.20034504 versus 4.19646454. All four controller weight gradients are nonzero
+before training and all four zero-initialized matrices change after two updates.
+Mean stay probabilities at step 332 are 0.9981729, 0.9946595, 0.99931455 and
+0.99999857 for layers 0, 1, 2 and 4. These measurements establish a connected,
+trainable controller that remains strongly stay-dominated, not useful stack
+behavior or completed quality evidence.
+
+The user requested bias tuning. Freeze three fresh seed-0 conditions with
+initial action bias [0,0,b], b in {0,2,4}; reuse the running b=6 condition and
+completed native baseline. Initial stay probabilities are respectively
+0.333333, 0.786986, 0.964663 and 0.995067. Keep zero controller weights and
+identical native parameters, copy head, data ordering, optimizer, mixed
+precision and state size. Bias only changes the initial controller distribution;
+the previously qualified operator and its gradients are unchanged.
+
+Run exactly 1,000 updates per new condition (131,072,000 tokens), preserving
+the original 10,676-update optimizer/LR schedule through the native
+stop_after_steps field. Native final callbacks retain checkpoint and validation
+results at this prefix endpoint. Use one additional v4-32 job, sequentially
+running b=0,2,4 in fresh processes on all four hosts. Each condition and each
+restart receives a fresh W&B and checkpoint identity. A job restart repeats
+the sequence from b=0; it does not resume any earlier trajectory. Keep default
+Iris preemption/retries and no wall-clock limits. The existing b=6 run continues.
+
+Compare Paloma macro validation NLL after 1,000 updates as the primary tuning
+criterion, alongside Uncheatable validation NLL, last-100-update mean training
+NLL, each layer's mean push/pop probabilities and throughput. Report every
+condition, including divergence and near-stay collapse. This is a single-seed
+early-budget comparison; its winner is provisional and does not establish the
+best full-budget bias. The expected tradeoff is more controller sensitivity at
+smaller bias versus more destructive initial mixing; no winner is predicted.

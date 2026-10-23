@@ -86,9 +86,17 @@ def tpu_recurrence(prep, state, mm, lead, dk, dv, *, scan_impl):
 
 
 @contextmanager
-def execution(variant="cplm", tables=None):
+def execution(variant="cplm", tables=None, *, boundary_stay_bias=6.0):
     """Bind TPU implementations for this single-run process, including eval."""
     with ExitStack() as stack:
+        if variant == "plus-boundary-stack-kda":
+            stack.enter_context(
+                patch.object(
+                    BoundaryStackKimiDeltaAttention,
+                    "init",
+                    staticmethod(partial(BoundaryStackKimiDeltaAttention.init, stay_bias=boundary_stay_bias)),
+                )
+            )
         if variant in STACK_VARIANTS:
             stack.enter_context(patch.object(model, "KimiDeltaAttention", STACK_VARIANTS[variant]))
             stack.enter_context(
@@ -331,8 +339,18 @@ def main(argv=None):
     parser.add_argument("--expert-chunks", type=int, choices=(1, 2), default=2)
     parser.add_argument("--memory-scheduler", choices=("default", "brkga"), default="default")
     parser.add_argument("--steps", type=int, default=10980)
+    parser.add_argument("--stop-after-steps", type=int, help="Run a prefix while retaining the full --steps LR schedule")
+    parser.add_argument("--boundary-stay-bias", type=float, default=6.0)
     parser.add_argument("--compute-budget", type=Path)
     args = parser.parse_args(argv)
+    if args.stop_after_steps is not None and not (0 < args.stop_after_steps <= args.steps):
+        raise ValueError("The update endpoint must be within the full learning-rate schedule")
+    if args.calibration and args.stop_after_steps is not None:
+        raise ValueError("Calibration already defines its own update endpoint")
+    if not math.isfinite(args.boundary_stay_bias):
+        raise ValueError("Boundary stay bias must be finite")
+    if args.variant != "plus-boundary-stack-kda" and args.boundary_stay_bias != 6.0:
+        raise ValueError("Boundary stay bias requires the boundary-stack variant")
     plus_variant = args.variant in ("plus", "plus-frame-kda", *STACK_VARIANTS)
     if args.variant == "plus-frame-kda" and args.width != 512:
         raise ValueError("The protected-frame experiment is frozen at d512")
@@ -423,6 +441,8 @@ def main(argv=None):
         expert_axis_size=args.expert_axis_size,
         expert_chunks=args.expert_chunks,
     )
+    if args.stop_after_steps is not None:
+        config = replace(config, stop_after_steps=args.stop_after_steps)
     budget = None
     if args.variant in STACK_VARIANTS:
         if args.width != 512:
@@ -709,9 +729,11 @@ def main(argv=None):
                             "chunk_size": 16,
                             "read": "all four native outputs before boundary mixing",
                             "action_order": ["push", "pop", "stay"],
-                            "action_initial_bias": [0, 0, 6],
+                            "action_initial_bias": [0, 0, args.boundary_stay_bias],
                             "action_optimizer": "native kda_decay Adam group",
-                            "restart_policy": "fresh initialization and 10676 updates per process restart; no resume",
+                            "restart_policy": "fresh initialization and a new W&B run per process restart; no resume",
+                            "schedule_updates": args.steps,
+                            "requested_updates": args.stop_after_steps or args.steps,
                             "source_sha256": {
                                 name: hashlib.sha256(Path(__file__).parent.joinpath(name).read_bytes()).hexdigest()
                                 for name in (
@@ -808,7 +830,7 @@ def main(argv=None):
 
     try:
         with (
-            execution(args.variant, tables),
+            execution(args.variant, tables, boundary_stay_bias=args.boundary_stay_bias),
             python_zarr_checkpoint_writes(),
             patch.object(train, "TaggedEvaluator", bounded_evaluator),
             patch.object(train, "_flat_train_step", flat_step),
