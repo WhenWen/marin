@@ -104,3 +104,37 @@ retry behavior; impose no queue or experiment wall-clock limit. A full-model
 zero-update preflight checks finite loss/gradients and nonzero copy/action
 gradients before training. Present partial loss curves when reporting launch
 progress; this launch request does not establish completed LM quality.
+
+## 2026-10-23 qualification amendment and measured result
+
+The first two TPU attempts failed the strict gradient check against the TPU
+token oracle: eight entries exceeded tolerance, with maximum violating absolute
+error 2.26e-5. Fused and unfused chunk paths agreed much more closely, indicating
+the discrepancy was shared by chunk preparation versus token recurrence.
+The independent oracle now executes the same literal equations in CPU FP64,
+avoiding compounded TPU exponential/rounding errors. Thresholds stay unchanged.
+CPU numerical checks perform zero training updates. A separate rank-128 CPU
+mixed interpreter diagnostic had one value-gradient mismatch of 5.52e-4 against
+CPU AD; this is retained as a CPU mixed-numerics limitation. The target TPU mixed
+path passes the strict AD comparison, with maximum relative L2 5.51e-7.
+
+TPU job boundary-stack-kernel-20261023-v3 succeeded with source c6455b6fd and
+artifact identity abba6662cf8e448292a587a330808f64. Its FP32 candidate passes the
+FP64 oracle at atol=1e-5, rtol=1e-4. Mixed-versus-FP64 relative L2 is at most
+0.00373 across all output/gradient leaves. Hard-stay output and final state
+match native mixed KDA exactly.
+
+Seven-repetition medians on one TPU v4 chip, B1,T8192,H4,R=V=128,C16:
+
+| Path | Native KDA | Boundary mixing | Ratio |
+| --- | ---: | ---: | ---: |
+| Forward | 1.525 ms | 1.738 ms | 1.140 |
+| Saved-residual backward | 3.075 ms | 3.774 ms | 1.227 |
+| Combined forward/backward | 3.774 ms | 4.722 ms | 1.251 |
+
+Recurrent state is 262,144 bytes in both. Backward residuals are 442,114,056
+versus 594,157,576 bytes (an extra 145 MiB including wrapper/preparation
+residuals); combined temporary allocation is 343,953,920 versus 489,293,312
+bytes. Compilation takes 1.442/4.013/4.235 seconds for native and
+1.454/4.664/3.678 seconds for boundary forward/backward/combined. These are
+operator measurements, not end-to-end LM throughput or quality results.

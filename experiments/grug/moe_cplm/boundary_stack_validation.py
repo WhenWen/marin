@@ -78,7 +78,7 @@ def evaluate(fn, xs, state):
 def high_precision_oracle(xs, state):
     # The token recurrence compounds one exponential rounding per token. Use
     # an independent CPU FP64 oracle rather than TPU approximate exponentials.
-    with jax.default_device(jax.devices("cpu")[0]), jax.enable_x64():
+    with jax.default_device(jax.local_devices(backend="cpu")[0]), jax.enable_x64():
         xs, state = jax.tree.map(lambda x: jnp.asarray(np.asarray(x), jnp.float64), (xs, state))
         return jax.device_get(evaluate(literal, xs, state))
 
