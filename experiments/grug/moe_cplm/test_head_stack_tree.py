@@ -27,8 +27,8 @@ def test_tree_matches_sequential_preparation_and_adjoint():
     def loss(fn, xs):
         return sum(jnp.sin(x).sum() for x in fn(xs))
 
-    actual = jax.jit(jax.grad(lambda xs: loss(prepare_tree, xs)))(split)
-    expected = jax.jit(jax.grad(lambda xs: loss(lambda x: stack._prepare(x, "fp32"), xs)))(split)
+    actual = jax.grad(lambda xs: loss(prepare_tree, xs))(split)
+    expected = jax.grad(lambda xs: loss(lambda x: stack._prepare(x, "fp32"), xs))(split)
     assert_tree_close(actual, expected)
 
 
@@ -45,6 +45,7 @@ def test_fused_tree_and_its_executed_vjp(precision):
 
 def test_fused_state_forward_and_reverse_with_document_reset():
     inputs, initial = fixture(8, rank=8, width=8, mixed=True)
+
     def fn(xs, s):
         return chunked(xs, s, 4, interpret=True)
 
