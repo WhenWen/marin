@@ -92,5 +92,5 @@ goes stale on the next commit.
 ## Belay CPLM Plus boundary head mixing
 
 - Path: `experiments/grug/moe_cplm/boundary_stack_kda_model.py`. Origin: native Belay CPLM Plus KDA projections.
-- Purpose: preserve all four native head updates and mix their states with push/pop/stay only at C16 boundaries, retaining 256 KiB recurrent state. Status: TPU kernel qualification; native LM launch pending qualification.
-- Source: `4437dfe31`. [Protocol and implementation](../../experiments/grug/moe_cplm/boundary_stack_design.md), [theory issue](https://github.com/WhenWen/astra-d8-research/issues/59).
+- Purpose: preserve all four native head updates and mix their states with push/pop/stay only at C16 boundaries, retaining 256 KiB recurrent state. Status: TPU kernel qualified; seed-0 d512 LM submitted on v4-32 for 10,676 updates.
+- Source: `0615d3cd4`. [Protocol, measurements and implementation](../../experiments/grug/moe_cplm/boundary_stack_design.md), [theory issue](https://github.com/WhenWen/astra-d8-research/issues/59).
