@@ -38,8 +38,14 @@ class StackKimiDeltaAttention(NativeKimiDeltaAttention):
                 base.value_embed,
                 base.bias_qkv,
             )
-        ) or any((cfg.kda_beta_negative, cfg.kda_decay_per_head, cfg.kda_gate_per_head,
-                  cfg.kda_head_pairing != model.KdaHeadPairing.NONE)):
+        ) or any(
+            (
+                cfg.kda_beta_negative,
+                cfg.kda_decay_per_head,
+                cfg.kda_gate_per_head,
+                cfg.kda_head_pairing != model.KdaHeadPairing.NONE,
+            )
+        ):
             raise ValueError("Stack KDA uses the frozen native Belay gate/projection configuration")
         d, heads = cfg.hidden_dim, cfg.num_heads
         return StackKimiDeltaAttention(

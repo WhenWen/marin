@@ -96,6 +96,7 @@ def main():
             for path in (
                 source.parent / "moe/stack_kda.py",
                 source / "stack_kda_validation.py",
+                source / "stack_kda_model.py",
                 source / "benchmark_stack_kda.py",
                 source / "train_belay.py",
                 source / "belay_recipe.json",
