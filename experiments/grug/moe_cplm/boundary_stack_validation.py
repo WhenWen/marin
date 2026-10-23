@@ -17,21 +17,27 @@ import numpy as np
 from experiments.grug.moe import boundary_stack_kda as stack
 from experiments.grug.moe import kda
 from experiments.grug.moe_cplm.benchmark_frame_kda import write_record
-from experiments.grug.moe_cplm.benchmark_head_stack_kda import benchmark, fixture as token_fixture
-from experiments.grug.moe_cplm.benchmark_head_stack_kda import native, objective, operator_inputs
+from experiments.grug.moe_cplm.benchmark_head_stack_kda import benchmark, native, objective, operator_inputs
+from experiments.grug.moe_cplm.benchmark_head_stack_kda import fixture as token_fixture
 
 
 def fixture(length, rank=128, chunk=16):
     xs, state = token_fixture(length, rank=rank, width=rank, mixed=True)
-    return (xs[0][:, chunk-1::chunk], *xs[1:]), state
+    return (xs[0][:, chunk - 1 :: chunk], *xs[1:]), state
 
 
 def candidate(xs, state, chunk=16, mixed=False, interpret=False, reference=False):
     args, segments = operator_inputs(xs)
     out, final = stack.chunk_kda(
-        *args, actions=xs[0], initial_state=state, use_qk_l2norm=False, segment_ids=segments,
-        chunk_size=chunk, matmul_dtype=jnp.bfloat16 if mixed else jnp.float32,
-        interpret=interpret, reference=reference,
+        *args,
+        actions=xs[0],
+        initial_state=state,
+        use_qk_l2norm=False,
+        segment_ids=segments,
+        chunk_size=chunk,
+        matmul_dtype=jnp.bfloat16 if mixed else jnp.float32,
+        interpret=interpret,
+        reference=reference,
     )
     return jnp.swapaxes(out, 1, 2), final
 
@@ -44,12 +50,16 @@ def literal(xs, initial, chunk=16):
         index, (q, k, v, g, beta, keep) = token
         state = state * (jnp.exp(g) * keep[:, None, None])[..., None]
         prediction = jnp.einsum("bhr,bhrv->bhv", k, state, precision=jax.lax.Precision.HIGHEST)
-        state += (beta[..., None] * k)[..., None] * (v-prediction)[..., None, :]
+        state += (beta[..., None] * k)[..., None] * (v - prediction)[..., None, :]
         out = jnp.einsum("bhr,bhrv->bhv", q, state, precision=jax.lax.Precision.HIGHEST)
-        state = jax.lax.cond((index+1) % chunk == 0,
-                             lambda s: jax.vmap(stack.mix)(s, jnp.broadcast_to(
-                                 actions[:, index//chunk, :, None], (s.shape[0], 3, s.shape[-1]))),
-                             lambda s: s, state)
+        state = jax.lax.cond(
+            (index + 1) % chunk == 0,
+            lambda s: jax.vmap(stack.mix)(
+                s, jnp.broadcast_to(actions[:, index // chunk, :, None], (s.shape[0], 3, s.shape[-1]))
+            ),
+            lambda s: s,
+            state,
+        )
         return state, out
 
     final, out = jax.lax.scan(step, initial, (jnp.arange(q.shape[1]), tokens))
@@ -68,8 +78,12 @@ def compare(actual, expected, strict=True):
         a, b = np.asarray(a), np.asarray(b)
         if not np.isfinite(a).all():
             raise ValueError("Nonfinite boundary-stack result")
-        result.append({"max_abs": float(np.max(np.abs(a-b))),
-                       "relative_l2": float(np.linalg.norm(a-b)/max(np.linalg.norm(b), 1e-12))})
+        result.append(
+            {
+                "max_abs": float(np.max(np.abs(a - b))),
+                "relative_l2": float(np.linalg.norm(a - b) / max(np.linalg.norm(b), 1e-12)),
+            }
+        )
         if strict:
             np.testing.assert_allclose(a, b, atol=1e-5, rtol=1e-4)
     return result
@@ -85,8 +99,9 @@ def validate_boundary_stack(rank=128, interpret=False):
     result["mixed_vs_literal"] = compare(evaluate(mixed, xs, state), oracle, False)
     if any(row["relative_l2"] > 0.05 and row["max_abs"] > 1e-4 for row in result["mixed_vs_literal"]):
         raise ValueError("Mixed approximation exceeds the frozen 5% relative-L2 / 1e-4 absolute bound")
-    result["mixed_vjp"] = compare(evaluate(mixed, xs, state),
-                                   evaluate(lambda x, s: candidate(x, s, mixed=True, reference=True), xs, state))
+    result["mixed_vjp"] = compare(
+        evaluate(mixed, xs, state), evaluate(lambda x, s: candidate(x, s, mixed=True, reference=True), xs, state)
+    )
     return result
 
 
@@ -109,12 +124,24 @@ def main():
         write_record(directory, root, name + ".json", value)
         print(json.dumps({name: value}), flush=True)
 
-    record("manifest", {"training_updates": 0, "artifact_root": root, "jax": jax.__version__,
-                        "issue_url": "https://github.com/WhenWen/astra-d8-research/issues/59",
-                        "source_hashes": {str(p.relative_to(source.parent)): hashlib.sha256(p.read_bytes()).hexdigest()
-                                          for p in (source.parent / "moe/boundary_stack_kda.py",
-                                                    source.parent / "moe/kda.py", source.parent / "moe/kda_state_tpu.py",
-                                                    Path(__file__))}})
+    record(
+        "manifest",
+        {
+            "training_updates": 0,
+            "artifact_root": root,
+            "jax": jax.__version__,
+            "issue_url": "https://github.com/WhenWen/astra-d8-research/issues/59",
+            "source_hashes": {
+                str(p.relative_to(source.parent)): hashlib.sha256(p.read_bytes()).hexdigest()
+                for p in (
+                    source.parent / "moe/boundary_stack_kda.py",
+                    source.parent / "moe/kda.py",
+                    source.parent / "moe/kda_state_tpu.py",
+                    Path(__file__),
+                )
+            },
+        },
+    )
     # Import here avoids the training entrypoint importing its own benchmark.
     from experiments.grug.moe_cplm.train_belay import tpu_recurrence  # noqa: PLC0415
 

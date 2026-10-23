@@ -50,7 +50,11 @@ def head_backward(q, a, k, w, decay, state, z, dy, ds, mixed):
     dot = functools.partial(native._dot, precision=jax.lax.Precision.HIGHEST)
     dz = dot(a.T, dy) + dot(k, ds)
     return (
-        dot(dy, state.T), dot(dy, z.T), dot(z, ds.T), -dot(dz, state.T), dz,
+        dot(dy, state.T),
+        dot(dy, z.T),
+        dot(z, ds.T),
+        -dot(dz, state.T),
+        dz,
         jnp.sum((state * ds).T, axis=0)[None, :],
         decay.T * ds - dot(w.T, dz) + dot(q.T, dy),
     )
@@ -72,7 +76,7 @@ def _forward(*refs, mixed):
 
 
 def _backward(*refs, mixed):
-    qr, ar, kr, wr, vr, dr, actr, hr, ur, zr, dyr, dsr = refs[:12]
+    qr, ar, kr, wr, _vr, dr, actr, hr, ur, zr, dyr, dsr = refs[:12]
     *outputs, scratch = refs[12:]
 
     @pl.when(pl.program_id(1) == 0)
@@ -80,8 +84,7 @@ def _backward(*refs, mixed):
         scratch[...] = dsr[...]
 
     du, da = mix_backward(ur[...], actr[...], scratch[...])
-    values = [head_backward(qr[h], ar[h], kr[h], wr[h], dr[h], hr[h], zr[h], dyr[h], du[h], mixed)
-              for h in range(4)]
+    values = [head_backward(qr[h], ar[h], kr[h], wr[h], dr[h], hr[h], zr[h], dyr[h], du[h], mixed) for h in range(4)]
     grads = [jnp.stack([value[i] for value in values]) for i in range(7)]
     for ref, value in zip(outputs, (*grads[:6], da, grads[6]), strict=True):
         ref[...] = value
@@ -93,28 +96,40 @@ def _call(prepared, initial, mixed, interpret, residual=None):
     reverse = residual is not None
 
     def chunk_spec(shape):
-        return pl.BlockSpec((None, None, *shape),
-                            lambda g, n: (g, chunks - 1 - n if reverse else n, *((0,) * len(shape))))
+        return pl.BlockSpec(
+            (None, None, *shape), lambda g, n: (g, chunks - 1 - n if reverse else n, *((0,) * len(shape)))
+        )
 
     state_spec = pl.BlockSpec((None, *initial.shape[1:]), lambda g, n: (g, 0, 0, 0))
     if reverse:
         states, updated, innovation, dy, ds = residual
         inputs = (*prepared, states, updated, innovation, dy, ds)
-        shapes = (*[jax.ShapeDtypeStruct(x.shape, x.dtype) for x in prepared],
-                  jax.ShapeDtypeStruct(initial.shape, initial.dtype))
+        shapes = (
+            *[jax.ShapeDtypeStruct(x.shape, x.dtype) for x in prepared],
+            jax.ShapeDtypeStruct(initial.shape, initial.dtype),
+        )
         specs = [*[chunk_spec(x.shape[2:]) for x in prepared], state_spec]
     else:
         inputs = (*prepared, initial)
-        dims = (prepared[4].shape, (groups, chunks, *initial.shape[1:]),
-                (groups, chunks, *initial.shape[1:]), prepared[4].shape, initial.shape)
+        dims = (
+            prepared[4].shape,
+            (groups, chunks, *initial.shape[1:]),
+            (groups, chunks, *initial.shape[1:]),
+            prepared[4].shape,
+            initial.shape,
+        )
         shapes = tuple(jax.ShapeDtypeStruct(shape, jnp.float32) for shape in dims)
         specs = [*[chunk_spec(shape[2:]) for shape in dims[:-1]], state_spec]
     return pl.pallas_call(
-        functools.partial(_backward if reverse else _forward, mixed=mixed), out_shape=shapes,
-        grid=(groups, chunks), in_specs=[*[chunk_spec(x.shape[2:]) for x in inputs[:-1]], state_spec],
-        out_specs=specs, scratch_shapes=[pltpu.VMEM(initial.shape[1:], jnp.float32)],
+        functools.partial(_backward if reverse else _forward, mixed=mixed),
+        out_shape=shapes,
+        grid=(groups, chunks),
+        in_specs=[*[chunk_spec(x.shape[2:]) for x in inputs[:-1]], state_spec],
+        out_specs=specs,
+        scratch_shapes=[pltpu.VMEM(initial.shape[1:], jnp.float32)],
         compiler_params=pltpu.CompilerParams(dimension_semantics=("parallel", "arbitrary")),
-        interpret=interpret, name="boundary_stack_backward" if reverse else "boundary_stack_forward",
+        interpret=interpret,
+        name="boundary_stack_backward" if reverse else "boundary_stack_forward",
     )(*inputs)
 
 
@@ -151,8 +166,22 @@ def scan_state(prepared, initial, mixed):
     return jax.vmap(sequence)(prepared, initial)
 
 
-def chunk_kda(q, k, v, g, beta, *, actions, chunk_size=CHUNK, initial_state=None,
-              use_qk_l2norm=True, matmul_dtype=jnp.bfloat16, segment_ids=None, interpret=False, reference=False):
+def chunk_kda(
+    q,
+    k,
+    v,
+    g,
+    beta,
+    *,
+    actions,
+    chunk_size=CHUNK,
+    initial_state=None,
+    use_qk_l2norm=True,
+    matmul_dtype=jnp.bfloat16,
+    segment_ids=None,
+    interpret=False,
+    reference=False,
+):
     """Native head-major KDA inputs; actions are [..., T/C, push/pop/stay]."""
     lead, heads, length, rank = q.shape[:-3], *q.shape[-3:]
     if heads != 4 or length % chunk_size:
@@ -196,6 +225,15 @@ def chunk_kda(q, k, v, g, beta, *, actions, chunk_size=CHUNK, initial_state=None
 
 def native_kernel(q, k, v, g, beta, actions, segment_ids=None, *, chunk=CHUNK, precision="mixed"):
     q, k, v, g = (jnp.swapaxes(x, 1, 2) for x in (q, k, v, g))
-    out, _ = chunk_kda(q, k, v, g, jnp.swapaxes(beta, 1, 2), actions=actions, chunk_size=chunk,
-                       segment_ids=segment_ids, matmul_dtype=jnp.bfloat16 if precision == "mixed" else jnp.float32)
+    out, _ = chunk_kda(
+        q,
+        k,
+        v,
+        g,
+        jnp.swapaxes(beta, 1, 2),
+        actions=actions,
+        chunk_size=chunk,
+        segment_ids=segment_ids,
+        matmul_dtype=jnp.bfloat16 if precision == "mixed" else jnp.float32,
+    )
     return jnp.swapaxes(out, 1, 2)

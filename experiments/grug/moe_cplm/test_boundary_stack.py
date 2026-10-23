@@ -11,11 +11,11 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from experiments.grug.moe_cplm.boundary_stack_validation import candidate, compare, evaluate, fixture, literal
 from experiments.grug.fast_track import model
 from experiments.grug.fast_track.test_kda_local import _config, _mesh
 from experiments.grug.moe import boundary_stack_kda as stack
 from experiments.grug.moe_cplm.boundary_stack_kda_model import BoundaryStackKimiDeltaAttention, NativeKimiDeltaAttention
+from experiments.grug.moe_cplm.boundary_stack_validation import candidate, compare, evaluate, fixture, literal
 from experiments.grug.moe_cplm.test_stack_kda_model import serial_native
 
 
@@ -25,7 +25,10 @@ def test_native_layer_limit_and_boundary_action_gradients():
     def interpreted(q, k, v, g, beta, actions, segment_ids=None, **kwargs):
         out, _ = stack.chunk_kda(
             *(jnp.swapaxes(x, 1, 2) for x in (q, k, v, g, beta)),
-            actions=actions, segment_ids=segment_ids, matmul_dtype=jnp.float32, interpret=True,
+            actions=actions,
+            segment_ids=segment_ids,
+            matmul_dtype=jnp.float32,
+            interpret=True,
         )
         return jnp.swapaxes(out, 1, 2)
 
@@ -50,15 +53,19 @@ def test_native_layer_limit_and_boundary_action_gradients():
 
 def test_fp32_forward_and_all_adjoints_with_reset():
     xs, state = fixture(8, rank=8, chunk=4)
-    compare(evaluate(lambda x, s: candidate(x, s, 4, interpret=True), xs, state),
-            evaluate(lambda x, s: literal(x, s, 4), xs, state))
+    compare(
+        evaluate(lambda x, s: candidate(x, s, 4, interpret=True), xs, state),
+        evaluate(lambda x, s: literal(x, s, 4), xs, state),
+    )
 
 
 @pytest.mark.parametrize("mixed", [False, True])
 def test_fused_reverse_matches_executed_native_scan(mixed):
     xs, state = fixture(8, rank=8, chunk=4)
-    compare(evaluate(lambda x, s: candidate(x, s, 4, mixed, True), xs, state),
-            evaluate(lambda x, s: candidate(x, s, 4, mixed, reference=True), xs, state))
+    compare(
+        evaluate(lambda x, s: candidate(x, s, 4, mixed, True), xs, state),
+        evaluate(lambda x, s: candidate(x, s, 4, mixed, reference=True), xs, state),
+    )
 
 
 def test_push_pop_preserves_three_states_and_boundary_is_causal():

@@ -715,8 +715,12 @@ def main(argv=None):
                             "source_sha256": {
                                 name: hashlib.sha256(Path(__file__).parent.joinpath(name).read_bytes()).hexdigest()
                                 for name in (
-                                    "../moe/boundary_stack_kda.py", "boundary_stack_kda_model.py",
-                                    "belay_recipe.json", "plus.py", "belay.py", "train_belay.py",
+                                    "../moe/boundary_stack_kda.py",
+                                    "boundary_stack_kda_model.py",
+                                    "belay_recipe.json",
+                                    "plus.py",
+                                    "belay.py",
+                                    "train_belay.py",
                                 )
                             },
                             "data_manifest_sha256": hashlib.sha256(args.data_config.read_bytes()).hexdigest(),
