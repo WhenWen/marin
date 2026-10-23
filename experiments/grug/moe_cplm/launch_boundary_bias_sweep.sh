@@ -27,5 +27,11 @@ for bias in 0 2 4; do
         --variant plus-boundary-stack-kda --width 512 --steps 10676 \
         --stop-after-steps 1000 --tpu-chips 16 --boundary-stay-bias "$bias" \
         > "$log_dir/bias${bias}-submit.log" 2>&1
-    "${iris[@]}" job wait "/kaiyuew@stanford.edu/$job" > "$log_dir/bias${bias}-wait.log" 2>&1
 done
+
+failed=0
+for bias in 0 2 4; do
+    job="boundary-stack-bias${bias}-20261023-v2"
+    "${iris[@]}" job wait "/kaiyuew@stanford.edu/$job" > "$log_dir/bias${bias}-wait.log" 2>&1 || failed=1
+done
+exit "$failed"
