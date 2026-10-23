@@ -30,8 +30,12 @@ def errors(actual, expected, *, strict):
         a, b = np.asarray(a), np.asarray(b)
         if not np.isfinite(a).all():
             raise ValueError("Nonfinite fused result")
-        result.append({"max_abs": float(np.max(np.abs(a-b))),
-                       "relative_l2": float(np.linalg.norm(a-b)/max(np.linalg.norm(b), 1e-12))})
+        result.append(
+            {
+                "max_abs": float(np.max(np.abs(a - b))),
+                "relative_l2": float(np.linalg.norm(a - b) / max(np.linalg.norm(b), 1e-12)),
+            }
+        )
         if strict:
             np.testing.assert_allclose(a, b, atol=1e-5, rtol=1e-4)
     return result
@@ -41,7 +45,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--artifact-root", required=True)
     args = parser.parse_args()
-    jax.config.update("jax_enable_pgle", False)
+    source = Path(__file__).parent
+    settings = json.loads((source / "belay_recipe.json").read_text())["trainer"]["trainer"]["jax_config"]
+    settings["jax_enable_pgle"] = False
+    for name, value in settings.items():
+        jax.config.update(name, value)
     os.environ["XLA_FLAGS"] = os.environ.get("XLA_FLAGS", "") + " --xla_allow_excess_precision=false"
     if any(x.device_kind != "TPU v4" for x in jax.local_devices()):
         raise ValueError("Qualification requires TPU v4")
@@ -54,14 +62,30 @@ def main():
         write_record(directory, root, name + ".json", result)
         print(json.dumps({name: result}), flush=True)
 
-    source = Path(__file__).parent
-    record("manifest", {"training_updates": 0, "artifact_root": root, "chunk": 16,
-                        "issue_url": "https://github.com/WhenWen/astra-d8-research/issues/59",
-                        "jax": jax.__version__, "shape": [1, 8192, 4, 128, 128],
-                        "source_hashes": {str(p.relative_to(source.parent)): hashlib.sha256(p.read_bytes()).hexdigest()
-                                          for p in (source.parent / "moe/head_stack_tree.py",
-                                                    source.parent / "moe/head_stack_state_tpu.py",
-                                                    source.parent / "moe/head_stack_kda.py", Path(__file__))}})
+    record(
+        "manifest",
+        {
+            "training_updates": 0,
+            "artifact_root": root,
+            "chunk": 16,
+            "issue_url": "https://github.com/WhenWen/astra-d8-research/issues/59",
+            "jax": jax.__version__,
+            "jax_settings": settings,
+            "shape": [1, 8192, 4, 128, 128],
+            "source_hashes": {
+                str(p.relative_to(source.parent)): hashlib.sha256(p.read_bytes()).hexdigest()
+                for p in (
+                    source.parent / "moe/head_stack_tree.py",
+                    source.parent / "moe/head_stack_state_tpu.py",
+                    source.parent / "moe/head_stack_kda.py",
+                    source.parent / "moe/kda.py",
+                    source.parent / "moe/kda_state_tpu.py",
+                    source / "belay_recipe.json",
+                    Path(__file__),
+                )
+            },
+        },
+    )
     with jax.default_device(jax.local_devices()[0]), patch.object(kda, "_parallel_chunk_recurrence", tpu_recurrence):
         inputs, initial = fixture(32, mixed=True)
         split = stack._split(inputs, 16)
@@ -73,20 +97,29 @@ def main():
             record("prep-" + precision, errors((actual, fpb(dy)), (expected, pb(dy)), strict=precision == "fp32"))
         print("Compile fused state stream and full reverse", flush=True)
         fn = lambda xs, s: chunked(xs, s, 16)  # noqa: E731
-        actual = (jax.jit(fn)(inputs, initial),
-                  jax.jit(jax.value_and_grad(lambda x, s: objective(fn, x, s), argnums=(0, 1)))(inputs, initial))
-        expected = (stack.reference(inputs, initial),
-                    jax.jit(jax.value_and_grad(lambda x, s: objective(stack.reference, x, s), argnums=(0, 1)))(
-                        inputs, initial))
+        actual = (
+            jax.jit(fn)(inputs, initial),
+            jax.jit(jax.value_and_grad(lambda x, s: objective(fn, x, s), argnums=(0, 1)))(inputs, initial),
+        )
+        expected = (
+            stack.reference(inputs, initial),
+            jax.jit(jax.value_and_grad(lambda x, s: objective(stack.reference, x, s), argnums=(0, 1)))(inputs, initial),
+        )
         record("full-fp32", errors(actual, expected, strict=True))
         mixed_fn = lambda xs, s: chunked(xs, s, 16, "mixed")  # noqa: E731
-        mixed = (jax.jit(mixed_fn)(inputs, initial),
-                 jax.jit(jax.value_and_grad(lambda x, s: objective(mixed_fn, x, s), argnums=(0, 1)))(inputs, initial))
+        mixed = (
+            jax.jit(mixed_fn)(inputs, initial),
+            jax.jit(jax.value_and_grad(lambda x, s: objective(mixed_fn, x, s), argnums=(0, 1)))(inputs, initial),
+        )
         record("full-mixed-vs-fp32", errors(mixed, actual, strict=False))
         inputs, initial = fixture(8192)
         print("Fixed-shape timings", flush=True)
         record("native", benchmark(native, inputs, initial))
-        record("fused-mixed", benchmark(mixed_fn, inputs, initial))
+
+        def timed_candidate(xs, s):
+            return mixed_fn((*xs[:-1], jax.lax.stop_gradient(xs[-1])), s)
+
+        record("fused-mixed", benchmark(timed_candidate, inputs, initial))
 
 
 if __name__ == "__main__":
