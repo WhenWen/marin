@@ -3,7 +3,8 @@
 
 """Four native heads as one stack, with no additional recurrent state.
 
-Vector inputs have shape [..., T, 4, channels], shared actions [..., T, 3],
+Public chunk_kda uses native head-major vector inputs [..., 4, T, channels].
+Internal vector inputs use [..., T, 4, channels], actions [..., T, 3],
 beta [..., T, 4], keep [..., T], and state [..., 4, R, V].
 """
 

@@ -12,6 +12,18 @@ roundtrip on TPU v4 changed decay by up to 7.82e-5 and caused the two failed
 hard-stay checks. Matching effective decay restored strict equivalence in v3
 (output max error 1.49e-8, final state 1.49e-7). No tolerance was changed.
 
+The public interface inherits the frozen Belay configuration's core KDA
+arguments, not every optional native backend switch. Native helpers still
+normalize/scale q/k and identify document starts. Segment ids are integer
+controls with no cotangent; the interface oracle stops the keep gradient.
+Internal recurrence tests separately audit its continuous keep relaxation.
+The model subclass retains native parameter initialization and its external
+call signature. It adds the action projection and replaces state evolution;
+its forward projection plumbing is copied from the frozen native version.
+The native independent-head Pallas state pass cannot execute cross-head
+push/pop unchanged. This implementation uses a new XLA chunk recurrence and
+automatic backward, so sharing an interface does not imply sharing its speed.
+
 2026-10-23, before the revised TPU submission: remove replace following user
 feedback. The current actions are push, pop and stay, with softmax bias [0,0,6].
 Their definitions below are unchanged; the replace branch is absent. Action
