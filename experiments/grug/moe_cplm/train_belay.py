@@ -661,9 +661,11 @@ def main(argv=None):
                             "comparison": "equal tokens; per-layer depth-four KDA replaces the native recurrence",
                             "additional_parameters": 32832,
                             "depth": 4,
-                            "kernel_source_sha256": hashlib.sha256(
-                                Path(__file__).parent.parent.joinpath("moe/stack_kda.py").read_bytes()
-                            ).hexdigest(),
+                            "kernel_source_sha256": (
+                                hashlib.sha256(
+                                    Path(__file__).parent.parent.joinpath("moe/stack_kda.py").read_bytes()
+                                ).hexdigest()
+                            ),
                             "read": "top after update",
                             "action_initial_bias": [0, 0, 6, 0],
                             "data_manifest_sha256": hashlib.sha256(args.data_config.read_bytes()).hexdigest(),
