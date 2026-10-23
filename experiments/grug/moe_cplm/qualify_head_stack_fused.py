@@ -91,8 +91,8 @@ def main():
         split = stack._split(inputs, 16)
         for precision in ("fp32", "mixed"):
             print("Compile fused preparation and reverse: " + precision, flush=True)
-            expected, pb = jax.vjp(lambda xs: prepare_tree(xs, precision), split)
-            actual, fpb = jax.vjp(lambda xs: fused_prepare(xs, precision), split)
+            expected, pb = jax.vjp(lambda xs, p=precision: prepare_tree(xs, p), split)
+            actual, fpb = jax.vjp(lambda xs, p=precision: fused_prepare(xs, p), split)
             dy = jax.tree.map(jnp.cos, expected)
             record("prep-" + precision, errors((actual, fpb(dy)), (expected, pb(dy)), strict=precision == "fp32"))
         print("Compile fused state stream and full reverse", flush=True)
