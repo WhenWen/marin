@@ -43,6 +43,7 @@ from experiments.grug.moe import kda
 from experiments.grug.moe.kda_state_tpu import state_pass
 from experiments.grug.moe_cplm import accumulation, case_classes, plus
 from experiments.grug.moe_cplm.belay import Belay, CopyPasteBelay
+from experiments.grug.moe_cplm.boundary_stack_kda_model import BoundaryStackKimiDeltaAttention
 from experiments.grug.moe_cplm.checkpoint_io import python_zarr_checkpoint_writes
 from experiments.grug.moe_cplm.frame_kda import FRAME_CONFIG
 from experiments.grug.moe_cplm.frame_kda_model import FrameKDAPlus
@@ -56,6 +57,8 @@ DATA = Path(__file__).with_name("july_data.json")
 REFERENCE_PROJECTION = model._proj
 MODELS = {"belay": Belay, "cplm": CopyPasteBelay, "plus": plus.BelayCPLMPlus, "plus-frame-kda": FrameKDAPlus}
 MODELS["plus-stack4-kda"] = plus.BelayCPLMPlus
+MODELS["plus-boundary-stack-kda"] = plus.BelayCPLMPlus
+STACK_VARIANTS = {"plus-stack4-kda": StackKimiDeltaAttention, "plus-boundary-stack-kda": BoundaryStackKimiDeltaAttention}
 
 
 def gathered_projection(cfg, x, weight, out_sharding=None):
@@ -86,8 +89,8 @@ def tpu_recurrence(prep, state, mm, lead, dk, dv, *, scan_impl):
 def execution(variant="cplm", tables=None):
     """Bind TPU implementations for this single-run process, including eval."""
     with ExitStack() as stack:
-        if variant == "plus-stack4-kda":
-            stack.enter_context(patch.object(model, "KimiDeltaAttention", StackKimiDeltaAttention))
+        if variant in STACK_VARIANTS:
+            stack.enter_context(patch.object(model, "KimiDeltaAttention", STACK_VARIANTS[variant]))
             stack.enter_context(
                 patch.object(
                     optimizer,
@@ -330,7 +333,7 @@ def main(argv=None):
     parser.add_argument("--steps", type=int, default=10980)
     parser.add_argument("--compute-budget", type=Path)
     args = parser.parse_args(argv)
-    plus_variant = args.variant in ("plus", "plus-frame-kda", "plus-stack4-kda")
+    plus_variant = args.variant in ("plus", "plus-frame-kda", *STACK_VARIANTS)
     if args.variant == "plus-frame-kda" and args.width != 512:
         raise ValueError("The protected-frame experiment is frozen at d512")
     run_name = args.run_name
@@ -379,7 +382,7 @@ def main(argv=None):
     args.output = args.output / attempt
     args.output.mkdir(parents=True, exist_ok=True)
     artifact_root = args.artifact_root.rstrip("/") + "/" + attempt
-    if args.variant == "plus-stack4-kda":
+    if args.variant in STACK_VARIANTS:
         # Each restart starts a new scientific trajectory and W&B curve.
         args.checkpoint_path = args.checkpoint_path.rstrip("/") + "/" + attempt
 
@@ -421,7 +424,7 @@ def main(argv=None):
         expert_chunks=args.expert_chunks,
     )
     budget = None
-    if args.variant == "plus-stack4-kda":
+    if args.variant in STACK_VARIANTS:
         if args.width != 512:
             raise ValueError("The layer-internal stack comparison is frozen at d512")
     execution_policy = "native-saved-global-qb" if args.grad_accum_microbatches > 1 else "native-saved"
@@ -484,6 +487,10 @@ def main(argv=None):
         persist("frame-kda-preflight.json", frame_check)
     if args.variant == "plus-stack4-kda":
         persist("stack-kda-preflight.json", validate_stack_kda(config.model.max_seq_len))
+    if args.variant == "plus-boundary-stack-kda":
+        from experiments.grug.moe_cplm.boundary_stack_validation import validate_boundary_stack  # noqa: PLC0415
+
+        persist("boundary-stack-preflight.json", validate_boundary_stack())
     if args.batch_size in (32, 64, 128):
         histogram_check = validate_histogram(args.batch_size * 8192 // args.tpu_chips)
         persist("histogram-preflight.json", histogram_check)
@@ -577,7 +584,7 @@ def main(argv=None):
         def gradient_checks(loss, grads):
             finite = jnp.all(jnp.stack([jnp.all(jnp.isfinite(x)) for x in jax.tree.leaves(grads)]))
             norms = jnp.array([jnp.linalg.norm(getattr(grads, k)) for k in names])
-            if args.variant == "plus-stack4-kda":
+            if args.variant in STACK_VARIANTS:
                 norms = jnp.concatenate((norms, stack_action_norms(grads)))
             positive = jnp.concatenate((norms[:4], norms[5:])) if plus_variant else norms
             good = finite & jnp.isfinite(loss) & jnp.all(jnp.isfinite(positive) & (positive > 0))
@@ -688,6 +695,35 @@ def main(argv=None):
                         }
                         wandb.config.update(contract)
                         persist("stack-kda-contract.json", contract)
+                    if args.variant == "plus-boundary-stack-kda":
+                        contract = {
+                            "issue_url": "https://github.com/WhenWen/astra-d8-research/issues/59",
+                            "motivating_task_url": "https://github.com/WhenWen/astra-d8-research/issues/58",
+                            "synthetic_task_evaluated": False,
+                            "synthetic_gate_waiver": "User explicitly requested direct native LM testing",
+                            "baseline_run_id": "4434036161f49ae783d3",
+                            "comparison": "equal tokens; all four native KDA heads mix only at chunk boundaries",
+                            "additional_parameters": 6156,
+                            "state_bytes_per_sequence_layer": 262144,
+                            "depth": 4,
+                            "chunk_size": 16,
+                            "read": "all four native outputs before boundary mixing",
+                            "action_order": ["push", "pop", "stay"],
+                            "action_initial_bias": [0, 0, 6],
+                            "action_optimizer": "native kda_decay Adam group",
+                            "restart_policy": "fresh initialization and 10676 updates per process restart; no resume",
+                            "source_sha256": {
+                                name: hashlib.sha256(Path(__file__).parent.joinpath(name).read_bytes()).hexdigest()
+                                for name in (
+                                    "../moe/boundary_stack_kda.py", "boundary_stack_kda_model.py",
+                                    "belay_recipe.json", "plus.py", "belay.py", "train_belay.py",
+                                )
+                            },
+                            "data_manifest_sha256": hashlib.sha256(args.data_config.read_bytes()).hexdigest(),
+                            "tokenizer_files_sha256": identities,
+                        }
+                        wandb.config.update(contract)
+                        persist("boundary-stack-contract.json", contract)
                 if not memory_schedule:
                     loss, finite, norms = jax.device_get(preflight(leaves, batch, **kwargs))
                     record_startup_memory("after_full_model_preflight")
@@ -735,7 +771,7 @@ def main(argv=None):
                     )
                     state_is_finite.clear_cache()
                     retain_compiler_dump()
-            if completed == 2 and args.variant == "plus-stack4-kda":
+            if completed == 2 and args.variant in STACK_VARIANTS:
                 norms = np.asarray(jax.device_get(action_parameter_norms(result[0])))
                 if not (np.isfinite(norms).all() and (norms > 0).all()):
                     raise ValueError("Zero-initialized action weights did not learn in every KDA layer")

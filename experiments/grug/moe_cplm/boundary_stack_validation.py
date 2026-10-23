@@ -83,6 +83,8 @@ def validate_boundary_stack(rank=128, interpret=False):
     oracle = evaluate(literal, xs, state)
     result["fp32"] = compare(evaluate(exact, xs, state), oracle)
     result["mixed_vs_literal"] = compare(evaluate(mixed, xs, state), oracle, False)
+    if any(row["relative_l2"] > 0.05 and row["max_abs"] > 1e-4 for row in result["mixed_vs_literal"]):
+        raise ValueError("Mixed approximation exceeds the frozen 5% relative-L2 / 1e-4 absolute bound")
     result["mixed_vjp"] = compare(evaluate(mixed, xs, state),
                                    evaluate(lambda x, s: candidate(x, s, mixed=True, reference=True), xs, state))
     return result
@@ -120,7 +122,7 @@ def main():
         record("checks", validate_boundary_stack())
         xs, state = fixture(128)
         stay = (jnp.broadcast_to(jnp.array([0, 0, 1], jnp.float32), xs[0].shape), *xs[1:])
-        record("hard-stay", compare(candidate(stay, state, mixed=True), native(stay, state), False))
+        record("hard-stay", compare(candidate(stay, state, mixed=True), native(stay, state)))
         xs, state = fixture(8192)
         record("native", benchmark(native, xs, state))
         record("boundary-mixed", benchmark(lambda x, s: candidate(x, s, mixed=True), xs, state))

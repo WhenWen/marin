@@ -3,10 +3,49 @@
 
 """Non-training numerical checks for fused boundary head mixing."""
 
+from unittest.mock import patch
+
+import equinox as eqx
+import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
 from experiments.grug.moe_cplm.boundary_stack_validation import candidate, compare, evaluate, fixture, literal
+from experiments.grug.fast_track import model
+from experiments.grug.fast_track.test_kda_local import _config, _mesh
+from experiments.grug.moe import boundary_stack_kda as stack
+from experiments.grug.moe_cplm.boundary_stack_kda_model import BoundaryStackKimiDeltaAttention, NativeKimiDeltaAttention
+from experiments.grug.moe_cplm.test_stack_kda_model import serial_native
+
+
+def test_native_layer_limit_and_boundary_action_gradients():
+    cfg = _config(max_seq_len=32, num_heads=4, head_dim=8, kda_onchip_decay_gate=True)
+
+    def interpreted(q, k, v, g, beta, actions, segment_ids=None, **kwargs):
+        out, _ = stack.chunk_kda(
+            *(jnp.swapaxes(x, 1, 2) for x in (q, k, v, g, beta)),
+            actions=actions, segment_ids=segment_ids, matmul_dtype=jnp.float32, interpret=True,
+        )
+        return jnp.swapaxes(out, 1, 2)
+
+    with jax.set_mesh(_mesh()), patch.object(stack, "native_kernel", interpreted):
+        baseline = NativeKimiDeltaAttention.init(cfg, key=jax.random.PRNGKey(8))
+        layer = BoundaryStackKimiDeltaAttention.init(cfg, key=jax.random.PRNGKey(8), precision="fp32")
+        x = jax.random.normal(jax.random.PRNGKey(9), (1, 32, 32))
+        segments = (jnp.arange(32) >= 15)[None].astype(jnp.int32)
+        stay = eqx.tree_at(lambda m: m.stack_action_bias, layer, jnp.array([-100.0, -100.0, 100.0]))
+        with patch.object(model, "_kda_kernel", serial_native):
+            expected = eqx.filter_jit(lambda m: m(x, segment_ids=segments)[0])(baseline)
+        actual = eqx.filter_jit(lambda m: m(x, segment_ids=segments)[0])(stay)
+        np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-4)
+        loss, grads = eqx.filter_jit(
+            eqx.filter_value_and_grad(lambda m: jnp.sum(jnp.sin(m(x, segment_ids=segments)[0])))
+        )(layer)
+        assert np.isfinite(loss)
+        for value in (grads.w_stack_actions, grads.stack_action_bias):
+            assert np.isfinite(value).all()
+            assert np.max(np.abs(value)) > 0
 
 
 def test_fp32_forward_and_all_adjoints_with_reset():

@@ -17,8 +17,9 @@ updated states U are mixed once, after emitting that chunk's outputs:
            + pop *[U1,U2,U3,0].
 
 Actions are softmax(x_last W+b), using the last token's normalized KDA layer
-input. They affect only the following chunk, so no future token influences
-an earlier output. W is zero initialized, b=[0,0,6]. Native q/k/v, decay,
+input. Softmax coordinates are [push, pop, stay]. They affect only the following
+chunk, so no future token influences an earlier output. W is zero initialized,
+b=[0,0,6], giving approximately [0.002467,0.002467,0.995067]. Native q/k/v, decay,
 beta, convolutions, output norm/gate/projection, MLA, MoE, AttnRes and the
 CPLM Plus copy head remain unchanged. The four KDA layers each add 1,539
 parameters, totaling 6,156. All heads continue writing; lower slots are not
@@ -43,8 +44,11 @@ Native preparation and state GEMM FLOPs are unchanged. Boundary routing and
 its adjoint add O(4RV) arithmetic per chunk, or O(4RV/C) per token, plus three
 inner-product reductions. The ordered boundary depth remains T/C. Head-level
 stream parallelism is reduced because a stream owns all four heads; sequence
-groups remain independent. No extra network communication is required under
-model-axis size 1. Speed is a measured question, not inferred from FLOP counts.
+groups remain independent. Boundary routing requires no network communication
+under model-axis size 1. The controller adds a 512-by-3 projection and a
+three-way softmax per boundary/layer; its 6,156 FP32 parameter gradients add
+24,624 bytes of gradient payload to distributed synchronization per update
+(wire traffic depends on the collective algorithm). Speed is measured.
 
 The first implementation saves U for action gradients as well as native
 incoming states and innovations. This adds T/C times 256 KiB of saved
@@ -55,10 +59,13 @@ residual memory separately from recurrent state.
 ## Qualification and training
 
 Use FP32 literal token recurrence plus boundary mixing as the independent
-oracle. Check outputs, final state and all continuous input/state gradients
-at atol=1e-5, rtol=1e-4; check hard stay, hard routing, document resets and
-chunk continuation. Separately compare the mixed fused path with the same
-native prepared recurrence and report approximation errors. Disable XLA
+oracle. The candidate's FP32 preparation and fused state kernel must match
+outputs, final state and all continuous input/state gradients at atol=1e-5,
+rtol=1e-4; check hard stay, hard routing, document resets and chunk continuation.
+The deployed mixed fused path must match the executed native-prepared scan
+and its VJP at the same strict tolerances. Separately, each mixed-versus-literal
+FP32 output/gradient leaf must have relative L2 error <=5% or maximum absolute
+error <=1e-4; report all errors, including those below these bounds. Disable XLA
 excess-precision elision consistently; do not loosen FP32 thresholds.
 
 Measure native and candidate on TPU v4, B1,T8192,H4,R128,V128,C16, using the
@@ -76,9 +83,23 @@ additional controller parameters and any throughput/memory change. Optimizer
 schedule is build_config(width=512,steps=10676,batch_size=16); new action
 weights use native KDA Adam routing, not MuonH.
 
+The candidate is plus-boundary-stack-kda, initialized fresh with native seed 0;
+all shared parameter initialization and the data order, copy-head settings and
+validation schedule inherit train_belay.build_config from the reused baseline.
+Frozen SHA256 identities are belay_recipe.json
+1c20b82a2fd4a37b7e30bc0de7e78354d3c3ed5ca132359ade1f4cf47e976fb5,
+july_data.json f6a1300f821eabcdd670556fc886d7d930f9a3a9ae64ff175568d7041cd3b57b,
+and tokenizer_identity.json c64ccac3589298ea8f0d8ba05e6f6e1c7c3ce7a969dd2a3b1c4374c373b27f17.
+The launch contract saves source hashes for the actual wrapper, kernel,
+training entrypoint and copy-head implementation; resolved-config.json records
+the complete model/optimizer/data/evaluation settings before updates.
+
 Use online W&B, a non-training logging preflight, incremental regional loss
 logs, the inherited validation/checkpoint schedule and fresh run/checkpoint
-identities after each process restart. Preserve Iris default preemption and
+identities after each process restart. This entrypoint does not resume: a restart
+initializes model, optimizer, RNG, data position and step count afresh, and runs
+10,676 updates in that new trajectory. Interrupted attempts remain separate
+curves and cannot be counted as resumed progress. Preserve Iris default preemption and
 retry behavior; impose no queue or experiment wall-clock limit. A full-model
 zero-update preflight checks finite loss/gradients and nonzero copy/action
 gradients before training. Present partial loss curves when reporting launch
