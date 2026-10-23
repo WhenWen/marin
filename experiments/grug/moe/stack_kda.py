@@ -18,6 +18,7 @@ from experiments.grug.moe.kda import _unit_lower_triangular_inverse
 
 DEPTH = 4
 CHUNK = 32
+BACKWARD_BATCH = 16
 PRECISION = jax.lax.Precision.HIGHEST
 
 
@@ -181,7 +182,7 @@ def _bwd(chunk, saved, cotangents):
         return pullback((dy, terminal))[0]
 
     local_inputs = jax.tree.map(flatten, (xs, incoming, dy, outgoing))
-    gradients = jax.lax.map(local, local_inputs)
+    gradients = jax.lax.map(local, local_inputs, batch_size=BACKWARD_BATCH)
     gradients = tuple(x.reshape(original.shape) for x, original in zip(gradients, inputs, strict=True))
     return gradients, initial_grad
 
