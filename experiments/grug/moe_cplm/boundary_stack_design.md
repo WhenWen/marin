@@ -157,7 +157,8 @@ initial action bias [0,0,b], b in {0,2,4}; reuse the running b=6 condition and
 completed native baseline. Initial stay probabilities are respectively
 0.333333, 0.786986, 0.964663 and 0.995067. Keep zero controller weights and
 identical native parameters, copy head, data ordering, optimizer, mixed
-precision and state size. Bias only changes the initial controller distribution;
+precision and state size. Both the controller weights and bias remain trainable.
+Bias only changes the initial controller distribution;
 the previously qualified operator and its gradients are unchanged.
 
 Run exactly 1,000 updates per new condition (131,072,000 tokens), preserving
@@ -170,8 +171,12 @@ the sequence from b=0; it does not resume any earlier trajectory. Keep default
 Iris preemption/retries and no wall-clock limits. The existing b=6 run continues.
 
 Compare Paloma macro validation NLL after 1,000 updates as the primary tuning
-criterion, alongside Uncheatable validation NLL, last-100-update mean training
-NLL, each layer's mean push/pop probabilities and throughput. Report every
+criterion among b=0,2,4,6; the native baseline is a reference, not a bias candidate.
+Use the reused baseline and b=6 validation at the same 1,000-update endpoint
+(native metric step 999). Also report Uncheatable validation NLL,
+last-100-update mean training NLL, each layer's mean push/pop probabilities
+averaged over the same last 100 training updates (each step averages its batch
+and chunk boundaries), and throughput. Report every
 condition, including divergence and near-stay collapse. This is a single-seed
 early-budget comparison; its winner is provisional and does not establish the
 best full-budget bias. The expected tradeoff is more controller sensitivity at
