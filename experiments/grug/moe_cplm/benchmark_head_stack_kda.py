@@ -90,17 +90,22 @@ def objective(fn, inputs, state):
     return jnp.sum(jnp.sin(out)) + jnp.sum(jnp.sin(final))
 
 
+def reference_interface(inputs, state):
+    # Native document ids are integer controls, with no mask cotangent.
+    return stack.reference((*inputs[:-1], jax.lax.stop_gradient(inputs[-1])), state)
+
+
 def correctness(chunk):
     result = {}
     fn = lambda x, s: candidate(x, s, chunk)  # noqa: E731
     for mixed in (False, True):
         xs, initial = fixture(128, mixed=mixed)
         actual = jax.jit(jax.value_and_grad(lambda x, s: objective(fn, x, s), argnums=(0, 1)))(xs, initial)
-        expected = jax.jit(jax.value_and_grad(lambda x, s: objective(stack.reference, x, s), argnums=(0, 1)))(
+        expected = jax.jit(jax.value_and_grad(lambda x, s: objective(reference_interface, x, s), argnums=(0, 1)))(
             xs, initial
         )
         actual = (*jax.jit(fn)(xs, initial), actual)
-        expected = (*jax.jit(stack.reference)(xs, initial), expected)
+        expected = (*jax.jit(reference_interface)(xs, initial), expected)
         errors = []
         for a, b in zip(jax.tree.leaves(actual), jax.tree.leaves(expected), strict=True):
             a, b = np.asarray(a), np.asarray(b)
