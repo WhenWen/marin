@@ -55,8 +55,16 @@ def native_baseline(sequence_length):
             started = time.perf_counter()
             jax.block_until_ready(executable(inputs, initial))
             timings.append(time.perf_counter() - started)
+        forward = jax.jit(baseline).lower(inputs, initial).compile()
+        jax.block_until_ready(forward(inputs, initial))
+        forward_times = []
+        for _ in range(5):
+            started = time.perf_counter()
+            jax.block_until_ready(forward(inputs, initial))
+            forward_times.append(time.perf_counter() - started)
         return {
             "forward_backward_seconds": timings,
+            "forward_seconds": forward_times,
             "compile_seconds": compilation,
             "compiled_temp_bytes": executable.memory_analysis().temp_size_in_bytes,
             "chunk": model.KDA_CHUNK_SIZE,
@@ -67,17 +75,38 @@ def native_baseline(sequence_length):
 def phase_timings(sequence_length, chunk):
     with jax.default_device(jax.local_devices()[0]):
         inputs, initial = fixture(sequence_length)
+        prepare = lambda x, s: stack_kda._prepare(stack_kda._split(x, chunk))  # noqa: E731
+
+        def boundaries(prep, state):
+            axis = state.ndim - 3
+            blocks = jax.tree.map(lambda x: jnp.moveaxis(x, axis, 0), prep)
+
+            def step(state, block):
+                final, _ = stack_kda._advance(block, state)
+                return final, state
+
+            final, incoming = jax.lax.scan(step, jnp.swapaxes(state, -3, -2), blocks)
+            return final, jnp.moveaxis(incoming, 0, axis)
+
+        def readout(prep, state):
+            _, innovation = stack_kda._advance(prep, state)
+            return stack_kda._emit(prep, state, innovation)
+
+        prepared = jax.jit(prepare)(inputs, initial)
+        _, incoming = jax.jit(boundaries)(prepared, initial)
         result = {}
-        for name, fn in (
-            ("prepare", lambda x, s: stack_kda._prepare(stack_kda._split(x, chunk))),
-            ("forward", lambda x, s: stack_kda.chunked(x, s, chunk)),
+        for name, fn, args in (
+            ("prepare", prepare, (inputs, initial)),
+            ("boundaries", boundaries, (prepared, initial)),
+            ("readout", readout, (prepared, incoming)),
+            ("forward", lambda x, s: stack_kda.chunked(x, s, chunk), (inputs, initial)),
         ):
-            executable = jax.jit(fn).lower(inputs, initial).compile()
-            jax.block_until_ready(executable(inputs, initial))
+            executable = jax.jit(fn).lower(*args).compile()
+            jax.block_until_ready(executable(*args))
             times = []
             for _ in range(5):
                 started = time.perf_counter()
-                jax.block_until_ready(executable(inputs, initial))
+                jax.block_until_ready(executable(*args))
                 times.append(time.perf_counter() - started)
             result[name] = {"seconds": times, "temp_bytes": executable.memory_analysis().temp_size_in_bytes}
         return result
