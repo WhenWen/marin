@@ -93,7 +93,9 @@ def correctness(chunk):
             errors.append(float(np.max(np.abs(a - b))))
         result["mixed" if mixed else "near_stay"] = errors
     xs = (jnp.broadcast_to(jnp.array([0, 0, 1], jnp.float32), xs[0].shape), *xs[1:])
-    for a, b in zip(stack.chunked(xs, initial, chunk), native(xs, initial, serial=True), strict=True):
+    with jax.default_matmul_precision("highest"):
+        native_reference = native(xs, initial, serial=True)
+    for a, b in zip(stack.chunked(xs, initial, chunk), native_reference, strict=True):
         np.testing.assert_allclose(a, b, atol=1e-5, rtol=1e-4)
     return result
 
