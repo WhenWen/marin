@@ -20,9 +20,9 @@ class Interval(NamedTuple):
     writes: jax.Array  # Transposed injection columns: [innovations, depth, key].
     erase: jax.Array
     read: jax.Array
-    correction: jax.Array
     attention: jax.Array
     values: jax.Array
+    inverse: jax.Array
 
 
 def _rows(rows, transport, *, right):
@@ -70,9 +70,13 @@ def _merge(left, right, precision):
         jnp.concatenate((_rows(left.writes, right.transport, right=False), right.writes), -3),
         jnp.concatenate((left.erase, _rows(right.erase, left.transport, right=True)), -3),
         jnp.concatenate((left.read, _rows(right.read, left.transport, right=True)), -3),
-        _block(left.correction, right.correction, cross[..., :count, :]),
         _block(left.attention, right.attention, cross[..., count:, :]),
         jnp.concatenate((left.values, right.values), -2),
+        _block(
+            left.inverse,
+            right.inverse,
+            -_intra(_intra(right.inverse, cross[..., :count, :], precision), left.inverse, precision),
+        ),
     )
 
 
@@ -91,9 +95,9 @@ def _leaf(token):
         key[..., :, None, :] * eye[..., None],
         erase[..., :, None, :] * eye[..., None],
         query[..., :, None, :] * transport,
-        jnp.zeros((*query.shape[:-2], 4, 4), jnp.float32),
         jnp.sum(query * key, -1)[..., :, None] * eye,
         value * (active * beta)[..., None],
+        jnp.broadcast_to(eye, (*query.shape[:-2], 4, 4)),
     )
 
 
@@ -107,18 +111,8 @@ def prepare_tree(inputs, precision="fp32"):
     while len(nodes) > 1:
         nodes = [_merge(nodes[i], nodes[i + 1], precision) for i in range(0, len(nodes), 2)]
     node = nodes[0]
-    count = 4 * length
-    row, col = jnp.arange(count)[:, None], jnp.arange(count)[None, :]
-    inverse = jnp.broadcast_to(jnp.eye(count, dtype=jnp.float32), node.correction.shape)
-    # Fixed block doubling; the custom VJP differentiates these same rounded dots.
-    block = 4
-    while block < count:
-        mask = (row // (2 * block) == col // (2 * block)) & (row % (2 * block) >= block)
-        mask &= col % (2 * block) < block
-        inverse += _intra(_intra(inverse, jnp.where(mask, -node.correction, 0), precision), inverse, precision)
-        block *= 2
     size = 4 * inputs[1].shape[-1]
-    solved = _intra(inverse, jnp.concatenate((_flat(node.erase), node.values), -1), precision)
+    solved = _intra(node.inverse, jnp.concatenate((_flat(node.erase), node.values), -1), precision)
     return Preparation(
         node.transport,
         _flat(node.writes),

@@ -49,11 +49,15 @@ F,W,Q_hat,G_hat,R_read,A in the same form as the existing chunk implementation.
 The tree has log2(C) dependent levels. The interval state pass remains ordered
 across T_length/C chunks; this is not a logarithmic-depth full-sequence scan.
 
-Elimination uses fixed block doubling starting from four-by-four identity
-blocks: T <- T + mm(mm(T, -K*mask_s), T), for s=4,8,...,L/2.
-mask_s selects each 2s block's lower-left quadrant. T remains FP32; every
-mm casts both operands and the result to BF16 in mixed mode and uses
-Precision.HIGHEST FP32 otherwise. Q_hat and G_hat use one concatenated mm.
+Elimination follows the same tree, starting with four-by-four identity
+blocks. Each merge forms T_parent=[[T_L,0],[-mm(mm(T_R,K_RL),T_L),T_R]].
+Only compact child blocks enter these products; do not multiply masked full
+L-by-L arrays at every level, which would add a log(C) work factor.
+T remains FP32; every mm casts both operands and the result to BF16 in mixed
+mode and uses Precision.HIGHEST FP32 otherwise. Q_hat and G_hat use one
+concatenated mm. The backward differentiates this exact sequence of casts.
+K is a mathematical description: the kernel consumes each cross block
+immediately when building T and does not materialize the complete K.
 
 ## Fusion and backward
 
@@ -116,6 +120,15 @@ stay on chip. A conservative retained full tree uses O(log C) times that
 storage on chip. State is still exactly 256 KiB per sequence/layer; saved
 chunk states and preparation arrays are separate training memory. No network
 communication is added when all four heads remain on the same device.
+
+State-pass GEMMs cost 6LNV+2L^2V forward and 12LNV+4L^2V backward FLOPs
+per chunk (multiply-add counts as two), plus O(D^2RV) transport/reductions.
+Tree cross products cost 2N(L^2-C D^2); compact inversion costs less than
+(2/3)L^3, and the final solved-row product costs 2L^2(N+V). These counts
+exclude vector operations, input/output projections and hardware padding.
+Recomputing preparation for its VJP adds one preparation forward plus its
+reverse products. TPU padding and small-dot launch overhead can dominate
+these arithmetic counts and remain an implementation risk.
 
 Cross-head mixing still makes a dense D*C correction system instead of D
 independent C systems. Its elimination has D^2 more leading cubic work and
