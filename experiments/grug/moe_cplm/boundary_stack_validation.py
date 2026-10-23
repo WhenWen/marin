@@ -6,6 +6,7 @@
 import argparse
 import hashlib
 import json
+import os
 import uuid
 from pathlib import Path
 from unittest.mock import patch
@@ -74,6 +75,14 @@ def evaluate(fn, xs, state):
     return values, grads
 
 
+def high_precision_oracle(xs, state):
+    # The token recurrence compounds one exponential rounding per token. Use
+    # an independent CPU FP64 oracle rather than TPU approximate exponentials.
+    with jax.default_device(jax.devices("cpu")[0]), jax.enable_x64():
+        xs, state = jax.tree.map(lambda x: jnp.asarray(np.asarray(x), jnp.float64), (xs, state))
+        return jax.device_get(evaluate(literal, xs, state))
+
+
 def compare(actual, expected, strict=True):
     result = []
     for a, b in zip(jax.tree.leaves(actual), jax.tree.leaves(expected), strict=True):
@@ -96,18 +105,20 @@ def validate_boundary_stack(rank=128, interpret=False):
     exact = lambda x, s: candidate(x, s, interpret=interpret)  # noqa: E731
     mixed = lambda x, s: candidate(x, s, mixed=True, interpret=interpret)  # noqa: E731
     result = {"training_updates": 0, "state_bytes": state.size * state.dtype.itemsize}
-    oracle = evaluate(literal, xs, state)
+    oracle = high_precision_oracle(xs, state)
     actual = evaluate(exact, xs, state)
     scan = evaluate(lambda x, s: candidate(x, s, reference=True), xs, state)
     mixed_actual = evaluate(mixed, xs, state)
     mixed_scan = evaluate(lambda x, s: candidate(x, s, mixed=True, reference=True), xs, state)
     print(
-        json.dumps({
-            "fp32_diagnostics": compare(actual, oracle, False),
-            "fp32_fused_vs_scan": compare(actual, scan, False),
-            "fp32_scan_vs_literal": compare(scan, oracle, False),
-            "mixed_vjp_diagnostics": compare(mixed_actual, mixed_scan, False),
-        }),
+        json.dumps(
+            {
+                "fp32_diagnostics": compare(actual, oracle, False),
+                "fp32_fused_vs_scan": compare(actual, scan, False),
+                "fp32_scan_vs_literal": compare(scan, oracle, False),
+                "mixed_vjp_diagnostics": compare(mixed_actual, mixed_scan, False),
+            }
+        ),
         flush=True,
     )
     result["fp32"] = compare(actual, oracle)
@@ -143,6 +154,15 @@ def main():
             "training_updates": 0,
             "artifact_root": root,
             "jax": jax.__version__,
+            "backend": jax.default_backend(),
+            "device_type": jax.local_devices()[0].device_kind,
+            "benchmark_device_count": 1,
+            "allocated_chips": len(jax.devices()),
+            "shape": {"batch": 1, "length": 8192, "heads": 4, "rank": 128, "width": 128},
+            "block_sizes": {"chunk": 16},
+            "dtype": "BF16 operands and FP32 state; FP32 qualification separately",
+            "xla_flags": os.environ.get("XLA_FLAGS", ""),
+            "libtpu_init_args": os.environ.get("LIBTPU_INIT_ARGS", ""),
             "issue_url": "https://github.com/WhenWen/astra-d8-research/issues/59",
             "source_hashes": {
                 str(p.relative_to(source.parent)): hashlib.sha256(p.read_bytes()).hexdigest()
@@ -150,6 +170,7 @@ def main():
                     source.parent / "moe/boundary_stack_kda.py",
                     source.parent / "moe/kda.py",
                     source.parent / "moe/kda_state_tpu.py",
+                    source / "benchmark_head_stack_kda.py",
                     Path(__file__),
                 )
             },
