@@ -43,7 +43,7 @@ from experiments.grug.moe import kda
 from experiments.grug.moe.kda_state_tpu import state_pass
 from experiments.grug.moe_cplm import accumulation, case_classes, plus
 from experiments.grug.moe_cplm.belay import Belay, CopyPasteBelay
-from experiments.grug.moe_cplm.boundary_stack_kda_model import BoundaryStackKimiDeltaAttention
+from experiments.grug.moe_cplm.boundary_stack_kda_model import DEFAULT_STAY_BIAS, BoundaryStackKimiDeltaAttention
 from experiments.grug.moe_cplm.checkpoint_io import python_zarr_checkpoint_writes
 from experiments.grug.moe_cplm.frame_kda import FRAME_CONFIG
 from experiments.grug.moe_cplm.frame_kda_model import FrameKDAPlus
@@ -86,7 +86,7 @@ def tpu_recurrence(prep, state, mm, lead, dk, dv, *, scan_impl):
 
 
 @contextmanager
-def execution(variant="cplm", tables=None, *, boundary_stay_bias=6.0):
+def execution(variant="cplm", tables=None, *, boundary_stay_bias=DEFAULT_STAY_BIAS):
     """Bind TPU implementations for this single-run process, including eval."""
     with ExitStack() as stack:
         if variant == "plus-boundary-stack-kda":
@@ -340,16 +340,22 @@ def main(argv=None):
     parser.add_argument("--memory-scheduler", choices=("default", "brkga"), default="default")
     parser.add_argument("--steps", type=int, default=10980)
     parser.add_argument("--stop-after-steps", type=int, help="Run a prefix while retaining the full --steps LR schedule")
-    parser.add_argument("--boundary-stay-bias", type=float, default=6.0)
+    parser.add_argument("--resume-checkpoint", help="Restore the complete native training state from this checkpoint")
+    parser.add_argument("--resume-step", type=int, help="Required restored update count; fail before training on mismatch")
+    parser.add_argument("--boundary-stay-bias", type=float, default=DEFAULT_STAY_BIAS)
     parser.add_argument("--compute-budget", type=Path)
     args = parser.parse_args(argv)
+    if (args.resume_checkpoint is None) != (args.resume_step is None):
+        raise ValueError("Checkpoint continuation requires both --resume-checkpoint and --resume-step")
+    if args.resume_checkpoint and (args.calibration or not 0 < args.resume_step < (args.stop_after_steps or args.steps)):
+        raise ValueError("Checkpoint continuation requires a positive restored step before the requested endpoint")
     if args.stop_after_steps is not None and not (0 < args.stop_after_steps <= args.steps):
         raise ValueError("The update endpoint must be within the full learning-rate schedule")
     if args.calibration and args.stop_after_steps is not None:
         raise ValueError("Calibration already defines its own update endpoint")
     if not math.isfinite(args.boundary_stay_bias):
         raise ValueError("Boundary stay bias must be finite")
-    if args.variant != "plus-boundary-stack-kda" and args.boundary_stay_bias != 6.0:
+    if args.variant != "plus-boundary-stack-kda" and args.boundary_stay_bias != DEFAULT_STAY_BIAS:
         raise ValueError("Boundary stay bias requires the boundary-stack variant")
     plus_variant = args.variant in ("plus", "plus-frame-kda", *STACK_VARIANTS)
     if args.variant == "plus-frame-kda" and args.width != 512:
@@ -401,7 +407,7 @@ def main(argv=None):
     args.output.mkdir(parents=True, exist_ok=True)
     artifact_root = args.artifact_root.rstrip("/") + "/" + attempt
     if args.variant in STACK_VARIANTS:
-        # Each restart starts a new scientific trajectory and W&B curve.
+        # Each process group owns its output checkpoints and W&B segment.
         args.checkpoint_path = args.checkpoint_path.rstrip("/") + "/" + attempt
 
     def persist(name, value):
@@ -443,6 +449,19 @@ def main(argv=None):
     )
     if args.stop_after_steps is not None:
         config = replace(config, stop_after_steps=args.stop_after_steps)
+    if args.resume_checkpoint:
+        config = replace(
+            config,
+            trainer=replace(
+                config.trainer,
+                trainer=replace(
+                    config.trainer.trainer,
+                    load_checkpoint=True,
+                    load_checkpoint_path=args.resume_checkpoint,
+                    allow_partial_checkpoint=False,
+                ),
+            ),
+        )
     budget = None
     if args.variant in STACK_VARIANTS:
         if args.width != 512:
@@ -653,6 +672,8 @@ def main(argv=None):
                 record_startup_memory("state_ready_before_preflight")
                 state = jax.tree.unflatten(treedef, leaves)
                 restored_step = int(jax.device_get(state.step))
+                if restored_step != (args.resume_step or 0):
+                    raise ValueError(f"Unexpected restored step {restored_step}; expected {args.resume_step or 0}")
                 if jax.process_index() == 0:
                     if wandb.run is None or wandb.run.offline or wandb.run.disabled:
                         raise RuntimeError("Online W&B must initialize before optimizer updates")
@@ -660,6 +681,7 @@ def main(argv=None):
                         {
                             "seed": 0,
                             "restored_step": restored_step,
+                            "resume_checkpoint": args.resume_checkpoint,
                             "checkpoint_root": args.checkpoint_path,
                             "variant": args.variant,
                             "width": args.width,
@@ -691,7 +713,16 @@ def main(argv=None):
                         }
                         wandb.config.update(contract)
                         persist("frame-kda-contract.json", contract)
-                    persist("tracking.json", {"url": wandb.run.url, "resumed": False, "restored_step": restored_step})
+                    persist(
+                        "tracking.json",
+                        {
+                            "url": wandb.run.url,
+                            "resumed": bool(args.resume_checkpoint),
+                            "wandb_resumed": False,
+                            "restored_step": restored_step,
+                            "resume_checkpoint": args.resume_checkpoint,
+                        },
+                    )
                     if args.variant == "plus-stack4-kda":
                         contract = {
                             "issue_url": "https://github.com/WhenWen/astra-d8-research/issues/59",
@@ -731,7 +762,13 @@ def main(argv=None):
                             "action_order": ["push", "pop", "stay"],
                             "action_initial_bias": [0, 0, args.boundary_stay_bias],
                             "action_optimizer": "native kda_decay Adam group",
-                            "restart_policy": "fresh initialization and a new W&B run per process restart; no resume",
+                            "restart_policy": (
+                                "strict full-state restore from the specified parent checkpoint; new W&B segment"
+                                if args.resume_checkpoint
+                                else "fresh initialization and a new W&B run per process restart; no resume"
+                            ),
+                            "resume_checkpoint": args.resume_checkpoint,
+                            "restored_step": restored_step,
                             "schedule_updates": args.steps,
                             "requested_updates": args.stop_after_steps or args.steps,
                             "source_sha256": {

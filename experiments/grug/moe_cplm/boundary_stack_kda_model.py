@@ -16,6 +16,7 @@ from experiments.grug.fast_track import model
 from experiments.grug.moe import boundary_stack_kda
 
 NativeKimiDeltaAttention = model.KimiDeltaAttention
+DEFAULT_STAY_BIAS = 4.0
 
 
 class BoundaryStackKimiDeltaAttention(NativeKimiDeltaAttention):
@@ -24,7 +25,7 @@ class BoundaryStackKimiDeltaAttention(NativeKimiDeltaAttention):
     stack_action_bias: jax.Array | None = None
 
     @staticmethod
-    def init(cfg, *, key, precision="mixed", stay_bias=6.0):
+    def init(cfg, *, key, precision="mixed", stay_bias=DEFAULT_STAY_BIAS):
         base = NativeKimiDeltaAttention.init(cfg, key=key)
         if any(
             value is not None
