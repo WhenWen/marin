@@ -60,6 +60,23 @@ def head_backward(q, a, k, w, decay, state, z, dy, ds, mixed):
     )
 
 
+def forward_chunk(q, a, k, w, v, decay, actions, state, *, mixed):
+    values = [head_forward(q[h], a[h], k[h], w[h], v[h], decay[h], state[h], mixed) for h in range(4)]
+    out, updated, innovation = (jnp.stack([value[i] for value in values]) for i in range(3))
+    following = mix(updated, actions)
+    return out, state, updated, innovation, following
+
+
+def backward_chunk(q, a, k, w, _v, decay, actions, state, updated, innovation, dy, ds, *, mixed):
+    du, da = mix_backward(updated, actions, ds)
+    values = [
+        head_backward(q[h], a[h], k[h], w[h], decay[h], state[h], innovation[h], dy[h], du[h], mixed)
+        for h in range(4)
+    ]
+    grads = [jnp.stack([value[i] for value in values]) for i in range(7)]
+    return *grads[:6], da, grads[6]
+
+
 def _forward(*refs, mixed):
     qr, ar, kr, wr, vr, dr, actr, s0r, outr, hr, ur, zr, finalr, scratch = refs
 
@@ -67,28 +84,25 @@ def _forward(*refs, mixed):
     def initialize():
         scratch[...] = s0r[...]
 
-    state = scratch[...]
-    values = [head_forward(qr[h], ar[h], kr[h], wr[h], vr[h], dr[h], state[h], mixed) for h in range(4)]
-    out, updated, innovation = (jnp.stack([value[i] for value in values]) for i in range(3))
-    following = mix(updated, actr[...])
+    out, state, updated, innovation, following = forward_chunk(
+        qr[...], ar[...], kr[...], wr[...], vr[...], dr[...], actr[...], scratch[...], mixed=mixed
+    )
     outr[...], hr[...], ur[...], zr[...] = out, state, updated, innovation
     scratch[...], finalr[...] = following, following
 
 
 def _backward(*refs, mixed):
-    qr, ar, kr, wr, _vr, dr, actr, hr, ur, zr, dyr, dsr = refs[:12]
+    *inputs, dsr = refs[:12]
     *outputs, scratch = refs[12:]
 
     @pl.when(pl.program_id(1) == 0)
     def initialize():
         scratch[...] = dsr[...]
 
-    du, da = mix_backward(ur[...], actr[...], scratch[...])
-    values = [head_backward(qr[h], ar[h], kr[h], wr[h], dr[h], hr[h], zr[h], dyr[h], du[h], mixed) for h in range(4)]
-    grads = [jnp.stack([value[i] for value in values]) for i in range(7)]
-    for ref, value in zip(outputs, (*grads[:6], da, grads[6]), strict=True):
+    grads = backward_chunk(*(ref[...] for ref in inputs), scratch[...], mixed=mixed)
+    for ref, value in zip(outputs, grads, strict=True):
         ref[...] = value
-    scratch[...] = grads[6]
+    scratch[...] = grads[-1]
 
 
 def _call(prepared, initial, mixed, interpret, residual=None):
@@ -128,6 +142,16 @@ def _call(prepared, initial, mixed, interpret, residual=None):
         out_specs=specs,
         scratch_shapes=[pltpu.VMEM(initial.shape[1:], jnp.float32)],
         compiler_params=pltpu.CompilerParams(dimension_semantics=("parallel", "arbitrary")),
+        cost_estimate=native._cost(
+            functools.partial(backward_chunk if reverse else forward_chunk, mixed=mixed),
+            [
+                jax.ShapeDtypeStruct(x.shape[2:] if i < len(inputs) - 1 else x.shape[1:], x.dtype)
+                for i, x in enumerate(inputs)
+            ],
+            groups * chunks,
+            inputs,
+            shapes,
+        ),
         interpret=interpret,
         name="boundary_stack_backward" if reverse else "boundary_stack_forward",
     )(*inputs)

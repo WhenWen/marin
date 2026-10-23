@@ -88,3 +88,9 @@ goes stale on the next commit.
 - Path: `experiments/grug/moe_cplm/head_stack_kda_model.py`. Origin: native Belay CPLM Plus KDA projections at `0e5182f48`.
 - Purpose: treat four existing KDA heads as four stack slots while retaining 256 KiB recurrent state per sequence/layer. Status: active kernel benchmark; no LM training.
 - Source: `4c4d0121c`. [Protocol and implementation](../../experiments/grug/moe_cplm/head_stack_kda_design.md), [theory issue](https://github.com/WhenWen/astra-d8-research/issues/59).
+
+## Belay CPLM Plus boundary head mixing
+
+- Path: `experiments/grug/moe_cplm/boundary_stack_kda_model.py`. Origin: native Belay CPLM Plus KDA projections.
+- Purpose: preserve all four native head updates and mix their states with push/pop/stay only at C16 boundaries, retaining 256 KiB recurrent state. Status: TPU kernel qualification; native LM launch pending qualification.
+- Source: `4437dfe31`. [Protocol and implementation](../../experiments/grug/moe_cplm/boundary_stack_design.md), [theory issue](https://github.com/WhenWen/astra-d8-research/issues/59).
