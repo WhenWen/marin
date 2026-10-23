@@ -565,17 +565,20 @@ def main(argv=None):
         if args.variant == "plus-frame-kda":
             names += ["frame_gain"]
 
+        def stack_action_norms(tree):
+            norms = []
+            for path, leaf in jax.tree_util.tree_flatten_with_path(tree)[0]:
+                if any(isinstance(key, jax.tree_util.GetAttrKey) and key.name == "w_stack_actions" for key in path):
+                    norms.append(jnp.linalg.norm(leaf.reshape(-1, *leaf.shape[-2:]), axis=(-2, -1)))
+            if sum(x.size for x in norms) != 4:
+                raise ValueError("Expected action weights in all four native KDA layers")
+            return jnp.concatenate(norms)
+
         def gradient_checks(loss, grads):
             finite = jnp.all(jnp.stack([jnp.all(jnp.isfinite(x)) for x in jax.tree.leaves(grads)]))
             norms = jnp.array([jnp.linalg.norm(getattr(grads, k)) for k in names])
             if args.variant == "plus-stack4-kda":
-                action_norms = []
-                for path, leaf in jax.tree_util.tree_flatten_with_path(grads)[0]:
-                    if any(isinstance(key, jax.tree_util.GetAttrKey) and key.name == "w_stack_actions" for key in path):
-                        action_norms.append(jnp.linalg.norm(leaf.reshape(-1, *leaf.shape[-2:]), axis=(-2, -1)))
-                if sum(x.size for x in action_norms) != 4:
-                    raise ValueError("Expected action gradients in all four native KDA layers")
-                norms = jnp.concatenate((norms, *action_norms))
+                norms = jnp.concatenate((norms, stack_action_norms(grads)))
             positive = jnp.concatenate((norms[:4], norms[5:])) if plus_variant else norms
             good = finite & jnp.isfinite(loss) & jnp.all(jnp.isfinite(positive) & (positive > 0))
             return good, finite, norms
@@ -583,6 +586,10 @@ def main(argv=None):
         @jax.jit
         def state_is_finite(leaves):
             return jnp.all(jnp.stack([jnp.all(jnp.isfinite(x)) for x in leaves]))
+
+        @jax.jit
+        def action_parameter_norms(leaves):
+            return stack_action_norms(jax.tree.unflatten(treedef, leaves).params)
 
         @partial(jax.jit, static_argnames=("loop_active", "router_tie_active"))
         def preflight(leaves, batch, loop_active=None, router_tie_active=None):
@@ -728,6 +735,12 @@ def main(argv=None):
                     )
                     state_is_finite.clear_cache()
                     retain_compiler_dump()
+            if completed == 2 and args.variant == "plus-stack4-kda":
+                norms = np.asarray(jax.device_get(action_parameter_norms(result[0])))
+                if not (np.isfinite(norms).all() and (norms > 0).all()):
+                    raise ValueError("Zero-initialized action weights did not learn in every KDA layer")
+                persist("action-update-validation.json", {"training_updates": 2, "weight_norms": norms.tolist()})
+                action_parameter_norms.clear_cache()
             if args.calibration and completed in (100, 400):
                 jax.block_until_ready(result)
                 sync_global_devices(f"belay-window-{completed}")

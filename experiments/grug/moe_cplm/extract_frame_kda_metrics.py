@@ -38,6 +38,7 @@ def main():
                         or (k.startswith("eval/") and "loss" in k)
                         or "throughput" in k
                         or k.startswith("moe/")
+                        or (k.startswith("train/attn_res/") and "stack_" in k)
                     )
                 }
                 if step is None or not selected:
