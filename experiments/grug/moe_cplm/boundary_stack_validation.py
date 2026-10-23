@@ -67,8 +67,10 @@ def literal(xs, initial, chunk=16):
 
 
 def evaluate(fn, xs, state):
-    values = jax.jit(fn)(xs, state)
-    grads = jax.jit(jax.value_and_grad(lambda x, s: objective(fn, x, s), argnums=(0, 1)))(xs, state)
+    # Apply the strict reference policy to transposes introduced by AD too.
+    with jax.default_matmul_precision("highest"):
+        values = jax.jit(fn)(xs, state)
+        grads = jax.jit(jax.value_and_grad(lambda x, s: objective(fn, x, s), argnums=(0, 1)))(xs, state)
     return values, grads
 
 
@@ -95,13 +97,24 @@ def validate_boundary_stack(rank=128, interpret=False):
     mixed = lambda x, s: candidate(x, s, mixed=True, interpret=interpret)  # noqa: E731
     result = {"training_updates": 0, "state_bytes": state.size * state.dtype.itemsize}
     oracle = evaluate(literal, xs, state)
-    result["fp32"] = compare(evaluate(exact, xs, state), oracle)
-    result["mixed_vs_literal"] = compare(evaluate(mixed, xs, state), oracle, False)
+    actual = evaluate(exact, xs, state)
+    scan = evaluate(lambda x, s: candidate(x, s, reference=True), xs, state)
+    mixed_actual = evaluate(mixed, xs, state)
+    mixed_scan = evaluate(lambda x, s: candidate(x, s, mixed=True, reference=True), xs, state)
+    print(
+        json.dumps({
+            "fp32_diagnostics": compare(actual, oracle, False),
+            "fp32_fused_vs_scan": compare(actual, scan, False),
+            "fp32_scan_vs_literal": compare(scan, oracle, False),
+            "mixed_vjp_diagnostics": compare(mixed_actual, mixed_scan, False),
+        }),
+        flush=True,
+    )
+    result["fp32"] = compare(actual, oracle)
+    result["mixed_vs_literal"] = compare(mixed_actual, oracle, False)
     if any(row["relative_l2"] > 0.05 and row["max_abs"] > 1e-4 for row in result["mixed_vs_literal"]):
         raise ValueError("Mixed approximation exceeds the frozen 5% relative-L2 / 1e-4 absolute bound")
-    result["mixed_vjp"] = compare(
-        evaluate(mixed, xs, state), evaluate(lambda x, s: candidate(x, s, mixed=True, reference=True), xs, state)
-    )
+    result["mixed_vjp"] = compare(mixed_actual, mixed_scan)
     return result
 
 
