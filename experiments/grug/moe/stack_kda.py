@@ -4,8 +4,8 @@
 """Depth-four protected KDA with structured chunk preparation and state passes.
 
 Inputs use [..., time, channels]; states use [..., key, depth, value]. The
-custom backward retains chunk boundaries and rematerializes one chunk at a
-time, avoiding full-sequence token-state or preparation tapes.
+custom backward retains chunk boundaries and rematerializes bounded batches
+of chunks, avoiding full-sequence token-state or preparation tapes.
 """
 
 from functools import partial
@@ -71,7 +71,8 @@ def _prepare(inputs):
 
     (transport, writes), rows = jax.lax.scan(step, (transport, writes), (jnp.arange(length), tokens))
     erase, correction, read, attention, values = (jnp.moveaxis(row, 0, -2) for row in rows)
-    inverse = _unit_lower_triangular_inverse(-correction, length)
+    with jax.default_matmul_precision("highest"):
+        inverse = _unit_lower_triangular_inverse(-correction, length)
     solved = jnp.matmul(inverse, jnp.concatenate((erase, values), axis=-1), precision=PRECISION)
     return Preparation(
         transport,
