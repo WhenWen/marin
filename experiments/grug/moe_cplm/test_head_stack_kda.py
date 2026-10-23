@@ -30,7 +30,7 @@ def test_chunked_values_and_all_adjoints_match_literal_stack(chunk):
 
 def test_hard_stay_matches_native_outputs_and_state_without_expansion():
     inputs, initial = fixture(12, rank=5, width=3)
-    inputs = (jnp.broadcast_to(jnp.array([0, 0, 1, 0], jnp.float32), inputs[0].shape), *inputs[1:])
+    inputs = (jnp.broadcast_to(jnp.array([0, 0, 1], jnp.float32), inputs[0].shape), *inputs[1:])
     got, final = stack.chunked(inputs, initial, 3)
     want, native_final = native(inputs, initial, serial=True)
     np.testing.assert_allclose(got, want, atol=1e-5, rtol=1e-4)
@@ -41,7 +41,7 @@ def test_hard_stay_matches_native_outputs_and_state_without_expansion():
 
 def test_hard_push_pop_restores_parent_slots_and_discards_bottom():
     inputs, initial = fixture(2, rank=5, width=3)
-    actions = jnp.array([[[1, 0, 0, 0], [0, 1, 0, 0]]], jnp.float32)
+    actions = jnp.array([[[1, 0, 0], [0, 1, 0]]], jnp.float32)
     inputs = (actions, *inputs[1:-1], jnp.ones_like(inputs[-1]))
     _, final = stack.chunked(inputs, initial, 2)
     np.testing.assert_allclose(final[:, :3], initial[:, :3], atol=1e-5, rtol=1e-4)
@@ -65,10 +65,10 @@ def test_native_layer_limit_and_shared_action_gradients():
     cfg = _config(max_seq_len=32, num_heads=4, head_dim=8, kda_onchip_decay_gate=True)
     with jax.set_mesh(_mesh()):
         native_layer = NativeKimiDeltaAttention.init(cfg, key=jax.random.PRNGKey(8))
-        stacked = HeadStackKimiDeltaAttention.init(cfg, key=jax.random.PRNGKey(8))
+        stacked = HeadStackKimiDeltaAttention.init(cfg, key=jax.random.PRNGKey(8), precision="fp32")
         x = jax.random.normal(jax.random.PRNGKey(9), (1, 32, 32))
         segments = (jnp.arange(32) >= 15)[None].astype(jnp.int32)
-        stay = eqx.tree_at(lambda m: m.stack_action_bias, stacked, jnp.array([-100.0, -100.0, 100.0, -100.0]))
+        stay = eqx.tree_at(lambda m: m.stack_action_bias, stacked, jnp.array([-100.0, -100.0, 100.0]))
         with patch.object(model, "_kda_kernel", serial_native):
             expected = eqx.filter_jit(lambda m: m(x, segment_ids=segments)[0])(native_layer)
         actual = eqx.filter_jit(lambda m: m(x, segment_ids=segments)[0])(stay)

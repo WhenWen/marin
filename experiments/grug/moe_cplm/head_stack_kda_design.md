@@ -1,5 +1,33 @@
 # Four native KDA heads as one stack
 
+## Current amendment: three actions and matched precision paths
+
+2026-10-23, before the revised TPU submission: remove replace following user
+feedback. The current actions are push, pop and stay, with softmax bias [0,0,6].
+Their definitions below are unchanged; the replace branch is absent. Action
+parameters now total 512*3+3=1,539 per layer, or 6,156 across four KDA layers.
+State remains 256 KiB per sequence/layer. Earlier four-action measurements
+belong to their immutable source and do not evaluate this revision.
+
+Add a mixed-precision path alongside the strict FP32 path. Keep transport,
+state, gates and reductions in FP32; use BF16 operands/results for triangular
+inversion products, transformed erase/value products and intra-chunk readout.
+Cross-chunk state GEMMs use FP32 with Precision.HIGH, matching native TPU KDA.
+The strict reference retains Precision.HIGHEST throughout. Both new paths use
+automatic reverse differentiation of their actual chunk graph, including all
+casts, with rematerialized preparation. This replaces the previous bounded
+sequential-replay VJP and may change training intermediate memory; report it.
+It avoids using the exact recurrence's adjoints for a rounded BF16 forward.
+
+Benchmark both precisions at C16 and C32 with the same backward algorithm.
+Retain strict FP32-versus-recurrence tolerances. Separately report mixed-versus-
+FP32 output/state and every adjoint's maximum absolute and relative L2 errors;
+do not reinterpret approximation error as passing the strict equivalence test.
+Mixed precision is a numerical approximation, not an established LM quality
+equivalence. The model wrapper defaults to mixed precision and has an explicit
+FP32 option for the native-limit check. The remainder preserves the original
+four-action protocol as historical context.
+
 Protocol frozen on 2026-10-23 before implementation and TPU measurement.
 Theory: https://github.com/WhenWen/astra-d8-research/issues/59.
 Motivating task: scoped_binding@1 (#58), not evaluated here. This request is

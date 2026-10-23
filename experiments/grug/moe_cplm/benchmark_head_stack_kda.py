@@ -34,9 +34,9 @@ def fixture(length, rank=128, width=128, *, mixed=False):
         return x * jax.lax.rsqrt(jnp.sum(x * x, -1, keepdims=True) + 1e-6)
 
     shape = (1, length, 4, rank)
-    logits = 0.2 * normal((1, length, 4))
+    logits = 0.2 * normal((1, length, 3))
     if not mixed:
-        logits += jnp.array([0, 0, 6, 0])
+        logits += jnp.array([0, 0, 6])
     inputs = (
         jax.nn.softmax(logits, -1),
         unit(normal(shape)) / rank**0.5,
@@ -92,9 +92,35 @@ def correctness(chunk):
             np.testing.assert_allclose(a, b, atol=1e-5, rtol=1e-4)
             errors.append(float(np.max(np.abs(a - b))))
         result["mixed" if mixed else "near_stay"] = errors
-    xs = (jnp.broadcast_to(jnp.array([0, 0, 1, 0], jnp.float32), xs[0].shape), *xs[1:])
+    xs = (jnp.broadcast_to(jnp.array([0, 0, 1], jnp.float32), xs[0].shape), *xs[1:])
     for a, b in zip(stack.chunked(xs, initial, chunk), native(xs, initial, serial=True), strict=True):
         np.testing.assert_allclose(a, b, atol=1e-5, rtol=1e-4)
+    return result
+
+
+def precision_errors(chunk):
+    """Measure BF16 approximation separately; do not weaken strict FP32 checks."""
+    result = {}
+    for mixed_actions in (False, True):
+        xs, initial = fixture(128, mixed=mixed_actions)
+        variants = {}
+        for precision in ("fp32", "mixed"):
+            fn = lambda x, s, p=precision: stack.chunked(x, s, chunk, p)  # noqa: E731
+            values = jax.jit(fn)(xs, initial)
+            grads = jax.jit(jax.grad(lambda x, s, f=fn: objective(f, x, s), argnums=(0, 1)))(xs, initial)
+            variants[precision] = jax.tree.leaves((values, grads))
+        errors = []
+        for actual, expected in zip(variants["mixed"], variants["fp32"], strict=True):
+            actual, expected = np.asarray(actual), np.asarray(expected)
+            if not np.isfinite(actual).all():
+                raise ValueError("Nonfinite mixed-precision value or adjoint")
+            errors.append(
+                {
+                    "max_abs": float(np.max(np.abs(actual - expected))),
+                    "relative_l2": float(np.linalg.norm(actual - expected) / max(np.linalg.norm(expected), 1e-12)),
+                }
+            )
+        result["mixed_actions" if mixed_actions else "near_stay"] = errors
     return result
 
 
@@ -143,7 +169,7 @@ def benchmark(fn, inputs, initial):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--chunks", type=int, nargs="+", default=[16, 32])
-    parser.add_argument("--backward-batches", type=int, nargs="+", default=[16, 64])
+    parser.add_argument("--precisions", choices=("fp32", "mixed"), nargs="+", default=["fp32", "mixed"])
     parser.add_argument("--length", type=int, default=8192)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--artifact-root", required=True)
@@ -170,7 +196,7 @@ def main():
         "jax_settings": settings,
         "shape": {"batch": 1, "length": args.length, "heads_and_depth": 4, "rank": 128, "width": 128},
         "baseline": "native KDA TPU Pallas state pass, mixed precision, C16",
-        "candidate": "shared head stack, FP32, HIGHEST dot precision",
+        "candidate": "three shared actions, four slots; FP32 reference and BF16/FP32 hybrid",
         "source_sha256": {
             str(path.relative_to(source.parent)): hashlib.sha256(path.read_bytes()).hexdigest()
             for path in (
@@ -191,13 +217,15 @@ def main():
         baseline = benchmark(native, inputs, initial)
         write_record(output, root, "baseline.json", baseline)
         print(json.dumps({"baseline": baseline}), flush=True)
-        for batch in args.backward_batches:
-            stack.BACKWARD_BATCH = batch
-            for chunk in args.chunks:
+        for chunk in args.chunks:
+            checks = {"errors": correctness(chunk), "precision_errors": precision_errors(chunk)}
+            write_record(output, root, f"checks-chunk-{chunk}.json", checks)
+            print(json.dumps({"chunk": chunk, **checks}), flush=True)
+            for precision in args.precisions:
                 jax.clear_caches()
-                result = {"chunk": chunk, "backward_batch": batch, "errors": correctness(chunk)}
-                result.update(benchmark(lambda x, s, c=chunk: stack.chunked(x, s, c), inputs, initial))
-                write_record(output, root, f"batch-{batch}-chunk-{chunk}.json", result)
+                result = {"chunk": chunk, "precision": precision}
+                result.update(benchmark(lambda x, s, c=chunk, p=precision: stack.chunked(x, s, c, p), inputs, initial))
+                write_record(output, root, f"precision-{precision}-chunk-{chunk}.json", result)
                 print(json.dumps(result), flush=True)
 
 

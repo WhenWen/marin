@@ -4,7 +4,9 @@
 """Native Belay KDA projections with the four heads used as four stack slots."""
 
 import dataclasses
+from functools import partial
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 from jax.sharding import PartitionSpec as P
@@ -17,11 +19,12 @@ NativeKimiDeltaAttention = model.KimiDeltaAttention
 
 
 class HeadStackKimiDeltaAttention(NativeKimiDeltaAttention):
+    precision: str = eqx.field(static=True, default="mixed")
     w_stack_actions: jax.Array | None = None
     stack_action_bias: jax.Array | None = None
 
     @staticmethod
-    def init(cfg, *, key):
+    def init(cfg, *, key, precision="mixed"):
         base = NativeKimiDeltaAttention.init(cfg, key=key)
         if any(
             value is not None
@@ -52,8 +55,9 @@ class HeadStackKimiDeltaAttention(NativeKimiDeltaAttention):
         d = cfg.hidden_dim
         return HeadStackKimiDeltaAttention(
             **{field.name: getattr(base, field.name) for field in dataclasses.fields(NativeKimiDeltaAttention)},
-            w_stack_actions=reshard(jnp.zeros((d, 4)), P(None, None)),
-            stack_action_bias=reshard(jnp.array([0.0, 0.0, 6.0, 0.0]), P(None)),
+            precision=precision,
+            w_stack_actions=reshard(jnp.zeros((d, 3)), P(None, None)),
+            stack_action_bias=reshard(jnp.array([0.0, 0.0, 6.0]), P(None)),
         )
 
     def __call__(
@@ -104,7 +108,7 @@ class HeadStackKimiDeltaAttention(NativeKimiDeltaAttention):
         segments = jnp.zeros((batch, length), jnp.int32) if segment_ids is None else segment_ids
         segments = reshard(jnp.broadcast_to(segments, (batch, length)), P(model._BATCH_AXES, None))
         kernel = jax.shard_map(
-            head_stack_kda.native_kernel,
+            partial(head_stack_kda.native_kernel, precision=self.precision),
             mesh=get_abstract_mesh(),
             in_specs=(spec4, spec4, spec4, spec4, spec3, action_spec, P(model._BATCH_AXES, None)),
             out_specs=spec4,
@@ -116,6 +120,6 @@ class HeadStackKimiDeltaAttention(NativeKimiDeltaAttention):
         output *= jax.nn.sigmoid(model._proj(cfg, x, self.w_g))
         stats = {
             f"{model._KDA_STAT_PREFIX}stack_{action}": jax.lax.stop_gradient(jnp.mean(actions[..., index]))
-            for index, action in enumerate(("push", "pop", "stay", "replace"))
+            for index, action in enumerate(("push", "pop", "stay"))
         }
         return model._proj(cfg, output, self.w_o, out_sharding=model._batch_spec()), stats
