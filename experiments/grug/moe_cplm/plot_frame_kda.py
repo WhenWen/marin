@@ -43,7 +43,7 @@ def main():
     fig, ax = plt.subplots(figsize=(8.2, 3.7))
     ax.set_axisbelow(True)
     ax.grid(color="#B0B0B0", linestyle="--", linewidth=0.85, alpha=0.65)
-    colors = ["#5F6368", "#1F77B4"]
+    colors = ["#5F6368", "#1F77B4", "#FF7F0E", "#2CA02C", "#9467BD"]
     summary = {}
     table = []
     for index, item in enumerate(args.run):
