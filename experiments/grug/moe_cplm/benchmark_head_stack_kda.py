@@ -95,7 +95,15 @@ def correctness(chunk):
     xs = (jnp.broadcast_to(jnp.array([0, 0, 1], jnp.float32), xs[0].shape), *xs[1:])
     with jax.default_matmul_precision("highest"):
         native_reference = native(xs, initial, serial=True)
-    for a, b in zip(stack.chunked(xs, initial, chunk), native_reference, strict=True):
+    # Native accepts log gates, whereas this operator accepts exp(log gates).
+    # Compare the same effective decay, including the device's log/exp roundtrip.
+    effective_decay = jnp.exp(jnp.log(xs[4]))
+    matched = (*xs[:4], effective_decay, *xs[5:])
+    result["native_decay_roundtrip_max_abs"] = float(jnp.max(jnp.abs(effective_decay - xs[4])))
+    candidate_reference = stack.chunked(matched, initial, chunk)
+    result["native_stay_max_abs"] = [float(jnp.max(jnp.abs(a - b))) for a, b in zip(candidate_reference, native_reference)]
+    print(json.dumps({"strict_check_diagnostics": result}), flush=True)
+    for a, b in zip(candidate_reference, native_reference, strict=True):
         np.testing.assert_allclose(a, b, atol=1e-5, rtol=1e-4)
     return result
 
