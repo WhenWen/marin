@@ -18,7 +18,7 @@ import jaxlib
 import numpy as np
 
 from experiments.grug.fast_track import model
-from experiments.grug.moe import kda
+from experiments.grug.moe import kda, stack_kda
 from experiments.grug.moe_cplm.benchmark_frame_kda import write_record
 from experiments.grug.moe_cplm.stack_kda_validation import fixture, objective, validate_stack_kda
 from experiments.grug.moe_cplm.train_belay import tpu_recurrence
@@ -62,6 +62,25 @@ def native_baseline(sequence_length):
             "chunk": model.KDA_CHUNK_SIZE,
             "execution": "native TPU Pallas state_pass; inherited mixed precision",
         }
+
+
+def phase_timings(sequence_length, chunk):
+    with jax.default_device(jax.local_devices()[0]):
+        inputs, initial = fixture(sequence_length)
+        result = {}
+        for name, fn in (
+            ("prepare", lambda x, s: stack_kda._prepare(stack_kda._split(x, chunk))),
+            ("forward", lambda x, s: stack_kda.chunked(x, s, chunk)),
+        ):
+            executable = jax.jit(fn).lower(inputs, initial).compile()
+            jax.block_until_ready(executable(inputs, initial))
+            times = []
+            for _ in range(5):
+                started = time.perf_counter()
+                jax.block_until_ready(executable(inputs, initial))
+                times.append(time.perf_counter() - started)
+            result[name] = {"seconds": times, "temp_bytes": executable.memory_analysis().temp_size_in_bytes}
+        return result
 
 
 def main():
@@ -110,6 +129,7 @@ def main():
     print(json.dumps({"baseline": baseline}), flush=True)
     for chunk in args.chunks:
         result = validate_stack_kda(args.length, chunk)
+        result["phases"] = phase_timings(args.length, chunk)
         write_record(output, root, f"chunk-{chunk}.json", result)
         print(json.dumps(result), flush=True)
 

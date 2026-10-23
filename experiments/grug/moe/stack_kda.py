@@ -103,6 +103,27 @@ def _single_chunk(inputs, initial):
     return _emit(prep, initial, innovation), final
 
 
+def _recurrent_chunk(inputs, initial):
+    """Bounded replay for local adjoints, with no differentiated preparation tape."""
+    axis = initial.ndim - 3
+    tokens = tuple(jnp.moveaxis(x, axis, 0) for x in inputs)
+
+    def step(state, token):
+        actions, query, key, value, decay, beta, keep = token
+        active = actions[..., 0] + actions[..., 2]
+        prediction = jnp.einsum("...r,...rv->...v", key * decay, state[..., 0, :], precision=PRECISION)
+        innovation = beta[..., None] * (
+            (active + actions[..., 3])[..., None] * value - (active * keep)[..., None] * prediction
+        )
+        state = _transport(state, actions, decay, keep)
+        state = state.at[..., 0, :].add(key[..., :, None] * innovation[..., None, :])
+        output = jnp.einsum("...r,...rv->...v", query, state[..., 0, :], precision=PRECISION)
+        return state, output
+
+    final, output = jax.lax.scan(step, initial, tokens)
+    return jnp.moveaxis(output, 0, axis), final
+
+
 def _split(inputs, chunk):
     lead, length = inputs[1].shape[:-2], inputs[1].shape[-2]
     if length % chunk:
@@ -177,7 +198,7 @@ def _bwd(chunk, saved, cotangents):
     # A bounded local VJP keeps the prepare/replay tape independent of T.
     def local(values):
         tokens, state, dy, terminal = values
-        _, pullback = jax.vjp(_single_chunk, tokens, state)
+        _, pullback = jax.vjp(_recurrent_chunk, tokens, state)
         return pullback((dy, terminal))[0]
 
     local_inputs = jax.tree.map(flatten, (xs, incoming, dy, outgoing))
