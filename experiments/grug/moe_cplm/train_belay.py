@@ -341,7 +341,7 @@ def main(argv=None):
     parser.add_argument("--steps", type=int, default=10980)
     parser.add_argument("--stop-after-steps", type=int, help="Run a prefix while retaining the full --steps LR schedule")
     parser.add_argument("--resume-checkpoint", help="Restore the complete native training state from this checkpoint")
-    parser.add_argument("--resume-step", type=int, help="Required restored update count; fail before training on mismatch")
+    parser.add_argument("--resume-step", type=int, help="Required restored update count; fail on mismatch")
     parser.add_argument("--boundary-stay-bias", type=float, default=DEFAULT_STAY_BIAS)
     parser.add_argument("--compute-budget", type=Path)
     args = parser.parse_args(argv)
