@@ -66,6 +66,7 @@ def main():
     ax.set_xlabel("Optimizer step")
     labels = {
         "train/loss": "Training NLL (nats/token)",
+        "train/loss_delta": "Training NLL minus native baseline\n(nats/token)",
         "eval/paloma/macro_loss": "Paloma macro NLL\n(nats/token)",
         "eval/uncheatable_eval/macro_loss": "Uncheatable macro NLL\n(nats/token)",
     }
