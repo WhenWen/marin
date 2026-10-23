@@ -70,8 +70,7 @@ def forward_chunk(q, a, k, w, v, decay, actions, state, *, mixed):
 def backward_chunk(q, a, k, w, _v, decay, actions, state, updated, innovation, dy, ds, *, mixed):
     du, da = mix_backward(updated, actions, ds)
     values = [
-        head_backward(q[h], a[h], k[h], w[h], decay[h], state[h], innovation[h], dy[h], du[h], mixed)
-        for h in range(4)
+        head_backward(q[h], a[h], k[h], w[h], decay[h], state[h], innovation[h], dy[h], du[h], mixed) for h in range(4)
     ]
     grads = [jnp.stack([value[i] for value in values]) for i in range(7)]
     return *grads[:6], da, grads[6]
