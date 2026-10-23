@@ -11,10 +11,11 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from experiments.grug.fast_track import model
+from experiments.grug.fast_track import model, optimizer
 from experiments.grug.fast_track.test_kda_local import _config, _mesh
 from experiments.grug.moe import kda
 from experiments.grug.moe_cplm.stack_kda_model import NativeKimiDeltaAttention, StackKimiDeltaAttention
+from experiments.grug.moe_cplm.train_belay import execution
 
 
 def serial_native(q, k, v, g, beta, extras, *, options):
@@ -68,3 +69,26 @@ def test_only_four_native_kda_layers_change():
             StackKimiDeltaAttention,
             model.CausalSelfAttention,
         ]
+
+
+def test_zero_initialized_actions_use_native_gate_adam():
+    params = {
+        "kda_blocks": {
+            "stacked": {
+                "attn": {
+                    "w_stack_actions": jnp.zeros((3, 32, 8)),
+                    "stack_action_bias": jnp.ones((3, 2, 4)),
+                    "w_q": jnp.ones((3, 32, 32)),
+                    "w_a_down": jnp.ones((3, 32, 8)),
+                }
+            }
+        }
+    }
+    config = optimizer.GrugMoeMuonHConfig()
+    original = config.create_mask(params)
+    with execution("plus-stack4-kda"):
+        labels = config.create_mask(params)["kda_blocks"]["stacked"]["attn"]
+    assert labels["w_stack_actions"] == labels["stack_action_bias"] == "kda_decay"
+    assert labels["w_q"] == original["kda_blocks"]["stacked"]["attn"]["w_q"]
+    assert labels["w_a_down"] == original["kda_blocks"]["stacked"]["attn"]["w_a_down"]
+    assert config.create_mask(params) == original

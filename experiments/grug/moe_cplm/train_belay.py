@@ -35,7 +35,7 @@ from levanter.optim.config import OptimizerConfig
 from levanter.tracker.wandb import WandbConfig
 from rigging.filesystem.storage_path import StoragePath
 
-from experiments.grug.fast_track import model, qb_balancing, train
+from experiments.grug.fast_track import model, optimizer, qb_balancing, train
 from experiments.grug.fast_track.column_sharded_embedding import column_sharded_embedding
 from experiments.grug.fast_track.heuristic import MoeHeuristic
 from experiments.grug.fast_track.router_lookup import unrolled_router_logits
@@ -88,6 +88,13 @@ def execution(variant="cplm", tables=None):
     with ExitStack() as stack:
         if variant == "plus-stack4-kda":
             stack.enter_context(patch.object(model, "KimiDeltaAttention", StackKimiDeltaAttention))
+            stack.enter_context(
+                patch.object(
+                    optimizer,
+                    "_KDA_ADAM_LEAVES",
+                    optimizer._KDA_ADAM_LEAVES | {"w_stack_actions", "stack_action_bias"},
+                )
+            )
         for module, name, implementation in (
             (train, "Transformer", MODELS[variant]),
             (train, "_accumulated_loss_and_grads", accumulation.accumulated_loss_and_grads),
@@ -668,6 +675,7 @@ def main(argv=None):
                             ),
                             "read": "top after update",
                             "action_initial_bias": [0, 0, 6, 0],
+                            "action_optimizer": "native kda_decay Adam group; zero-init weights must not use MuonH",
                             "data_manifest_sha256": hashlib.sha256(args.data_config.read_bytes()).hexdigest(),
                             "tokenizer_files_sha256": identities,
                         }

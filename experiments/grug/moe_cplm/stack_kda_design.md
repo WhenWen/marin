@@ -161,3 +161,14 @@ TPU timing uses five post-compilation repetitions, waiting for all outputs and
 gradients each time. Final validation occurs after updates 1000,2000,...,10000
 and 10676. NLL is summed masked token loss divided by token count; macro NLL
 averages domain NLLs uniformly, over all 23 domains or within Paloma/Uncheatable.
+
+## Pre-training implementation amendment, 2026-10-23
+
+Route both new action tensors to the native KDA gate Adam group (`kda_decay`),
+with its inherited learning rate and schedule. The generic matrix fallback is
+MuonH, whose fixed-norm update cannot move a zero-initialized action projection.
+This correction preserves the frozen zero initialization and learned controller;
+all inherited parameter groups are unchanged. A non-training routing check
+verifies the two new leaves and restoration of the baseline optimizer context.
+The zero-update kernel qualification submitted at commit 53413ba27 has no
+optimizer and is unaffected by this correction. No LM training preceded it.
