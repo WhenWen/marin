@@ -50,22 +50,28 @@ def _prepare(inputs):
     query = inputs[1]
     lead, length, rank = query.shape[:-2], query.shape[-2], query.shape[-1]
     size = rank * DEPTH
-    transport = jnp.broadcast_to(jnp.eye(DEPTH, dtype=jnp.float32), (*lead, rank, DEPTH, DEPTH))
-    writes = jnp.zeros((*lead, rank, DEPTH, length), jnp.float32)
+    transport = jnp.broadcast_to(jnp.eye(DEPTH, dtype=jnp.float32)[..., None], (*lead, DEPTH, DEPTH, rank))
+    writes = jnp.zeros((*lead, DEPTH, length, rank), jnp.float32)
     tokens = tuple(jnp.moveaxis(x, len(lead), 0) for x in inputs)
+
+    def move(tensor, actions, decay, keep):
+        # Keep the 128-wide key channel innermost; depth-four tiles otherwise
+        # incur substantial padding on TPU.
+        tensor = _transport(jnp.moveaxis(tensor, -1, -3), actions, decay, keep)
+        return jnp.moveaxis(tensor, -3, -1)
 
     def step(carry, token):
         transport, writes = carry
         index, (actions, query, key, value, decay, beta, keep) = token
         active = actions[..., 0] + actions[..., 2]
         erase_key = key * decay * (active * beta * keep)[..., None]
-        erase = (erase_key[..., :, None] * transport[..., 0, :]).reshape(*lead, size)
-        correction = jnp.einsum("...r,...ri->...i", erase_key, writes[..., 0, :], precision=PRECISION)
-        transport = _transport(transport, actions, decay, keep)
-        writes = _transport(writes, actions, decay, keep)
-        writes = writes.at[..., :, 0, index].add(key)
-        read = (query[..., :, None] * transport[..., 0, :]).reshape(*lead, size)
-        attention = jnp.einsum("...r,...ri->...i", query, writes[..., 0, :], precision=PRECISION)
+        erase = (erase_key[..., None, :] * transport[..., 0, :, :]).reshape(*lead, size)
+        correction = jnp.einsum("...r,...ir->...i", erase_key, writes[..., 0, :, :], precision=PRECISION)
+        transport = move(transport, actions, decay, keep)
+        writes = move(writes, actions, decay, keep)
+        writes = writes.at[..., 0, index, :].add(key)
+        read = (query[..., None, :] * transport[..., 0, :, :]).reshape(*lead, size)
+        attention = jnp.einsum("...r,...ir->...i", query, writes[..., 0, :, :], precision=PRECISION)
         new_value = value * (beta * (active + actions[..., 3]))[..., None]
         return (transport, writes), (erase, correction, read, attention, new_value)
 
@@ -76,7 +82,7 @@ def _prepare(inputs):
     solved = jnp.matmul(inverse, jnp.concatenate((erase, values), axis=-1), precision=PRECISION)
     return Preparation(
         transport,
-        writes.reshape(*lead, size, length),
+        jnp.swapaxes(writes, -3, -2).reshape(*lead, length, size),
         solved[..., :size],
         solved[..., size:],
         read,
@@ -84,11 +90,16 @@ def _prepare(inputs):
     )
 
 
+def _move_state(transport, state):
+    # Four vector products avoid batched 4-by-4 matrix multiplication.
+    return sum(transport[..., :, j, :, None] * state[..., None, j, :, :] for j in range(DEPTH))
+
+
 def _advance(prep, state):
     flat = state.reshape(*state.shape[:-3], -1, state.shape[-1])
     innovation = prep.values - jnp.matmul(prep.erase, flat, precision=PRECISION)
-    moved = jnp.einsum("...rij,...rjv->...riv", prep.transport, state, precision=PRECISION)
-    updated = moved + jnp.matmul(prep.writes, innovation, precision=PRECISION).reshape(state.shape)
+    moved = _move_state(prep.transport, state)
+    updated = moved + jnp.matmul(jnp.swapaxes(prep.writes, -1, -2), innovation, precision=PRECISION).reshape(state.shape)
     return updated, innovation
 
 
@@ -98,9 +109,10 @@ def _emit(prep, state, innovation):
 
 
 def _single_chunk(inputs, initial):
+    initial = jnp.swapaxes(initial, -3, -2)
     prep = _prepare(inputs)
     final, innovation = _advance(prep, initial)
-    return _emit(prep, initial, innovation), final
+    return _emit(prep, initial, innovation), jnp.swapaxes(final, -3, -2)
 
 
 def _recurrent_chunk(inputs, initial):
@@ -132,6 +144,7 @@ def _split(inputs, chunk):
 
 
 def _forward(inputs, initial, chunk):
+    initial = jnp.swapaxes(initial, -3, -2)
     xs = _split(inputs, chunk)
     prep = _prepare(xs)
     axis = initial.ndim - 3
@@ -146,7 +159,7 @@ def _forward(inputs, initial, chunk):
     _, innovation = _advance(prep, incoming)
     output = _emit(prep, incoming, innovation)
     output = output.reshape(*initial.shape[:-3], inputs[1].shape[-2], initial.shape[-1])
-    return (output, final), incoming
+    return (output, jnp.swapaxes(final, -3, -2)), incoming
 
 
 @partial(jax.custom_vjp, nondiff_argnums=(2,))
@@ -170,6 +183,7 @@ def _fwd(inputs, initial, chunk):
 def _bwd(chunk, saved, cotangents):
     inputs, incoming = saved
     output_grad, final_grad = cotangents
+    final_grad = jnp.swapaxes(final_grad, -3, -2)
     xs = _split(inputs, chunk)
     prep = _prepare(xs)
     axis = incoming.ndim - 4
@@ -183,8 +197,8 @@ def _bwd(chunk, saved, cotangents):
     def adjoint(carry, block):
         prep, source = block
         flat = carry.reshape(*carry.shape[:-3], -1, carry.shape[-1])
-        propagated = jnp.einsum("...rji,...rjv->...riv", prep.transport, carry, precision=PRECISION)
-        correction = jnp.matmul(jnp.swapaxes(prep.writes, -1, -2), flat, precision=PRECISION)
+        propagated = _move_state(jnp.swapaxes(prep.transport, -3, -2), carry)
+        correction = jnp.matmul(prep.writes, flat, precision=PRECISION)
         correction = jnp.matmul(jnp.swapaxes(prep.erase, -1, -2), correction, precision=PRECISION)
         return propagated - correction.reshape(carry.shape) + source, carry
 
@@ -198,13 +212,14 @@ def _bwd(chunk, saved, cotangents):
     # A bounded local VJP keeps the prepare/replay tape independent of T.
     def local(values):
         tokens, state, dy, terminal = values
+        state, terminal = (jnp.swapaxes(x, -3, -2) for x in (state, terminal))
         _, pullback = jax.vjp(_recurrent_chunk, tokens, state)
         return pullback((dy, terminal))[0]
 
     local_inputs = jax.tree.map(flatten, (xs, incoming, dy, outgoing))
     gradients = jax.lax.map(local, local_inputs, batch_size=BACKWARD_BATCH)
     gradients = tuple(x.reshape(original.shape) for x, original in zip(gradients, inputs, strict=True))
-    return gradients, initial_grad
+    return gradients, jnp.swapaxes(initial_grad, -3, -2)
 
 
 chunked.defvjp(_fwd, _bwd)
