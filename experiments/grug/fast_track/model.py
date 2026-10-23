@@ -73,7 +73,6 @@ from experiments.grug.fast_track.router_metrics import (
     summarize_router_metrics,
 )
 from experiments.grug.moe.kda import chunk_kda, doc_starts, kda_fused
-from experiments.grug.moe.stack_kda import native_kernel as stack_kda_kernel
 from experiments.grug.moe.kda_prep_pallas import EraseInput, GateFn, GateKind, gate_log_decay
 from experiments.grug.moe.kda_state_pallas import StateGrads
 
@@ -1085,8 +1084,6 @@ class GrugModelConfig:
     with loss ``1 - cos(P(h_t), z_{t+1})`` (pairs crossing a packed-document boundary are masked). Training-only."""
     nitp_layer: int = 1
     """0-indexed layer whose output stream (the plain sum of the AttnRes sources) is the NITP target (~20% depth)."""
-    kda_stack_depth: int = 0
-    """Protected stack within each KDA head: 0 disables, 4 is the frozen native experiment."""
     kda_push_buckets: int = 0
     """'Push' decay for KDA (0 disables it): M delta-rule states, each decaying at its own learned,
     reader-independent per-channel rate; the writing token splits its write across them
@@ -3308,8 +3305,6 @@ def _kda_kernel(q, k, v, g, beta, extras: dict[str, jax.Array], *, options: KdaK
     if "erase_logits" in extras:
         erase, erase_input = extras["erase_logits"], EraseInput.LOGITS
     if jax.default_backend() == "gpu":
-        if "stack_actions" in extras:
-            raise ValueError("Depth-four stack KDA is qualified only on the TPU/XLA path")
         return kda_fused(
             q,
             k,
@@ -3328,8 +3323,6 @@ def _kda_kernel(q, k, v, g, beta, extras: dict[str, jax.Array], *, options: KdaK
         )
     if gate is not None:
         g = gate_log_decay(gate_fn, g.astype(jnp.float32), gate[0], gate[1])
-    if "stack_actions" in extras:
-        return stack_kda_kernel(q, k, v, g, beta, extras["stack_actions"], segment_ids)
     if erase is not None and erase_input == EraseInput.LOGITS:
         erase = 2.0 * jax.nn.sigmoid(erase.astype(jnp.float32))
     q, k, v, g, beta = (jnp.swapaxes(x, 1, 2) for x in (q, k, v, g, beta))
@@ -3410,8 +3403,6 @@ class KimiDeltaAttention(eqx.Module):
     """Per-bucket, per-channel log-decay logits of the push buckets (``kda_push_buckets``)."""
     w_push: Float[Array, "D NM"] | None
     """Writer's bucket weights, zero-init (uniform split)."""
-    w_stack_actions: jax.Array | None
-    stack_action_bias: jax.Array | None
     w_rot_down: Float[Array, "D R"] | None
     w_rot_up: Float[Array, "R NP"] | None
     rot_scale: Float[Array, "N P"] | None
@@ -3425,14 +3416,6 @@ class KimiDeltaAttention(eqx.Module):
 
     @staticmethod
     def init(cfg: GrugModelConfig, *, key: PRNGKeyArray) -> "KimiDeltaAttention":
-        if cfg.kda_stack_depth and (
-            cfg.kda_stack_depth != 4
-            or cfg.kda_push_buckets
-            or cfg.kda_head_pairing != KdaHeadPairing.NONE
-            or cfg.kda_dd_rope
-            or cfg.kda_erase_gate
-        ):
-            raise ValueError("Depth-four stack KDA requires unpaired native heads without erase/rotation/push buckets")
         k_q, k_k, k_v, k_o, k_g, k_ad, k_au, k_b, k_dt = random.split(key, 9)
         d, n, h, r, std = cfg.hidden_dim, cfg.num_heads, cfg.inferred_head_dim, _KDA_GATE_RANK, cfg.initializer_std
         # kda_dd_rope ties the decay across each rotated channel pair: h/2 decay columns per head.
@@ -3499,12 +3482,6 @@ class KimiDeltaAttention(eqx.Module):
             vres_lambda=_vres_lambda_init(cfg),
             push_decay=_kda_push_decay_init(cfg, n, h) if cfg.kda_push_buckets else None,
             w_push=(reshard(jnp.zeros((d, n * cfg.kda_push_buckets)), P(None, None)) if cfg.kda_push_buckets else None),
-            w_stack_actions=(reshard(jnp.zeros((d, n * 4)), P(None, "model")) if cfg.kda_stack_depth else None),
-            stack_action_bias=(
-                reshard(jnp.broadcast_to(jnp.array([0.0, 0.0, 6.0, 0.0]), (n, 4)), P("model", None))
-                if cfg.kda_stack_depth
-                else None
-            ),
             w_rot_down=(
                 reshard(_init_weight(random.fold_in(k_ad, 1), (d, rot_rank), std), P(_FSDP_AXES, None))
                 if cfg.kda_dd_rope
@@ -3630,12 +3607,6 @@ class KimiDeltaAttention(eqx.Module):
         beta = reshard(beta, spec3)
         extras: dict[str, jax.Array] = {}
         extra_specs: dict[str, P] = {}
-        if self.w_stack_actions is not None:
-            logits = _proj(cfg, x, self.w_stack_actions).astype(jnp.float32).reshape(b, s, cfg.num_heads, 4)
-            actions = jax.nn.softmax(logits + self.stack_action_bias, axis=-1)
-            extras["stack_actions"], extra_specs["stack_actions"] = reshard(actions, spec4), spec4
-            for index, action in enumerate(("push", "pop", "stay", "replace")):
-                stats[f"{_KDA_STAT_PREFIX}stack_{action}"] = jax.lax.stop_gradient(jnp.mean(actions[..., index]))
         if onchip_gate:
             head_spec = P("model", None)
             extras["gate_p"] = reshard(jnp.broadcast_to(scale, self.dt_bias.shape), head_spec)

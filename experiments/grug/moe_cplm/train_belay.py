@@ -48,6 +48,7 @@ from experiments.grug.moe_cplm.frame_kda import FRAME_CONFIG
 from experiments.grug.moe_cplm.frame_kda_model import FrameKDAPlus
 from experiments.grug.moe_cplm.frame_kda_validation import validate_frame_kda
 from experiments.grug.moe_cplm.head_validation import validate_head, validate_histogram
+from experiments.grug.moe_cplm.stack_kda_model import StackKimiDeltaAttention
 from experiments.grug.moe_cplm.stack_kda_validation import validate_stack_kda
 
 RECIPE = Path(__file__).with_name("belay_recipe.json")
@@ -85,6 +86,8 @@ def tpu_recurrence(prep, state, mm, lead, dk, dv, *, scan_impl):
 def execution(variant="cplm", tables=None):
     """Bind TPU implementations for this single-run process, including eval."""
     with ExitStack() as stack:
+        if variant == "plus-stack4-kda":
+            stack.enter_context(patch.object(model, "KimiDeltaAttention", StackKimiDeltaAttention))
         for module, name, implementation in (
             (train, "Transformer", MODELS[variant]),
             (train, "_accumulated_loss_and_grads", accumulation.accumulated_loss_and_grads),
@@ -414,7 +417,6 @@ def main(argv=None):
     if args.variant == "plus-stack4-kda":
         if args.width != 512:
             raise ValueError("The layer-internal stack comparison is frozen at d512")
-        config = replace(config, model=replace(config.model, kda_stack_depth=4))
     execution_policy = "native-saved-global-qb" if args.grad_accum_microbatches > 1 else "native-saved"
     if args.width >= 1024:
         execution_policy = "native-ladder-recompute"
@@ -564,6 +566,8 @@ def main(argv=None):
                 for path, leaf in jax.tree_util.tree_flatten_with_path(grads)[0]:
                     if any(isinstance(key, jax.tree_util.GetAttrKey) and key.name == "w_stack_actions" for key in path):
                         action_norms.append(jnp.linalg.norm(leaf.reshape(-1, *leaf.shape[-2:]), axis=(-2, -1)))
+                if sum(x.size for x in action_norms) != 4:
+                    raise ValueError("Expected action gradients in all four native KDA layers")
                 norms = jnp.concatenate((norms, *action_norms))
             positive = jnp.concatenate((norms[:4], norms[5:])) if plus_variant else norms
             good = finite & jnp.isfinite(loss) & jnp.all(jnp.isfinite(positive) & (positive > 0))
@@ -657,6 +661,9 @@ def main(argv=None):
                             "comparison": "equal tokens; per-layer depth-four KDA replaces the native recurrence",
                             "additional_parameters": 32832,
                             "depth": 4,
+                            "kernel_source_sha256": hashlib.sha256(
+                                Path(__file__).parent.parent.joinpath("moe/stack_kda.py").read_bytes()
+                            ).hexdigest(),
                             "read": "top after update",
                             "action_initial_bias": [0, 0, 6, 0],
                             "data_manifest_sha256": hashlib.sha256(args.data_config.read_bytes()).hexdigest(),
@@ -677,7 +684,8 @@ def main(argv=None):
                             {
                                 "loss": float(loss),
                                 "all_gradients_finite": True,
-                                "copy_gradient_norms": norms.tolist(),
+                                "copy_gradient_norms": norms[: len(names)].tolist(),
+                                "stack_action_gradient_norms": norms[len(names) :].tolist(),
                                 "training_updates": 0,
                                 "validated_before_optimizer": True,
                                 "method": "separate-gradient-preflight",

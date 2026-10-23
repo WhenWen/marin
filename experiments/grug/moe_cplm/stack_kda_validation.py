@@ -18,9 +18,7 @@ def reference(inputs, initial):
     actions, query, key, value, decay, beta, keep = (jnp.swapaxes(x, 1, 2) for x in inputs)
     address = jnp.broadcast_to(jnp.array([1, 0, 0, 0], jnp.float32), actions.shape)
     xs = (actions, query, key, value, decay, beta, address, keep)
-    final, output = frame_kda.recurrent(
-        tuple(jnp.swapaxes(x, 0, 1) for x in xs), jnp.swapaxes(initial, -3, -2)
-    )
+    final, output = frame_kda.recurrent(tuple(jnp.swapaxes(x, 0, 1) for x in xs), jnp.swapaxes(initial, -3, -2))
     return jnp.transpose(output, (1, 2, 0, 3)), jnp.swapaxes(final, -3, -2)
 
 
@@ -53,6 +51,7 @@ def objective(fn, inputs, state):
 
 def validate_stack_kda(sequence_length=8192, chunk=stack_kda.CHUNK):
     """Compare all reference adjoints, then time five drained native-shape passes."""
+
     def fast(xs, state):
         return stack_kda.chunked(xs, state, chunk)
 

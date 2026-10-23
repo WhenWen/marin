@@ -47,7 +47,7 @@ def _transport(state, actions, decay, keep):
 
 
 def _prepare(inputs):
-    actions, query, key, value, decay, beta, keep = inputs
+    query = inputs[1]
     lead, length, rank = query.shape[:-2], query.shape[-2], query.shape[-1]
     size = rank * DEPTH
     transport = jnp.broadcast_to(jnp.eye(DEPTH, dtype=jnp.float32), (*lead, rank, DEPTH, DEPTH))
@@ -93,9 +93,7 @@ def _advance(prep, state):
 
 def _emit(prep, state, innovation):
     flat = state.reshape(*state.shape[:-3], -1, state.shape[-1])
-    return jnp.matmul(prep.read, flat, precision=PRECISION) + jnp.matmul(
-        prep.attention, innovation, precision=PRECISION
-    )
+    return jnp.matmul(prep.read, flat, precision=PRECISION) + jnp.matmul(prep.attention, innovation, precision=PRECISION)
 
 
 def _single_chunk(inputs, initial):
