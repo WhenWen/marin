@@ -2,6 +2,16 @@
 
 ## Current amendment: three actions and matched precision paths
 
+Interface amendment on 2026-10-23: expose chunk_kda(q,k,v,g,beta,*,actions,...)
+with native head-major layout, q/k normalization and scaling, log-decay input,
+initial/final state, segment ids and matmul_dtype selection. The only required
+additional input is one shared three-action vector per token. Both benchmark
+operators receive identical g directly. The internal preparation exponentiates
+g once; remove the decay-to-log roundtrip from the comparison. The earlier
+roundtrip on TPU v4 changed decay by up to 7.82e-5 and caused the two failed
+hard-stay checks. Matching effective decay restored strict equivalence in v3
+(output max error 1.49e-8, final state 1.49e-7). No tolerance was changed.
+
 2026-10-23, before the revised TPU submission: remove replace following user
 feedback. The current actions are push, pop and stay, with softmax bias [0,0,6].
 Their definitions below are unchanged; the replace branch is absent. Action
@@ -18,6 +28,7 @@ automatic reverse differentiation of their actual chunk graph, including all
 casts, with rematerialized preparation. This replaces the previous bounded
 sequential-replay VJP and may change training intermediate memory; report it.
 It avoids using the exact recurrence's adjoints for a rounded BF16 forward.
+Gradients follow JAX's dtype-conversion differentiation rules.
 
 Benchmark both precisions at C16 and C32 with the same backward algorithm.
 Retain strict FP32-versus-recurrence tolerances. Separately report mixed-versus-

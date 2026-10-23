@@ -42,7 +42,7 @@ def fixture(length, rank=128, width=128, *, mixed=False):
         unit(normal(shape)) / rank**0.5,
         unit(normal(shape)),
         normal((1, length, 4, width)),
-        jnp.exp(-0.1 * jax.nn.softplus(normal(shape))),
+        -0.1 * jax.nn.softplus(normal(shape)),
         jax.nn.sigmoid(normal((1, length, 4))),
         jnp.ones((1, length), jnp.float32).at[:, length // 2].set(0),
     )
@@ -50,22 +50,37 @@ def fixture(length, rank=128, width=128, *, mixed=False):
     return inputs, initial
 
 
-def native(inputs, state, *, serial=False):
-    _, q, key, value, decay, beta, keep = inputs
-    q, key, value, decay, beta = (jnp.swapaxes(x, 1, 2) for x in (q, key, value, decay, beta))
+def operator_inputs(inputs):
+    _, q, key, value, g, beta, keep = inputs
+    q, key, value, g, beta = (jnp.swapaxes(x, 1, 2) for x in (q, key, value, g, beta))
     segments = jnp.cumsum(1 - keep, axis=-1).astype(jnp.int32)[:, None, :]
+    return (q * q.shape[-1] ** 0.5, key, value, g, beta), segments
+
+
+def native(inputs, state, *, serial=False):
+    args, segments = operator_inputs(inputs)
     kwargs = {} if serial else {"chunk_size": model.KDA_CHUNK_SIZE, "scan_impl": "parallel_stacked_split"}
     fn = kda.recurrent_kda if serial else kda.chunk_kda
     output, final = fn(
-        q * q.shape[-1] ** 0.5,
-        key,
-        value,
-        jnp.log(decay),
-        beta,
+        *args,
         initial_state=state,
         use_qk_l2norm=False,
         segment_ids=segments,
         **kwargs,
+    )
+    return jnp.swapaxes(output, 1, 2), final
+
+
+def candidate(inputs, state, chunk, precision="fp32"):
+    args, segments = operator_inputs(inputs)
+    output, final = stack.chunk_kda(
+        *args,
+        actions=inputs[0],
+        initial_state=state,
+        use_qk_l2norm=False,
+        segment_ids=segments,
+        chunk_size=chunk,
+        matmul_dtype=jnp.bfloat16 if precision == "mixed" else jnp.float32,
     )
     return jnp.swapaxes(output, 1, 2), final
 
@@ -77,7 +92,7 @@ def objective(fn, inputs, state):
 
 def correctness(chunk):
     result = {}
-    fn = lambda x, s: stack.chunked(x, s, chunk)  # noqa: E731
+    fn = lambda x, s: candidate(x, s, chunk)  # noqa: E731
     for mixed in (False, True):
         xs, initial = fixture(128, mixed=mixed)
         actual = jax.jit(jax.value_and_grad(lambda x, s: objective(fn, x, s), argnums=(0, 1)))(xs, initial)
@@ -95,12 +110,7 @@ def correctness(chunk):
     xs = (jnp.broadcast_to(jnp.array([0, 0, 1], jnp.float32), xs[0].shape), *xs[1:])
     with jax.default_matmul_precision("highest"):
         native_reference = native(xs, initial, serial=True)
-    # Native accepts log gates, whereas this operator accepts exp(log gates).
-    # Compare the same effective decay, including the device's log/exp roundtrip.
-    effective_decay = jnp.exp(jnp.log(xs[4]))
-    matched = (*xs[:4], effective_decay, *xs[5:])
-    result["native_decay_roundtrip_max_abs"] = float(jnp.max(jnp.abs(effective_decay - xs[4])))
-    candidate_reference = stack.chunked(matched, initial, chunk)
+    candidate_reference = candidate(xs, initial, chunk)
     result["native_stay_max_abs"] = [
         float(jnp.max(jnp.abs(a - b))) for a, b in zip(candidate_reference, native_reference, strict=True)
     ]
@@ -117,7 +127,7 @@ def precision_errors(chunk):
         xs, initial = fixture(128, mixed=mixed_actions)
         variants = {}
         for precision in ("fp32", "mixed"):
-            fn = lambda x, s, p=precision: stack.chunked(x, s, chunk, p)  # noqa: E731
+            fn = lambda x, s, p=precision: candidate(x, s, chunk, p)  # noqa: E731
             values = jax.jit(fn)(xs, initial)
             grads = jax.jit(jax.grad(lambda x, s, f=fn: objective(f, x, s), argnums=(0, 1)))(xs, initial)
             variants[precision] = jax.tree.leaves((values, grads))
@@ -236,7 +246,7 @@ def main():
             for precision in args.precisions:
                 jax.clear_caches()
                 result = {"chunk": chunk, "precision": precision}
-                result.update(benchmark(lambda x, s, c=chunk, p=precision: stack.chunked(x, s, c, p), inputs, initial))
+                result.update(benchmark(lambda x, s, c=chunk, p=precision: candidate(x, s, c, p), inputs, initial))
                 write_record(output, root, f"precision-{precision}-chunk-{chunk}.json", result)
                 print(json.dumps(result), flush=True)
 

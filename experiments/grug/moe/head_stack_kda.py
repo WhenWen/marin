@@ -10,7 +10,7 @@ beta [..., T, 4], keep [..., T], and state [..., 4, R, V].
 import jax
 import jax.numpy as jnp
 
-from experiments.grug.moe.kda import _unit_lower_triangular_inverse
+from experiments.grug.moe.kda import _prepare_qk, _unit_lower_triangular_inverse, doc_starts
 from experiments.grug.moe.stack_kda import Preparation, _move_state
 
 DEPTH = 4
@@ -46,6 +46,7 @@ def _cross(left, right, precision):
 
 
 def _prepare(inputs, precision):
+    inputs = (*inputs[:4], jnp.exp(inputs[4]), *inputs[5:])
     query = inputs[1]
     lead, length, heads, rank = query.shape[:-3], *query.shape[-3:]
     size, count = heads * rank, length * heads
@@ -106,9 +107,9 @@ def reference(inputs, initial):
     tokens = tuple(jnp.moveaxis(x, axis, 0) for x in inputs)
 
     def step(state, token):
-        actions, query, key, value, decay, beta, keep = token
+        actions, query, key, value, log_decay, beta, keep = token
         state = keep[..., None, None, None] * state
-        decayed = decay[..., :, :, None] * state
+        decayed = jnp.exp(log_decay)[..., :, :, None] * state
         prediction = jnp.einsum("...hr,...hrv->...hv", key, decayed, precision=PRECISION)
         updated = decayed + beta[..., :, None, None] * key[..., :, :, None] * (value - prediction)[..., :, None, :]
         push = jnp.concatenate((updated[..., :1, :, :], state[..., :-1, :, :]), axis=-3)
@@ -156,17 +157,61 @@ def chunked(inputs, initial, chunk=CHUNK, precision="fp32"):
     return _forward(inputs, initial, chunk, precision)[0]
 
 
-def native_kernel(q, k, v, log_decay, beta, actions, segment_ids=None, *, chunk=CHUNK, precision="mixed"):
-    """Normalize native [B,T,H,R] projections and read the four existing slots."""
-    q, k, v, log_decay, actions = (x.astype(jnp.float32) for x in (q, k, v, log_decay, actions))
-    q = q * jax.lax.rsqrt(jnp.sum(q * q, -1, keepdims=True) + 1e-6) / q.shape[-1] ** 0.5
-    k = k * jax.lax.rsqrt(jnp.sum(k * k, -1, keepdims=True) + 1e-6)
-    keep = jnp.ones(q.shape[:2], jnp.float32)
+def chunk_kda(
+    q,
+    k,
+    v,
+    g,
+    beta,
+    *,
+    actions,
+    chunk_size=CHUNK,
+    initial_state=None,
+    use_qk_l2norm=True,
+    matmul_dtype=jnp.bfloat16,
+    segment_ids=None,
+):
+    """Native KDA interface plus shared push/pop/stay probabilities.
+
+    q/k/v/g use [...,4,T,channels], beta [...,4,T], and actions [...,T,3].
+    Initial/final state uses the native [...,4,R,V] shape. Document ids must
+    agree across heads; [batch,T] and native [batch,1,T] forms are accepted.
+    """
+    if q.shape[-3] != DEPTH:
+        raise ValueError("Head stack requires four native heads")
+    if matmul_dtype not in (None, jnp.float32, jnp.bfloat16):
+        raise ValueError("Head stack supports native FP32 or BF16 matmul operands")
+    q, k = _prepare_qk(q, k, use_qk_l2norm)
+    if initial_state is None:
+        initial_state = jnp.zeros((*q.shape[:-2], q.shape[-1], v.shape[-1]), jnp.float32)
+    keep = jnp.ones((*q.shape[:-3], q.shape[-2]), jnp.float32)
     if segment_ids is not None:
-        starts = jnp.pad(segment_ids[:, 1:] != segment_ids[:, :-1], ((0, 0), (1, 0)), constant_values=True)
-        keep *= (~starts).astype(jnp.float32)
-    initial = jnp.zeros((q.shape[0], DEPTH, q.shape[-1], v.shape[-1]), jnp.float32)
-    output, _ = chunked(
-        (actions, q, k, v, jnp.exp(log_decay), beta.astype(jnp.float32), keep), initial, chunk, precision
+        if segment_ids.ndim == beta.ndim - 1:
+            segment_ids = segment_ids[..., None, :]
+        keep = 1.0 - doc_starts(jnp.broadcast_to(segment_ids, beta.shape)[..., 0, :])
+    q, k, v, g = (jnp.swapaxes(x.astype(jnp.float32), -3, -2) for x in (q, k, v, g))
+    beta = jnp.swapaxes(beta.astype(jnp.float32), -2, -1)
+    output, final = chunked(
+        (actions.astype(jnp.float32), q, k, v, g, beta, keep),
+        initial_state.astype(jnp.float32),
+        chunk_size,
+        "mixed" if matmul_dtype == jnp.bfloat16 else "fp32",
     )
-    return output
+    return jnp.swapaxes(output, -3, -2), final
+
+
+def native_kernel(q, k, v, log_decay, beta, actions, segment_ids=None, *, chunk=CHUNK, precision="mixed"):
+    """Adapt the model's [B,T,H,R] layout to the native operator interface."""
+    q, k, v, log_decay = (jnp.swapaxes(x, 1, 2) for x in (q, k, v, log_decay))
+    output, _ = chunk_kda(
+        q,
+        k,
+        v,
+        log_decay,
+        jnp.swapaxes(beta, 1, 2),
+        actions=actions,
+        segment_ids=segment_ids,
+        chunk_size=chunk,
+        matmul_dtype=jnp.bfloat16 if precision == "mixed" else jnp.float32,
+    )
+    return jnp.swapaxes(output, 1, 2)
