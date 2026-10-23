@@ -123,13 +123,13 @@ def _recurrent_chunk(inputs, initial):
     def step(state, token):
         actions, query, key, value, decay, beta, keep = token
         active = actions[..., 0] + actions[..., 2]
-        prediction = jnp.einsum("...r,...rv->...v", key * decay, state[..., 0, :], precision=PRECISION)
+        prediction = jnp.sum((key * decay)[..., :, None] * state[..., 0, :], axis=-2)
         innovation = beta[..., None] * (
             (active + actions[..., 3])[..., None] * value - (active * keep)[..., None] * prediction
         )
         state = _transport(state, actions, decay, keep)
         state = state.at[..., 0, :].add(key[..., :, None] * innovation[..., None, :])
-        output = jnp.einsum("...r,...rv->...v", query, state[..., 0, :], precision=PRECISION)
+        output = jnp.sum(query[..., :, None] * state[..., 0, :], axis=-2)
         return state, output
 
     final, output = jax.lax.scan(step, initial, tokens)
