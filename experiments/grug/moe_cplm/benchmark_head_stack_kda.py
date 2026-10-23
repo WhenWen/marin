@@ -101,7 +101,9 @@ def correctness(chunk):
     matched = (*xs[:4], effective_decay, *xs[5:])
     result["native_decay_roundtrip_max_abs"] = float(jnp.max(jnp.abs(effective_decay - xs[4])))
     candidate_reference = stack.chunked(matched, initial, chunk)
-    result["native_stay_max_abs"] = [float(jnp.max(jnp.abs(a - b))) for a, b in zip(candidate_reference, native_reference)]
+    result["native_stay_max_abs"] = [
+        float(jnp.max(jnp.abs(a - b))) for a, b in zip(candidate_reference, native_reference, strict=True)
+    ]
     print(json.dumps({"strict_check_diagnostics": result}), flush=True)
     for a, b in zip(candidate_reference, native_reference, strict=True):
         np.testing.assert_allclose(a, b, atol=1e-5, rtol=1e-4)
