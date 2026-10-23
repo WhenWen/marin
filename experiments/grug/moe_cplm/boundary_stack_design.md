@@ -164,10 +164,13 @@ the previously qualified operator and its gradients are unchanged.
 Run exactly 1,000 updates per new condition (131,072,000 tokens), preserving
 the original 10,676-update optimizer/LR schedule through the native
 stop_after_steps field. Native final callbacks retain checkpoint and validation
-results at this prefix endpoint. Use one additional v4-32 job, sequentially
-running b=0,2,4 in fresh processes on all four hosts. Each condition and each
-restart receives a fresh W&B and checkpoint identity. A job restart repeats
-the sequence from b=0; it does not resume any earlier trajectory. Keep default
+results at this prefix endpoint. Use sequential independent v4-32 jobs for
+b=0,2,4, with at most one additional tuning allocation active. Levanter's
+process-0 exit handler completes its Iris job, so each condition needs a separate
+job identity. The submit-host launcher waits for success before submitting the
+next condition. Each condition and each restart receives a fresh W&B and
+checkpoint identity. A job restart repeats only its own bias condition from
+initialization; it does not resume any earlier trajectory. Keep default
 Iris preemption/retries and no wall-clock limits. The existing b=6 run continues.
 
 Compare Paloma macro validation NLL after 1,000 updates as the primary tuning
