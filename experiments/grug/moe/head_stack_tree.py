@@ -107,10 +107,18 @@ def prepare_tree(inputs, precision="fp32"):
     if length & (length - 1):
         raise ValueError("Tree preparation requires a power-of-two chunk")
     axis = inputs[1].ndim - 3
-    nodes = [_leaf(tuple(x[(slice(None),) * axis + (t,)] for x in inputs)) for t in range(length)]
-    while len(nodes) > 1:
-        nodes = [_merge(nodes[i], nodes[i + 1], precision) for i in range(0, len(nodes), 2)]
-    node = nodes[0]
+    nodes = _leaf(inputs)
+    groups = length
+    while groups > 1:
+        def child(x, side):
+            shape = (*x.shape[:axis], groups // 2, 2, *x.shape[axis + 1 :])
+            return x.reshape(shape)[(slice(None),) * (axis + 1) + (side,)]
+
+        left = jax.tree.map(lambda x: child(x, 0), nodes)
+        right = jax.tree.map(lambda x: child(x, 1), nodes)
+        nodes = _merge(left, right, precision)
+        groups //= 2
+    node = jax.tree.map(lambda x: jnp.squeeze(x, axis=axis), nodes)
     size = 4 * inputs[1].shape[-1]
     solved = _intra(node.inverse, jnp.concatenate((_flat(node.erase), node.values), -1), precision)
     return Preparation(

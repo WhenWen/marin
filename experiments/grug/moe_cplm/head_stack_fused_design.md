@@ -67,7 +67,8 @@ VMEM, and writes only the final prepared arrays. Parallel chunks have no
 dependencies. On TPU, this independence permits batching and core partitioning;
 it does not imply that every Pallas grid element executes simultaneously.
 
-The initial kernel uses static tree merges with dense MXU cross products.
+The kernel batches all independent merges at each of four static tree levels
+and uses dense MXU cross products with a leading node axis.
 State transport is four-by-four per key and uses vector operations.
 Keep transport, gates and state in FP32. The mixed path rounds intra-chunk
 GEMM inputs and outputs to BF16, accumulating products in FP32; FP32 remains
@@ -108,8 +109,8 @@ differentiation through a sequence-length preparation scan is required.
 For L=DC innovations per chunk, exact tree cross products cost
 O(L^2 N), transport transformations O(L D N log C), and the final dense
 elimination O(L^3+L^2(N+V)). These are arithmetic counts, not runtime claims.
-Static small merges can underutilize TPU MXUs; packing independent merges is
-an implementation option after measuring the first fused kernel.
+Batched small merges can still underutilize TPU MXUs; their lowering must
+be checked rather than assuming arithmetic savings imply throughput.
 Forward plus backward use the same orders of work, with recomputation and
 matrix-product adjoints adding constant factors. The tree replaces the old
 O(C L D R) sequential transport work with O(L D N log C) work and fewer
