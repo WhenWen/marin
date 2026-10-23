@@ -41,17 +41,17 @@ def _rows(rows, transport, *, right):
 
 def _compose(right, left):
     return jnp.stack(
-        [jnp.stack([sum(right[..., i, k, :] * left[..., k, j, :] for k in range(4)) for j in range(4)], -2)
-         for i in range(4)],
+        [
+            jnp.stack([sum(right[..., i, k, :] * left[..., k, j, :] for k in range(4)) for j in range(4)], -2)
+            for i in range(4)
+        ],
         -3,
     )
 
 
 def _block(left, right, cross):
     zero = jnp.zeros((*cross.shape[:-2], left.shape[-2], right.shape[-1]), left.dtype)
-    return jnp.concatenate(
-        (jnp.concatenate((left, zero), -1), jnp.concatenate((cross, right), -1)), -2
-    )
+    return jnp.concatenate((jnp.concatenate((left, zero), -1), jnp.concatenate((cross, right), -1)), -2)
 
 
 def _flat(rows):
@@ -103,7 +103,7 @@ def prepare_tree(inputs, precision="fp32"):
     if length & (length - 1):
         raise ValueError("Tree preparation requires a power-of-two chunk")
     axis = inputs[1].ndim - 3
-    nodes = [_leaf(tuple(jnp.take(x, t, axis=axis) for x in inputs)) for t in range(length)]
+    nodes = [_leaf(tuple(x[(slice(None),) * axis + (t,)] for x in inputs)) for t in range(length)]
     while len(nodes) > 1:
         nodes = [_merge(nodes[i], nodes[i + 1], precision) for i in range(0, len(nodes), 2)]
     node = nodes[0]
@@ -120,8 +120,12 @@ def prepare_tree(inputs, precision="fp32"):
     size = 4 * inputs[1].shape[-1]
     solved = _intra(inverse, jnp.concatenate((_flat(node.erase), node.values), -1), precision)
     return Preparation(
-        node.transport, _flat(node.writes), solved[..., :size], solved[..., size:],
-        _flat(node.read), node.attention,
+        node.transport,
+        _flat(node.writes),
+        solved[..., :size],
+        solved[..., size:],
+        _flat(node.read),
+        node.attention,
     )
 
 
@@ -141,12 +145,12 @@ def _kernel(*refs, precision, backward):
 def _call(inputs, precision, interpret, cotangents=None):
     lead = inputs[1].shape[:-3]
     count = math.prod(lead)
-    flat = tuple(x.reshape(count, *x.shape[len(lead):]) for x in inputs)
+    flat = tuple(x.reshape(count, *x.shape[len(lead) :]) for x in inputs)
     sample = tuple(jax.ShapeDtypeStruct(x.shape[1:], x.dtype) for x in flat)
     prepared = jax.eval_shape(lambda xs: prepare_tree(xs, precision), sample)
     backward = cotangents is not None
     if backward:
-        operands = (*flat, *(x.reshape(count, *x.shape[len(lead):]) for x in cotangents))
+        operands = (*flat, *(x.reshape(count, *x.shape[len(lead) :]) for x in cotangents))
         output_shapes = sample
     else:
         operands, output_shapes = flat, prepared
