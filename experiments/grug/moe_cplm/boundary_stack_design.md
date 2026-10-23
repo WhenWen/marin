@@ -19,7 +19,8 @@ updated states U are mixed once, after emitting that chunk's outputs:
 Actions are softmax(x_last W+b), using the last token's normalized KDA layer
 input. Softmax coordinates are [push, pop, stay]. They affect only the following
 chunk, so no future token influences an earlier output. W is zero initialized,
-b=[0,0,6], giving approximately [0.002467,0.002467,0.995067]. Native q/k/v, decay,
+b=[0,0,6] in the original v1 run, giving approximately
+[0.002467,0.002467,0.995067]. Native q/k/v, decay,
 beta, convolutions, output norm/gate/projection, MLA, MoE, AttnRes and the
 CPLM Plus copy head remain unchanged. The four KDA layers each add 1,539
 parameters, totaling 6,156. All heads continue writing; lower slots are not
@@ -184,3 +185,31 @@ condition, including divergence and near-stay collapse. This is a single-seed
 early-budget comparison; its winner is provisional and does not establish the
 best full-budget bias. The expected tradeoff is more controller sensitivity at
 smaller bias versus more destructive initial mixing; no winner is predicted.
+
+## 2026-10-23 measured prefix results and full-budget extension
+
+All three concurrent prefixes completed 1,000 updates. Measured seed-0
+validation NLL at native metric step 999:
+
+| Condition | Paloma | Uncheatable | Mean train NLL, last 100 updates |
+| --- | ---: | ---: | ---: |
+| Native baseline | 3.986214 | 3.890764 | 3.803172 |
+| Bias 6 | 3.976407 | 3.880238 | 3.796629 |
+| Bias 0 | 3.972532 | 3.874654 | 3.792122 |
+| Bias 2 | 3.971663 | 3.873104 | 3.791436 |
+| Bias 4 | 3.967944 | 3.867916 | 3.790402 |
+
+Bias 4 has the lowest prefix Paloma NLL and becomes the provisional initializer
+default. This single-seed result does not establish a full-budget winner.
+Every comparison launch specifies its bias explicitly.
+
+The user subsequently authorized completing all four biases to 10,676 updates.
+Continue bias 0/2/4 concurrently on independent v4-32 jobs from their committed
+step-1000 checkpoints; retain the already running bias-6 trajectory. Restore
+the full native training state with partial restore disabled and require step
+1000 before the first optimizer update. Native data loading uses the restored
+step; the original optimizer/LR schedule remains unchanged. Each continuation
+gets a fresh W&B segment linked by its parent checkpoint, preserving its prefix
+curve. Default Iris retries/preemption remain enabled without wall-clock caps;
+a retry reloads the specified parent checkpoint into a new segment. Record
+restoration and subsequent progress before claiming a successful continuation.
