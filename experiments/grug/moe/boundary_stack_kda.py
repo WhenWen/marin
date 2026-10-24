@@ -30,7 +30,9 @@ def mix(state, actions):
 
 def mix_backward(state, actions, ds):
     if actions.shape[0] == 16:
-        before = jnp.stack([sum(ds[i] * actions[4 * i + j][None, :] for i in range(4)) for j in range(4)])
+        # Reverse-mode transposes the forward additions in reverse head order.
+        # Match that order before native KDA's BF16 rounding of intermediates.
+        before = jnp.stack([sum(ds[i] * actions[4 * i + j][None, :] for i in reversed(range(4))) for j in range(4)])
         da = jnp.stack([jnp.sum(ds[i] * state[j], axis=0) for i in range(4) for j in range(4)])
         return before, da
     push, pop, stay = branches(ds)

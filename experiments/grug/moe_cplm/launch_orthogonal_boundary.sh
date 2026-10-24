@@ -13,7 +13,7 @@ iris=("$client_python" "$client_script" --cluster marin)
 root=gs://marin-us-central2/kaiyuew/stack-kda-depth4-20261023
 
 if [[ "$mode" == kernel ]]; then
-    "${iris[@]}" job run --no-wait --job-name orthogonal-boundary-kernel-20261023-v1 \
+    "${iris[@]}" job run --no-wait --job-name orthogonal-boundary-kernel-20261023-v2 \
         --tpu v4-8 --enable-extra-resources --cpu 4 --memory 48GB --disk 16GB --region us-central2 \
         --priority batch --sync-package marin-levanter --extra tpu \
         -e PYTHONPATH .:lib/marin/src:lib/iris/src:lib/fray/src:lib/rigging/src:lib/haliax/src:lib/levanter/src \

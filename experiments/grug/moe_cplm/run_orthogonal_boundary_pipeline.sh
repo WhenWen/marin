@@ -12,7 +12,7 @@ mkdir -p "$log_dir"
 exec 9> "$log_dir/pipeline.lock"
 flock -n 9
 iris=("$client_python" "$client_script" --cluster marin)
-kernel_job=/kaiyuew@stanford.edu/orthogonal-boundary-kernel-20261023-v1
+kernel_job=/kaiyuew@stanford.edu/orthogonal-boundary-kernel-20261023-v2
 train_job=/kaiyuew@stanford.edu/orthogonal-boundary-lm-20261023-v1
 
 record_phase() {

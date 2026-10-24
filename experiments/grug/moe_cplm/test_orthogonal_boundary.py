@@ -21,6 +21,17 @@ from experiments.grug.moe_cplm.orthogonal_boundary_validation import candidate, 
 from experiments.grug.moe_cplm.test_stack_kda_model import serial_native
 
 
+def test_matrix_adjoint_matches_ad_with_cancelling_cotangents():
+    state = jnp.ones((4, 2, 2))
+    actions = jnp.full((16, 2), 0.5)
+    cotangent = jnp.array([1e8, 1.0, -1e8, 1.0])[:, None, None] * state
+    _, transpose = jax.vjp(stack.mix, state, actions)
+    expected = transpose(cotangent)
+    actual = stack.mix_backward(state, actions, cotangent)
+    for value, reference in zip(actual, expected, strict=True):
+        np.testing.assert_array_equal(value, reference)
+
+
 def test_cayley_preserves_state_singular_values_and_input_sensitivity():
     coordinates = jax.random.normal(jax.random.PRNGKey(91), (8, 6)) * 0.2
     matrix = np.asarray(cayley_matrix(coordinates))
