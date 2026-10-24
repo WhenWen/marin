@@ -51,8 +51,6 @@ class BoundaryStackKimiDeltaAttention(NativeKimiDeltaAttention):
             )
         ):
             raise ValueError("Stack KDA uses the frozen native Belay gate/projection configuration")
-        if cfg.num_heads != 4:
-            raise ValueError("Head stack uses exactly four native KDA heads")
         d = cfg.hidden_dim
         return BoundaryStackKimiDeltaAttention(
             **{field.name: getattr(base, field.name) for field in dataclasses.fields(NativeKimiDeltaAttention)},
@@ -85,7 +83,7 @@ class BoundaryStackKimiDeltaAttention(NativeKimiDeltaAttention):
     ):
         cfg = self.cfg
         if get_abstract_mesh().shape["model"] != 1:
-            raise ValueError("Head stack currently requires all four slots on one device")
+            raise ValueError("Head stack currently requires all slots on one device")
         batch, length, _ = x.shape
         heads, rank = cfg.num_heads, cfg.inferred_head_dim
         proj_inputs = proj_inputs or {}

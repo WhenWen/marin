@@ -24,7 +24,7 @@ from experiments.grug.moe_cplm.benchmark_frame_kda import write_record
 from experiments.grug.moe_cplm.train_belay import tpu_recurrence
 
 
-def fixture(length, rank=128, width=128, *, mixed=False):
+def fixture(length, rank=128, width=128, *, mixed=False, heads=4):
     rng = np.random.default_rng(261023 + length)
 
     def normal(shape):
@@ -33,7 +33,7 @@ def fixture(length, rank=128, width=128, *, mixed=False):
     def unit(x):
         return x * jax.lax.rsqrt(jnp.sum(x * x, -1, keepdims=True) + 1e-6)
 
-    shape = (1, length, 4, rank)
+    shape = (1, length, heads, rank)
     logits = 0.2 * normal((1, length, 3))
     if not mixed:
         logits += jnp.array([0, 0, 6])
@@ -41,12 +41,12 @@ def fixture(length, rank=128, width=128, *, mixed=False):
         jax.nn.softmax(logits, -1),
         unit(normal(shape)) / rank**0.5,
         unit(normal(shape)),
-        normal((1, length, 4, width)),
+        normal((1, length, heads, width)),
         -0.1 * jax.nn.softplus(normal(shape)),
-        jax.nn.sigmoid(normal((1, length, 4))),
+        jax.nn.sigmoid(normal((1, length, heads))),
         jnp.ones((1, length), jnp.float32).at[:, length // 2].set(0),
     )
-    initial = 0.1 * normal((1, 4, rank, width))
+    initial = 0.1 * normal((1, heads, rank, width))
     return inputs, initial
 
 

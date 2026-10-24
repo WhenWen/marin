@@ -31,6 +31,8 @@ class OrthogonalBoundaryKimiDeltaAttention(BoundaryStackKimiDeltaAttention):
 
     @staticmethod
     def init(cfg, *, key, precision="mixed"):
+        if cfg.num_heads != 4:
+            raise ValueError("Orthogonal boundary mixing uses exactly four native KDA heads")
         base = BoundaryStackKimiDeltaAttention.init(cfg, key=key, precision=precision)
         fields = {field.name: getattr(base, field.name) for field in dataclasses.fields(base)}
         fields.update(w_stack_actions=None, stack_action_bias=None)

@@ -22,8 +22,8 @@ from experiments.grug.moe_cplm.benchmark_head_stack_kda import benchmark, native
 from experiments.grug.moe_cplm.benchmark_head_stack_kda import fixture as token_fixture
 
 
-def fixture(length, rank=128, chunk=16):
-    xs, state = token_fixture(length, rank=rank, width=rank, mixed=True)
+def fixture(length, rank=128, chunk=16, heads=4):
+    xs, state = token_fixture(length, rank=rank, width=rank, mixed=True, heads=heads)
     return (xs[0][:, chunk - 1 :: chunk], *xs[1:]), state
 
 
@@ -109,11 +109,11 @@ def compare(actual, expected, strict=True):
     return result
 
 
-def validate_boundary_stack(rank=128, interpret=False):
-    xs, state = fixture(32, rank)
+def validate_boundary_stack(rank=128, interpret=False, heads=4):
+    xs, state = fixture(32, rank, heads=heads)
     exact = lambda x, s: candidate(x, s, interpret=interpret)  # noqa: E731
     mixed = lambda x, s: candidate(x, s, mixed=True, interpret=interpret)  # noqa: E731
-    result = {"training_updates": 0, "state_bytes": state.size * state.dtype.itemsize}
+    result = {"training_updates": 0, "heads": heads, "state_bytes": state.size * state.dtype.itemsize}
     oracle = high_precision_oracle(xs, state)
     actual = evaluate(exact, xs, state)
     scan = evaluate(lambda x, s: candidate(x, s, reference=True), xs, state)

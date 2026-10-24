@@ -19,8 +19,9 @@ from experiments.grug.moe_cplm.boundary_stack_validation import candidate, compa
 from experiments.grug.moe_cplm.test_stack_kda_model import serial_native
 
 
-def test_native_layer_limit_and_boundary_action_gradients():
-    cfg = _config(max_seq_len=32, num_heads=4, head_dim=8, kda_onchip_decay_gate=True)
+@pytest.mark.parametrize("heads", [4, 6])
+def test_native_layer_limit_and_boundary_action_gradients(heads):
+    cfg = _config(max_seq_len=32, num_heads=heads, head_dim=8, kda_onchip_decay_gate=True)
 
     def interpreted(q, k, v, g, beta, actions, segment_ids=None, **kwargs):
         out, _ = stack.chunk_kda(
@@ -51,8 +52,9 @@ def test_native_layer_limit_and_boundary_action_gradients():
             assert np.max(np.abs(value)) > 0
 
 
-def test_fp32_forward_and_all_adjoints_with_reset():
-    xs, state = fixture(8, rank=8, chunk=4)
+@pytest.mark.parametrize("heads", [4, 6])
+def test_fp32_forward_and_all_adjoints_with_reset(heads):
+    xs, state = fixture(8, rank=8, chunk=4, heads=heads)
     compare(
         evaluate(lambda x, s: candidate(x, s, 4, interpret=True), xs, state),
         evaluate(lambda x, s: literal(x, s, 4), xs, state),
@@ -60,21 +62,23 @@ def test_fp32_forward_and_all_adjoints_with_reset():
 
 
 @pytest.mark.parametrize("mixed", [False, True])
-def test_fused_reverse_matches_executed_native_scan(mixed):
-    xs, state = fixture(8, rank=8, chunk=4)
+@pytest.mark.parametrize("heads", [4, 6])
+def test_fused_reverse_matches_executed_native_scan(mixed, heads):
+    xs, state = fixture(8, rank=8, chunk=4, heads=heads)
     compare(
         evaluate(lambda x, s: candidate(x, s, 4, mixed, True), xs, state),
         evaluate(lambda x, s: candidate(x, s, 4, mixed, reference=True), xs, state),
     )
 
 
-def test_push_pop_preserves_three_states_and_boundary_is_causal():
-    xs, state = fixture(8, rank=8, chunk=4)
+@pytest.mark.parametrize("heads", [4, 6])
+def test_push_pop_preserves_remaining_states_and_boundary_is_causal(heads):
+    xs, state = fixture(8, rank=8, chunk=4, heads=heads)
     actions = jnp.array([[[1, 0, 0], [0, 1, 0]]], jnp.float32)
     # Zero decay log and beta disable KDA writes; all slots retain their values.
     fixed = (actions, *xs[1:4], jnp.zeros_like(xs[4]), jnp.zeros_like(xs[5]), jnp.ones_like(xs[6]))
     out, final = candidate(fixed, state, 4, interpret=True)
-    compare(final, jnp.concatenate((state[:, :3], jnp.zeros_like(state[:, :1])), axis=1))
+    compare(final, jnp.concatenate((state[:, :-1], jnp.zeros_like(state[:, :1])), axis=1))
     stay = (jnp.broadcast_to(jnp.array([0, 0, 1], jnp.float32), actions.shape), *fixed[1:])
     other, _ = candidate(stay, state, 4, interpret=True)
     compare(out[:, :4], other[:, :4])

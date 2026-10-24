@@ -1,7 +1,7 @@
 # Copyright The Marin Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Native four-head KDA with fused soft stack routing at chunk boundaries."""
+"""Native KDA heads with fused soft stack routing at chunk boundaries."""
 
 import functools
 import math
@@ -69,7 +69,7 @@ def head_backward(q, a, k, w, decay, state, z, dy, ds, mixed):
 
 
 def forward_chunk(q, a, k, w, v, decay, actions, state, *, mixed):
-    values = [head_forward(q[h], a[h], k[h], w[h], v[h], decay[h], state[h], mixed) for h in range(4)]
+    values = [head_forward(q[h], a[h], k[h], w[h], v[h], decay[h], state[h], mixed) for h in range(q.shape[0])]
     out, updated, innovation = (jnp.stack([value[i] for value in values]) for i in range(3))
     following = mix(updated, actions)
     return out, state, updated, innovation, following
@@ -78,7 +78,8 @@ def forward_chunk(q, a, k, w, v, decay, actions, state, *, mixed):
 def backward_chunk(q, a, k, w, _v, decay, actions, state, updated, innovation, dy, ds, *, mixed):
     du, da = mix_backward(updated, actions, ds)
     values = [
-        head_backward(q[h], a[h], k[h], w[h], decay[h], state[h], innovation[h], dy[h], du[h], mixed) for h in range(4)
+        head_backward(q[h], a[h], k[h], w[h], decay[h], state[h], innovation[h], dy[h], du[h], mixed)
+        for h in range(q.shape[0])
     ]
     grads = [jnp.stack([value[i] for value in values]) for i in range(7)]
     return *grads[:6], da, grads[6]
@@ -187,7 +188,7 @@ state_pass.defvjp(_fwd, _bwd)
 def scan_state(prepared, initial, mixed):
     def sequence(xs, state):
         def step(state, p):
-            values = [head_forward(*(x[h] for x in p[:6]), state[h], mixed) for h in range(4)]
+            values = [head_forward(*(x[h] for x in p[:6]), state[h], mixed) for h in range(state.shape[0])]
             out, updated = (jnp.stack([x[i] for x in values]) for i in range(2))
             return mix(updated, p[6]), out
 
@@ -215,8 +216,8 @@ def chunk_kda(
 ):
     """Native KDA with three stack coefficients or 16 row-major matrix entries."""
     lead, heads, length, rank = q.shape[:-3], *q.shape[-3:]
-    if heads != 4 or length % chunk_size:
-        raise ValueError("Boundary stack requires four heads and complete chunks")
+    if length % chunk_size:
+        raise ValueError("Boundary stack requires complete chunks")
     mixed = matmul_dtype == jnp.bfloat16
     if matmul_dtype not in (None, jnp.float32, jnp.bfloat16):
         raise ValueError("Boundary stack supports FP32 and BF16/FP32")
@@ -225,14 +226,16 @@ def chunk_kda(
     coefficients = actions.shape[-1]
     if coefficients not in (3, 16) or actions.shape != (*lead, chunks, coefficients):
         raise ValueError("Each chunk requires three stack coefficients or a flattened 4-by-4 matrix")
-    qc, kc, vc, gc = (x.astype(jnp.float32).reshape(*lead, 4, chunks, chunk_size, x.shape[-1]) for x in (q, k, v, g))
-    bc = beta.astype(jnp.float32).reshape(*lead, 4, chunks, chunk_size)
+    if coefficients == 16 and heads != 4:
+        raise ValueError("Dense orthogonal mixing requires four heads")
+    qc, kc, vc, gc = (x.astype(jnp.float32).reshape(*lead, heads, chunks, chunk_size, x.shape[-1]) for x in (q, k, v, g))
+    bc = beta.astype(jnp.float32).reshape(*lead, heads, chunks, chunk_size)
     masks = None
     if segment_ids is not None:
         if segment_ids.ndim == beta.ndim - 1:
             segment_ids = segment_ids[..., None, :]
         starts = kda.doc_starts(jnp.broadcast_to(segment_ids, beta.shape))
-        masks = kda._segment_masks(starts.reshape(*lead, 4, chunks, chunk_size))
+        masks = kda._segment_masks(starts.reshape(*lead, heads, chunks, chunk_size))
 
     def mm(spec, a, b):
         if mixed:
@@ -242,19 +245,19 @@ def chunk_kda(
     with jax.default_matmul_precision("highest"):
         prep = kda._chunk_prep_xla(qc, kc, kc, vc, gc, bc, mm, jnp.bfloat16 if mixed else None, chunk_size, masks)
     raw = (prep.q_inflate, prep.attn, prep.kw, prep.k_cumdecay, prep.v_pseudo, prep.decay[..., None, :])
-    packed = tuple(jnp.swapaxes(x, -4, -3).reshape(groups, chunks, 4, *x.shape[-2:]) for x in raw)
+    packed = tuple(jnp.swapaxes(x, -4, -3).reshape(groups, chunks, heads, *x.shape[-2:]) for x in raw)
     act = jnp.broadcast_to(actions[..., None], (*lead, chunks, coefficients, width)).reshape(
         groups, chunks, coefficients, width
     )
     if initial_state is None:
-        initial_state = jnp.zeros((*lead, 4, rank, width), jnp.float32)
-    state = initial_state.reshape(groups, 4, rank, width)
+        initial_state = jnp.zeros((*lead, heads, rank, width), jnp.float32)
+    state = initial_state.reshape(groups, heads, rank, width)
     if reference:
         out, final = scan_state((*packed, act), state, mixed)
     else:
         out, final = state_pass((*packed, act), state, mixed, interpret)
-    out = jnp.swapaxes(out.reshape(*lead, chunks, 4, chunk_size, width), -4, -3)
-    return out.reshape(*lead, 4, length, width), final.reshape(initial_state.shape)
+    out = jnp.swapaxes(out.reshape(*lead, chunks, heads, chunk_size, width), -4, -3)
+    return out.reshape(*lead, heads, length, width), final.reshape(initial_state.shape)
 
 
 def native_kernel(q, k, v, g, beta, actions, segment_ids=None, *, chunk=CHUNK, precision="mixed"):

@@ -471,7 +471,7 @@ def main(argv=None):
         )
     budget = None
     if args.variant in STACK_VARIANTS:
-        if args.width != 512:
+        if args.width != 512 and not (args.variant == "plus-boundary-stack-kda" and args.width == 768):
             raise ValueError("The layer-internal stack comparison is frozen at d512")
     execution_policy = "native-saved-global-qb" if args.grad_accum_microbatches > 1 else "native-saved"
     if args.width >= 1024:
@@ -536,7 +536,10 @@ def main(argv=None):
     if args.variant == "plus-boundary-stack-kda":
         from experiments.grug.moe_cplm.boundary_stack_validation import validate_boundary_stack  # noqa: PLC0415
 
-        persist("boundary-stack-preflight.json", validate_boundary_stack())
+        persist(
+            "boundary-stack-preflight.json",
+            validate_boundary_stack(rank=config.model.inferred_head_dim, heads=config.model.num_heads),
+        )
     if args.variant == "plus-boundary-orthogonal-kda":
         from experiments.grug.moe_cplm.orthogonal_boundary_validation import (  # noqa: PLC0415
             validate_orthogonal_boundary,
@@ -632,8 +635,8 @@ def main(argv=None):
                     for key in path
                 ):
                     norms.append(jnp.linalg.norm(leaf.reshape(-1, *leaf.shape[-2:]), axis=(-2, -1)))
-            if sum(x.size for x in norms) != 4:
-                raise ValueError("Expected action weights in all four native KDA layers")
+            if sum(x.size for x in norms) != len(model._kda_layer_indices(config.model)):
+                raise ValueError("Expected action weights in every native KDA layer")
             return jnp.concatenate(norms)
 
         def gradient_checks(loss, grads):
@@ -788,13 +791,18 @@ def main(argv=None):
                             "motivating_task_url": "https://github.com/WhenWen/astra-d8-research/issues/58",
                             "synthetic_task_evaluated": False,
                             "synthetic_gate_waiver": "User explicitly requested direct native LM testing",
-                            "baseline_run_id": "4434036161f49ae783d3",
-                            "comparison": "equal tokens; all four native KDA heads mix only at chunk boundaries",
-                            "additional_parameters": 6156,
-                            "state_bytes_per_sequence_layer": 262144,
-                            "depth": 4,
+                            "baseline_run_id": (
+                                "4434036161f49ae783d3" if args.width == 512 else "c55306ff30d8473a9c045e543357e1c1"
+                            ),
+                            "comparison": "equal tokens; all native KDA heads mix only at chunk boundaries",
+                            "additional_parameters": (args.width * 3 + 3) * len(model._kda_layer_indices(config.model)),
+                            "state_bytes_per_sequence_layer": (
+                                config.model.num_heads * config.model.inferred_head_dim**2 * 4
+                            ),
+                            "depth": config.model.num_heads,
+                            "kda_layers": model._kda_layer_indices(config.model),
                             "chunk_size": 16,
-                            "read": "all four native outputs before boundary mixing",
+                            "read": "all native outputs before boundary mixing",
                             "action_order": ["push", "pop", "stay"],
                             "action_initial_bias": [0, 0, args.boundary_stay_bias],
                             "action_optimizer": "native kda_decay Adam group",
