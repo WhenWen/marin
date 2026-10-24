@@ -92,7 +92,7 @@ def tpu_recurrence(prep, state, mm, lead, dk, dv, *, scan_impl):
 
 
 @contextmanager
-def execution(variant="cplm", tables=None, *, boundary_stay_bias=DEFAULT_STAY_BIAS):
+def execution(variant="cplm", tables=None, *, boundary_stay_bias=DEFAULT_STAY_BIAS, boundary_fp32_prep=False):
     """Bind TPU implementations for this single-run process, including eval."""
     with ExitStack() as stack:
         if variant == "plus-boundary-stack-kda":
@@ -100,7 +100,13 @@ def execution(variant="cplm", tables=None, *, boundary_stay_bias=DEFAULT_STAY_BI
                 patch.object(
                     BoundaryStackKimiDeltaAttention,
                     "init",
-                    staticmethod(partial(BoundaryStackKimiDeltaAttention.init, stay_bias=boundary_stay_bias)),
+                    staticmethod(
+                        partial(
+                            BoundaryStackKimiDeltaAttention.init,
+                            stay_bias=boundary_stay_bias,
+                            fp32_prep=boundary_fp32_prep,
+                        )
+                    ),
                 )
             )
         if variant in STACK_VARIANTS:
@@ -387,10 +393,7 @@ def main(argv=None):
         return
     memory_schedule = args.width == 768 and args.batch_size == 64
     compiler_dump = args.output / "compiler-dump"
-    # The d768 scale-up uses native XLA precision: extra internal precision is
-    # allowed. Qualification still runs before optimizer updates at this policy.
-    native_precision = args.variant == "plus-boundary-stack-kda" and args.width == 768
-    flags = [f"--xla_allow_excess_precision={str(native_precision).lower()}"]
+    flags = ["--xla_allow_excess_precision=false"]
     tpu_flags = ["--xla_memory_scheduler=brkga"] if args.memory_scheduler == "brkga" else []
     if memory_schedule:
         flags += [
@@ -541,7 +544,9 @@ def main(argv=None):
 
         persist(
             "boundary-stack-preflight.json",
-            validate_boundary_stack(rank=config.model.inferred_head_dim, heads=config.model.num_heads),
+            validate_boundary_stack(
+                rank=config.model.inferred_head_dim, heads=config.model.num_heads, fp32_prep=args.width == 768
+            ),
         )
     if args.variant == "plus-boundary-orthogonal-kda":
         from experiments.grug.moe_cplm.orthogonal_boundary_validation import (  # noqa: PLC0415
@@ -803,6 +808,8 @@ def main(argv=None):
                                 config.model.num_heads * config.model.inferred_head_dim**2 * 4
                             ),
                             "depth": config.model.num_heads,
+                            "fp32_chunk_preparation": args.width == 768,
+                            "state_pass_precision": "native BF16 intra-chunk operands and FP32 state",
                             "kda_layers": model._kda_layer_indices(config.model),
                             "chunk_size": 16,
                             "read": "all native outputs before boundary mixing",
@@ -973,7 +980,12 @@ def main(argv=None):
 
     try:
         with (
-            execution(args.variant, tables, boundary_stay_bias=args.boundary_stay_bias),
+            execution(
+                args.variant,
+                tables,
+                boundary_stay_bias=args.boundary_stay_bias,
+                boundary_fp32_prep=args.width == 768,
+            ),
             python_zarr_checkpoint_writes(),
             patch.object(train, "TaggedEvaluator", bounded_evaluator),
             patch.object(train, "_flat_train_step", flat_step),

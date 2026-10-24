@@ -27,7 +27,7 @@ def fixture(length, rank=128, chunk=16, heads=4):
     return (xs[0][:, chunk - 1 :: chunk], *xs[1:]), state
 
 
-def candidate(xs, state, chunk=16, mixed=False, interpret=False, reference=False):
+def candidate(xs, state, chunk=16, mixed=False, interpret=False, reference=False, fp32_prep=False):
     args, segments = operator_inputs(xs)
     out, final = stack.chunk_kda(
         *args,
@@ -39,6 +39,7 @@ def candidate(xs, state, chunk=16, mixed=False, interpret=False, reference=False
         matmul_dtype=jnp.bfloat16 if mixed else jnp.float32,
         interpret=interpret,
         reference=reference,
+        fp32_prep=fp32_prep,
     )
     return jnp.swapaxes(out, 1, 2), final
 
@@ -109,16 +110,21 @@ def compare(actual, expected, strict=True):
     return result
 
 
-def validate_boundary_stack(rank=128, interpret=False, heads=4):
+def validate_boundary_stack(rank=128, interpret=False, heads=4, fp32_prep=False):
     xs, state = fixture(32, rank, heads=heads)
     exact = lambda x, s: candidate(x, s, interpret=interpret)  # noqa: E731
-    mixed = lambda x, s: candidate(x, s, mixed=True, interpret=interpret)  # noqa: E731
-    result = {"training_updates": 0, "heads": heads, "state_bytes": state.size * state.dtype.itemsize}
+    mixed = lambda x, s: candidate(x, s, mixed=True, interpret=interpret, fp32_prep=fp32_prep)  # noqa: E731
+    result = {
+        "training_updates": 0,
+        "heads": heads,
+        "fp32_chunk_preparation": fp32_prep,
+        "state_bytes": state.size * state.dtype.itemsize,
+    }
     oracle = high_precision_oracle(xs, state)
     actual = evaluate(exact, xs, state)
     scan = evaluate(lambda x, s: candidate(x, s, reference=True), xs, state)
     mixed_actual = evaluate(mixed, xs, state)
-    mixed_scan = evaluate(lambda x, s: candidate(x, s, mixed=True, reference=True), xs, state)
+    mixed_scan = evaluate(lambda x, s: candidate(x, s, mixed=True, reference=True, fp32_prep=fp32_prep), xs, state)
     print(
         json.dumps(
             {

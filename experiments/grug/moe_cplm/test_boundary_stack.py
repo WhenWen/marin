@@ -15,7 +15,14 @@ from experiments.grug.fast_track import model
 from experiments.grug.fast_track.test_kda_local import _config, _mesh
 from experiments.grug.moe import boundary_stack_kda as stack
 from experiments.grug.moe_cplm.boundary_stack_kda_model import BoundaryStackKimiDeltaAttention, NativeKimiDeltaAttention
-from experiments.grug.moe_cplm.boundary_stack_validation import candidate, compare, evaluate, fixture, literal
+from experiments.grug.moe_cplm.boundary_stack_validation import (
+    candidate,
+    compare,
+    evaluate,
+    fixture,
+    literal,
+    validate_boundary_stack,
+)
 from experiments.grug.moe_cplm.test_stack_kda_model import serial_native
 
 
@@ -61,14 +68,20 @@ def test_fp32_forward_and_all_adjoints_with_reset(heads):
     )
 
 
-@pytest.mark.parametrize("mixed", [False, True])
-@pytest.mark.parametrize("heads", [4, 6])
-def test_fused_reverse_matches_executed_native_scan(mixed, heads):
+@pytest.mark.parametrize(
+    "mixed,heads,fp32_prep", [(False, 4, False), (True, 4, False), (False, 6, False), (True, 6, False), (True, 6, True)]
+)
+def test_fused_reverse_matches_executed_native_scan(mixed, heads, fp32_prep):
     xs, state = fixture(8, rank=8, chunk=4, heads=heads)
     compare(
-        evaluate(lambda x, s: candidate(x, s, 4, mixed, True), xs, state),
-        evaluate(lambda x, s: candidate(x, s, 4, mixed, reference=True), xs, state),
+        evaluate(lambda x, s: candidate(x, s, 4, mixed, True, fp32_prep=fp32_prep), xs, state),
+        evaluate(lambda x, s: candidate(x, s, 4, mixed, reference=True, fp32_prep=fp32_prep), xs, state),
     )
+
+
+def test_six_head_fp32_prep_with_mixed_state_pass_preserves_accuracy():
+    result = validate_boundary_stack(heads=6, fp32_prep=True, interpret=True)
+    assert all(row["relative_l2"] <= 0.05 or row["max_abs"] <= 1e-4 for row in result["mixed_vs_literal"])
 
 
 @pytest.mark.parametrize("heads", [4, 6])

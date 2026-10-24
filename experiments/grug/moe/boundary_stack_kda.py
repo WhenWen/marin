@@ -213,6 +213,7 @@ def chunk_kda(
     segment_ids=None,
     interpret=False,
     reference=False,
+    fp32_prep=False,
 ):
     """Native KDA with three stack coefficients or 16 row-major matrix entries."""
     lead, heads, length, rank = q.shape[:-3], *q.shape[-3:]
@@ -238,12 +239,13 @@ def chunk_kda(
         masks = kda._segment_masks(starts.reshape(*lead, heads, chunks, chunk_size))
 
     def mm(spec, a, b):
-        if mixed:
+        if mixed and not fp32_prep:
             return jnp.einsum(spec, a.astype(jnp.bfloat16), b.astype(jnp.bfloat16)).astype(jnp.float32)
         return jnp.einsum(spec, a, b, precision=jax.lax.Precision.HIGHEST)
 
     with jax.default_matmul_precision("highest"):
-        prep = kda._chunk_prep_xla(qc, kc, kc, vc, gc, bc, mm, jnp.bfloat16 if mixed else None, chunk_size, masks)
+        prep_dtype = jnp.bfloat16 if mixed and not fp32_prep else None
+        prep = kda._chunk_prep_xla(qc, kc, kc, vc, gc, bc, mm, prep_dtype, chunk_size, masks)
     raw = (prep.q_inflate, prep.attn, prep.kw, prep.k_cumdecay, prep.v_pseudo, prep.decay[..., None, :])
     packed = tuple(jnp.swapaxes(x, -4, -3).reshape(groups, chunks, heads, *x.shape[-2:]) for x in raw)
     act = jnp.broadcast_to(actions[..., None], (*lead, chunks, coefficients, width)).reshape(
@@ -260,7 +262,7 @@ def chunk_kda(
     return out.reshape(*lead, heads, length, width), final.reshape(initial_state.shape)
 
 
-def native_kernel(q, k, v, g, beta, actions, segment_ids=None, *, chunk=CHUNK, precision="mixed"):
+def native_kernel(q, k, v, g, beta, actions, segment_ids=None, *, chunk=CHUNK, precision="mixed", fp32_prep=False):
     q, k, v, g = (jnp.swapaxes(x, 1, 2) for x in (q, k, v, g))
     out, _ = chunk_kda(
         q,
@@ -272,5 +274,6 @@ def native_kernel(q, k, v, g, beta, actions, segment_ids=None, *, chunk=CHUNK, p
         chunk_size=chunk,
         segment_ids=segment_ids,
         matmul_dtype=jnp.bfloat16 if precision == "mixed" else jnp.float32,
+        fp32_prep=fp32_prep,
     )
     return jnp.swapaxes(out, 1, 2)

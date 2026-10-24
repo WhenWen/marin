@@ -21,11 +21,12 @@ DEFAULT_STAY_BIAS = 4.0
 
 class BoundaryStackKimiDeltaAttention(NativeKimiDeltaAttention):
     precision: str = eqx.field(static=True, default="mixed")
+    fp32_prep: bool = eqx.field(static=True, default=False)
     w_stack_actions: jax.Array | None = None
     stack_action_bias: jax.Array | None = None
 
     @staticmethod
-    def init(cfg, *, key, precision="mixed", stay_bias=DEFAULT_STAY_BIAS):
+    def init(cfg, *, key, precision="mixed", stay_bias=DEFAULT_STAY_BIAS, fp32_prep=False):
         base = NativeKimiDeltaAttention.init(cfg, key=key)
         if any(
             value is not None
@@ -55,6 +56,7 @@ class BoundaryStackKimiDeltaAttention(NativeKimiDeltaAttention):
         return BoundaryStackKimiDeltaAttention(
             **{field.name: getattr(base, field.name) for field in dataclasses.fields(NativeKimiDeltaAttention)},
             precision=precision,
+            fp32_prep=fp32_prep,
             w_stack_actions=reshard(jnp.zeros((d, 3)), P(None, None)),
             stack_action_bias=reshard(jnp.array([0.0, 0.0, stay_bias]), P(None)),
         )
@@ -116,7 +118,7 @@ class BoundaryStackKimiDeltaAttention(NativeKimiDeltaAttention):
         segments = jnp.zeros((batch, length), jnp.int32) if segment_ids is None else segment_ids
         segments = reshard(jnp.broadcast_to(segments, (batch, length)), P(model._BATCH_AXES, None))
         kernel = jax.shard_map(
-            partial(boundary_stack_kda.native_kernel, precision=self.precision),
+            partial(boundary_stack_kda.native_kernel, precision=self.precision, fp32_prep=self.fp32_prep),
             mesh=get_abstract_mesh(),
             in_specs=(spec4, spec4, spec4, spec4, spec3, action_spec, P(model._BATCH_AXES, None)),
             out_specs=spec4,
