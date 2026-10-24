@@ -55,8 +55,17 @@ def literal(xs, initial, chunk=16):
         out = jnp.einsum("bhr,bhrv->bhv", q, state, precision=jax.lax.Precision.HIGHEST)
         state = jax.lax.cond(
             (index + 1) % chunk == 0,
-            lambda s: jax.vmap(stack.mix)(
-                s, jnp.broadcast_to(actions[:, index // chunk, :, None], (s.shape[0], 3, s.shape[-1]))
+            lambda s: (
+                jnp.einsum(
+                    "bij,bjrv->birv",
+                    actions[:, index // chunk].reshape(-1, 4, 4),
+                    s,
+                    precision=jax.lax.Precision.HIGHEST,
+                )
+                if actions.shape[-1] == 16
+                else jax.vmap(stack.mix)(
+                    s, jnp.broadcast_to(actions[:, index // chunk, :, None], (s.shape[0], 3, s.shape[-1]))
+                )
             ),
             lambda s: s,
             state,

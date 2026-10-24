@@ -213,3 +213,81 @@ gets a fresh W&B segment linked by its parent checkpoint, preserving its prefix
 curve. Default Iris retries/preemption remain enabled without wall-clock caps;
 a retry reloads the specified parent checkpoint into a new segment. Record
 restoration and subsequent progress before claiming a successful continuation.
+
+## 2026-10-23 data-dependent orthogonal boundary proposal
+
+The user requested a learned 4-by-4 matrix that depends on each chunk's input,
+with an orthogonality constraint. Freeze `plus-boundary-orthogonal-kda` before
+accelerator qualification. Retain the d512, six-layer Belay CPLM Plus model,
+KDA layers 0/1/2/4, four 128-by-128 head states, C=16, native chunk preparation,
+BF16 matmuls, FP32 states, document resets, output gates and complete copy head.
+Reuse the existing seed-0 native baseline and completed stack comparisons.
+Data, tokenizer identities, batch16, sequence8192, native optimizer schedule
+and 10,676 updates remain fixed. Synthetic gates are explicitly waived by the
+user; scoped_binding@1 is motivation only and receives no task-success claim.
+
+For each layer and chunk, x_last is the final token's normalized KDA layer
+input, before q/k/v projection. This complete-chunk interface uses all 16
+physical token positions; document resets remain native. z = x_last W + b
+has six coordinates, one per upper triangular entry of a 4-by-4 skew A.
+Set A_ji=-A_ij for i<j and A_ii=0.
+Compute M = solve(I-A, I+A) in FP32, then S_next = M U
+after emitting the chunk outputs. W has shape (512,6), b has shape (6,).
+Each KDA layer owns its W,b, shared across examples and chunks. U is the
+four states after native chunk decay, writes and resets; S_next is the
+incoming state of the next chunk.
+They are ordinary trainable projections, not angles or state-dependent control.
+W=b=0 initially gives exact identity mixing with nonzero derivatives dM=2dA;
+both use the native KDA Adam group. The four layers add 12,312 parameters.
+Verify gradients and actual input sensitivity after optimizer updates, rather
+than interpreting identity initialization as a fixed matrix.
+
+For real skew A, I-A is nonsingular and M^T M=I. Left multiplication preserves
+the singular values of U viewed as a 4-by-(128*128) matrix and its Frobenius
+norm. Thus this boundary operation cannot itself reduce head-state rank or
+erase a direction. Native decay/writes, learned representations and the full
+input-dependent network can still collapse; this is not a global stability
+proof, nor a guarantee that the native head-specific readouts can decode the
+preserved information. Finite Cayley coordinates exclude exact eigenvalue -1 and very large
+coordinates may have poor parameter sensitivity. Independent head key/value
+bases remain a possible optimization obstruction. Monitor orthogonality error,
+distance from identity and variation across chunk inputs.
+
+All controller projections and 4-by-4 solves execute in parallel across chunks
+before the native ordered state pass. The state pass remains O(T/C) dependent
+chunks in forward and reverse, with native token-parallel chunk preparation;
+we do not claim a new logarithmic-depth scan. One VMEM stream holds all four
+states and fuses M U. Its adjoint is dU=M^T dS and dM_ij=<dS_i,U_j>;
+reduce per-value partials outside the kernel and differentiate the Cayley map
+with JAX. Keep saved updated states for correctness in this first version.
+No inverse-based reconstruction is assumed. Four heads stay on one device,
+so boundary mixing adds no cross-device collective; controller parameter
+gradients participate in the existing data-parallel reduction.
+
+State remains 256 KiB per sequence/layer. Forward mixing adds 16*R*V products
+and 12*R*V additions per chunk (234,881,024 FLOPs per 8192-token sequence/layer).
+The controller adds approximately 2*(T/C)*512*6 projection FLOPs plus batched
+constant-size solves. The current kernel interface broadcasts 16 coefficients
+over 128 value channels: 4 MiB per sequence/layer at T8192, versus 0.75 MiB
+for three stack coefficients. Backward retains the existing state/innovation
+buffers; its matrix VJP also needs coefficient partials. Measure total memory
+and forward, saved-residual backward, combined and controller-inclusive time.
+Aligned chunk continuation uses the same state. Partial-chunk generation would
+track phase and defer mixing until token16; the current interface supports
+complete chunks and does not claim an implemented streaming generation API.
+
+Qualification uses independent literal token recurrence, nonidentity matrices,
+resets, aligned continuation, matrix/controller/input/state gradients and the
+identity native limit. Preserve atol=1e-5, rtol=1e-4 for strict FP32/FP64 and
+fused versus executed-scan VJPs. Mixed versus FP64 retains the existing 5%
+relative-L2 / 1e-4 absolute criterion. Freeze orthogonality tolerance at 1e-5
+for max(abs(M^T M-I)) on the fixed seeded qualification coordinates (normal
+scale0.15). After two updates, each layer must produce matrix differences
+above 1e-7 on eight distinct fixed seed816 normal input probes, and the same
+orthogonality error must remain below 1e-5. Benchmark
+B1,T8192,H4,R=V128,C16 on TPU v4 before training.
+Then train the orthogonal-boundary variant, seed0, on v4-32 to 10,676 updates with online W&B,
+separate attempt/checkpoint identities, default preemption/retries and no
+wall-clock caps. Prediction: preserving state directions may improve final
+Paloma NLL versus stack bias4 while allowing stronger mixing. Report a failure
+of that prediction, Uncheatable NLL, throughput and all loss curves equally.

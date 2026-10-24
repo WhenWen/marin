@@ -61,6 +61,16 @@ class BoundaryStackKimiDeltaAttention(NativeKimiDeltaAttention):
             stack_action_bias=reshard(jnp.array([0.0, 0.0, stay_bias]), P(None)),
         )
 
+    def boundary_actions(self, x):
+        boundary = x[:, boundary_stack_kda.CHUNK - 1 :: boundary_stack_kda.CHUNK, :]
+        logits = model._proj(self.cfg, boundary, self.w_stack_actions).astype(jnp.float32)
+        actions = jax.nn.softmax(logits + self.stack_action_bias, axis=-1)
+        stats = {
+            f"{model._KDA_STAT_PREFIX}stack_{action}": jax.lax.stop_gradient(jnp.mean(actions[..., index]))
+            for index, action in enumerate(("push", "pop", "stay"))
+        }
+        return actions, stats
+
     def __call__(
         self,
         x,
@@ -99,9 +109,7 @@ class BoundaryStackKimiDeltaAttention(NativeKimiDeltaAttention):
             g = jnp.zeros_like(g)
         if no_beta:
             beta = jnp.ones_like(beta)
-        boundary = x[:, boundary_stack_kda.CHUNK - 1 :: boundary_stack_kda.CHUNK, :]
-        logits = model._proj(cfg, boundary, self.w_stack_actions).astype(jnp.float32)
-        actions = jax.nn.softmax(logits + self.stack_action_bias, axis=-1)
+        actions, stats = self.boundary_actions(x)
         spec4, spec3 = P(model._BATCH_AXES, None, "model", None), P(model._BATCH_AXES, None, "model")
         q, k, v, g = (reshard(t, spec4) for t in (q, k, v, g))
         action_spec = P(model._BATCH_AXES, None, None)
@@ -120,8 +128,4 @@ class BoundaryStackKimiDeltaAttention(NativeKimiDeltaAttention):
         output = self.o_norm(output.astype(x.dtype))
         output = jnp.reshape(output, (batch, length, heads * rank), out_sharding=P(model._BATCH_AXES, None, "model"))
         output *= jax.nn.sigmoid(model._proj(cfg, x, self.w_g))
-        stats = {
-            f"{model._KDA_STAT_PREFIX}stack_{action}": jax.lax.stop_gradient(jnp.mean(actions[..., index]))
-            for index, action in enumerate(("push", "pop", "stay"))
-        }
         return model._proj(cfg, output, self.w_o, out_sharding=model._batch_spec()), stats

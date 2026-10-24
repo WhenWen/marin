@@ -49,6 +49,7 @@ from experiments.grug.moe_cplm.frame_kda import FRAME_CONFIG
 from experiments.grug.moe_cplm.frame_kda_model import FrameKDAPlus
 from experiments.grug.moe_cplm.frame_kda_validation import validate_frame_kda
 from experiments.grug.moe_cplm.head_validation import validate_head, validate_histogram
+from experiments.grug.moe_cplm.orthogonal_boundary_kda_model import OrthogonalBoundaryKimiDeltaAttention, cayley_matrix
 from experiments.grug.moe_cplm.stack_kda_model import StackKimiDeltaAttention
 from experiments.grug.moe_cplm.stack_kda_validation import validate_stack_kda
 
@@ -58,7 +59,12 @@ REFERENCE_PROJECTION = model._proj
 MODELS = {"belay": Belay, "cplm": CopyPasteBelay, "plus": plus.BelayCPLMPlus, "plus-frame-kda": FrameKDAPlus}
 MODELS["plus-stack4-kda"] = plus.BelayCPLMPlus
 MODELS["plus-boundary-stack-kda"] = plus.BelayCPLMPlus
-STACK_VARIANTS = {"plus-stack4-kda": StackKimiDeltaAttention, "plus-boundary-stack-kda": BoundaryStackKimiDeltaAttention}
+MODELS["plus-boundary-orthogonal-kda"] = plus.BelayCPLMPlus
+STACK_VARIANTS = {
+    "plus-stack4-kda": StackKimiDeltaAttention,
+    "plus-boundary-stack-kda": BoundaryStackKimiDeltaAttention,
+    "plus-boundary-orthogonal-kda": OrthogonalBoundaryKimiDeltaAttention,
+}
 
 
 def gathered_projection(cfg, x, weight, out_sharding=None):
@@ -103,7 +109,8 @@ def execution(variant="cplm", tables=None, *, boundary_stay_bias=DEFAULT_STAY_BI
                 patch.object(
                     optimizer,
                     "_KDA_ADAM_LEAVES",
-                    optimizer._KDA_ADAM_LEAVES | {"w_stack_actions", "stack_action_bias"},
+                    optimizer._KDA_ADAM_LEAVES
+                    | {"w_stack_actions", "stack_action_bias", "w_boundary_matrix", "boundary_matrix_bias"},
                 )
             )
         for module, name, implementation in (
@@ -530,6 +537,12 @@ def main(argv=None):
         from experiments.grug.moe_cplm.boundary_stack_validation import validate_boundary_stack  # noqa: PLC0415
 
         persist("boundary-stack-preflight.json", validate_boundary_stack())
+    if args.variant == "plus-boundary-orthogonal-kda":
+        from experiments.grug.moe_cplm.orthogonal_boundary_validation import (  # noqa: PLC0415
+            validate_orthogonal_boundary,
+        )
+
+        persist("orthogonal-boundary-preflight.json", validate_orthogonal_boundary())
     if args.batch_size in (32, 64, 128):
         histogram_check = validate_histogram(args.batch_size * 8192 // args.tpu_chips)
         persist("histogram-preflight.json", histogram_check)
@@ -614,7 +627,10 @@ def main(argv=None):
         def stack_action_norms(tree):
             norms = []
             for path, leaf in jax.tree_util.tree_flatten_with_path(tree)[0]:
-                if any(isinstance(key, jax.tree_util.GetAttrKey) and key.name == "w_stack_actions" for key in path):
+                if any(
+                    isinstance(key, jax.tree_util.GetAttrKey) and key.name in ("w_stack_actions", "w_boundary_matrix")
+                    for key in path
+                ):
                     norms.append(jnp.linalg.norm(leaf.reshape(-1, *leaf.shape[-2:]), axis=(-2, -1)))
             if sum(x.size for x in norms) != 4:
                 raise ValueError("Expected action weights in all four native KDA layers")
@@ -636,6 +652,26 @@ def main(argv=None):
         @jax.jit
         def action_parameter_norms(leaves):
             return stack_action_norms(jax.tree.unflatten(treedef, leaves).params)
+
+        @jax.jit
+        def orthogonal_input_checks(leaves):
+            params = jax.tree.unflatten(treedef, leaves).params
+            modules = jax.tree.leaves(params, is_leaf=lambda x: isinstance(x, OrthogonalBoundaryKimiDeltaAttention))
+            checks = []
+            for layer in modules:
+                if isinstance(layer, OrthogonalBoundaryKimiDeltaAttention):
+                    weight, bias = layer.w_boundary_matrix, layer.boundary_matrix_bias
+                    probes = jax.random.normal(jax.random.PRNGKey(816), (8, weight.shape[-2]))
+                    coordinates = (
+                        jnp.einsum("pd,...dk->...pk", probes, weight, precision=jax.lax.Precision.HIGHEST)
+                        + bias[..., None, :]
+                    )
+                    matrix = cayley_matrix(coordinates)
+                    gram = jnp.einsum("...ji,...jk->...ik", matrix, matrix, precision=jax.lax.Precision.HIGHEST)
+                    variation = jnp.max(jnp.abs(matrix - matrix[..., :1, :, :]), axis=(-3, -2, -1))
+                    error = jnp.max(jnp.abs(gram - jnp.eye(4)), axis=(-3, -2, -1))
+                    checks.append(jnp.stack((variation, error), axis=-1).reshape(-1, 2))
+            return jnp.concatenate(checks)
 
         @partial(jax.jit, static_argnames=("loop_active", "router_tie_active"))
         def preflight(leaves, batch, loop_active=None, router_tie_active=None):
@@ -787,6 +823,47 @@ def main(argv=None):
                         }
                         wandb.config.update(contract)
                         persist("boundary-stack-contract.json", contract)
+                    if args.variant == "plus-boundary-orthogonal-kda":
+                        contract = {
+                            "issue_url": "https://github.com/WhenWen/astra-d8-research/issues/59",
+                            "motivating_task_url": "https://github.com/WhenWen/astra-d8-research/issues/58",
+                            "motivating_task_revision": "scoped_binding@1",
+                            "synthetic_task_evaluated": False,
+                            "synthetic_gate_waiver": "User explicitly requested direct native LM testing",
+                            "baseline_run_id": "4434036161f49ae783d3",
+                            "comparison": "equal tokens; input-dependent orthogonal mixing at chunk boundaries",
+                            "additional_parameters": 12312,
+                            "state_bytes_per_sequence_layer": 262144,
+                            "heads": 4,
+                            "chunk_size": 16,
+                            "controller": "last normalized layer input -> six skew entries -> FP32 Cayley solve",
+                            "parameterization": "M=solve(I-A,I+A), A_ji=-A_ij, A_ii=0",
+                            "initialization": "zero controller weights and bias; identity M with nonzero derivatives",
+                            "controller_optimizer": "native kda_decay Adam group",
+                            "input_dependent": True,
+                            "copy_head": "unchanged Belay CPLM Plus",
+                            "resume_checkpoint": args.resume_checkpoint,
+                            "restored_step": restored_step,
+                            "schedule_updates": args.steps,
+                            "requested_updates": args.stop_after_steps or args.steps,
+                            "source_sha256": {
+                                name: hashlib.sha256(Path(__file__).parent.joinpath(name).read_bytes()).hexdigest()
+                                for name in (
+                                    "../moe/boundary_stack_kda.py",
+                                    "boundary_stack_kda_model.py",
+                                    "orthogonal_boundary_kda_model.py",
+                                    "orthogonal_boundary_validation.py",
+                                    "belay_recipe.json",
+                                    "plus.py",
+                                    "belay.py",
+                                    "train_belay.py",
+                                )
+                            },
+                            "data_manifest_sha256": hashlib.sha256(args.data_config.read_bytes()).hexdigest(),
+                            "tokenizer_files_sha256": identities,
+                        }
+                        wandb.config.update(contract)
+                        persist("orthogonal-boundary-contract.json", contract)
                 if not memory_schedule:
                     loss, finite, norms = jax.device_get(preflight(leaves, batch, **kwargs))
                     record_startup_memory("after_full_model_preflight")
@@ -840,6 +917,24 @@ def main(argv=None):
                     raise ValueError("Zero-initialized action weights did not learn in every KDA layer")
                 persist("action-update-validation.json", {"training_updates": 2, "weight_norms": norms.tolist()})
                 action_parameter_norms.clear_cache()
+                if args.variant == "plus-boundary-orthogonal-kda":
+                    checks = np.asarray(jax.device_get(orthogonal_input_checks(result[0])))
+                    if checks.shape != (4, 2) or not (
+                        np.isfinite(checks).all() and (checks[:, 0] > 1e-7).all() and (checks[:, 1] < 1e-5).all()
+                    ):
+                        raise ValueError(
+                            "Updated orthogonal controllers must depend on input and preserve orthogonality"
+                        )
+                    persist(
+                        "orthogonal-input-validation.json",
+                        {
+                            "training_updates": 2,
+                            "input_matrix_max_differences": checks[:, 0].tolist(),
+                            "orthogonality_max_errors": checks[:, 1].tolist(),
+                            "probe_seed": 816,
+                        },
+                    )
+                    orthogonal_input_checks.clear_cache()
             if args.calibration and completed in (100, 400):
                 jax.block_until_ready(result)
                 sync_global_devices(f"belay-window-{completed}")

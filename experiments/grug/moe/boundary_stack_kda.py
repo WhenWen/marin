@@ -23,10 +23,16 @@ def branches(state):
 
 
 def mix(state, actions):
+    if actions.shape[0] == 16:
+        return jnp.stack([sum(state[j] * actions[4 * i + j][None, :] for j in range(4)) for i in range(4)])
     return sum(branch * actions[i][None, None, :] for i, branch in enumerate(branches(state)))
 
 
 def mix_backward(state, actions, ds):
+    if actions.shape[0] == 16:
+        before = jnp.stack([sum(ds[i] * actions[4 * i + j][None, :] for i in range(4)) for j in range(4)])
+        da = jnp.stack([jnp.sum(ds[i] * state[j], axis=0) for i in range(4) for j in range(4)])
+        return before, da
     push, pop, stay = branches(ds)
     before = actions[0][None, None, :] * pop + actions[1][None, None, :] * push
     before += actions[2][None, None, :] * stay
@@ -205,7 +211,7 @@ def chunk_kda(
     interpret=False,
     reference=False,
 ):
-    """Native head-major KDA inputs; actions are [..., T/C, push/pop/stay]."""
+    """Native KDA with three stack coefficients or 16 row-major matrix entries."""
     lead, heads, length, rank = q.shape[:-3], *q.shape[-3:]
     if heads != 4 or length % chunk_size:
         raise ValueError("Boundary stack requires four heads and complete chunks")
@@ -214,8 +220,9 @@ def chunk_kda(
         raise ValueError("Boundary stack supports FP32 and BF16/FP32")
     q, k = kda._prepare_qk(q, k, use_qk_l2norm)
     groups, chunks, width = math.prod(lead), length // chunk_size, v.shape[-1]
-    if actions.shape != (*lead, chunks, 3):
-        raise ValueError("Exactly one push/pop/stay vector is required per chunk")
+    coefficients = actions.shape[-1]
+    if coefficients not in (3, 16) or actions.shape != (*lead, chunks, coefficients):
+        raise ValueError("Each chunk requires three stack coefficients or a flattened 4-by-4 matrix")
     qc, kc, vc, gc = (x.astype(jnp.float32).reshape(*lead, 4, chunks, chunk_size, x.shape[-1]) for x in (q, k, v, g))
     bc = beta.astype(jnp.float32).reshape(*lead, 4, chunks, chunk_size)
     masks = None
@@ -234,7 +241,9 @@ def chunk_kda(
         prep = kda._chunk_prep_xla(qc, kc, kc, vc, gc, bc, mm, jnp.bfloat16 if mixed else None, chunk_size, masks)
     raw = (prep.q_inflate, prep.attn, prep.kw, prep.k_cumdecay, prep.v_pseudo, prep.decay[..., None, :])
     packed = tuple(jnp.swapaxes(x, -4, -3).reshape(groups, chunks, 4, *x.shape[-2:]) for x in raw)
-    act = jnp.broadcast_to(actions[..., None], (*lead, chunks, 3, width)).reshape(groups, chunks, 3, width)
+    act = jnp.broadcast_to(actions[..., None], (*lead, chunks, coefficients, width)).reshape(
+        groups, chunks, coefficients, width
+    )
     if initial_state is None:
         initial_state = jnp.zeros((*lead, 4, rank, width), jnp.float32)
     state = initial_state.reshape(groups, 4, rank, width)
