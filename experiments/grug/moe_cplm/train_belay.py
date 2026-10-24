@@ -387,7 +387,10 @@ def main(argv=None):
         return
     memory_schedule = args.width == 768 and args.batch_size == 64
     compiler_dump = args.output / "compiler-dump"
-    flags = ["--xla_allow_excess_precision=false"]
+    # The d768 scale-up uses native XLA precision: extra internal precision is
+    # allowed. Qualification still runs before optimizer updates at this policy.
+    native_precision = args.variant == "plus-boundary-stack-kda" and args.width == 768
+    flags = [f"--xla_allow_excess_precision={str(native_precision).lower()}"]
     tpu_flags = ["--xla_memory_scheduler=brkga"] if args.memory_scheduler == "brkga" else []
     if memory_schedule:
         flags += [

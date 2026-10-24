@@ -20,7 +20,7 @@ root=gs://marin-us-central2/kaiyuew/stack-kda-d768-20261023
 args=(
     --tokenizer tokenizer --output /tmp/boundary-stack-d768
     --checkpoint-path "$root/checkpoints" --artifact-root "$root/results"
-    --run-name boundary-stack-b4-d768-s0-v1
+    --run-name boundary-stack-b4-d768-s0-v2
     --wandb-entity marin-community --wandb-project auto-understanding-arch
     --variant plus-boundary-stack-kda --width 768 --steps 29343
     --batch-size 16 --tpu-chips 16 --boundary-stay-bias 4
@@ -28,7 +28,7 @@ args=(
 JAX_PLATFORMS=cpu .venv/bin/python -m experiments.grug.moe_cplm.train_belay \
     "${args[@]}" --logging-check > "$log_dir/logging-check.log" 2>&1
 date -u +%FT%TZ > "$log_dir/submission-started"
-"${iris[@]}" job run --no-wait --job-name boundary-stack-b4-d768-20261023-v1 \
+"${iris[@]}" job run --no-wait --job-name boundary-stack-b4-d768-20261023-v2 \
     --tpu v4-32 --enable-extra-resources --cpu 4 --memory 48GB --disk 16GB \
     --region us-central2 --priority batch --sync-package marin-levanter --extra tpu \
     -e PYTHONPATH .:lib/marin/src:lib/iris/src:lib/fray/src:lib/rigging/src:lib/haliax/src:lib/levanter/src \
