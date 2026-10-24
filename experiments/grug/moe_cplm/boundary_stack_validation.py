@@ -126,6 +126,8 @@ def validate_boundary_stack(rank=128, interpret=False, heads=4):
                 "fp32_fused_vs_scan": compare(actual, scan, False),
                 "fp32_scan_vs_literal": compare(scan, oracle, False),
                 "mixed_vjp_diagnostics": compare(mixed_actual, mixed_scan, False),
+                "mixed_vs_literal_diagnostics": compare(mixed_actual, oracle, False),
+                "probe_objectives": [float(mixed_actual[1][0]), float(oracle[1][0])],
             }
         ),
         flush=True,
@@ -141,6 +143,7 @@ def validate_boundary_stack(rank=128, interpret=False, heads=4):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--artifact-root", required=True)
+    parser.add_argument("--heads", type=int, default=4)
     args = parser.parse_args()
     source = Path(__file__).parent
     settings = json.loads((source / "belay_recipe.json").read_text())["trainer"]["trainer"]["jax_config"]
@@ -167,7 +170,7 @@ def main():
             "device_type": jax.local_devices()[0].device_kind,
             "benchmark_device_count": 1,
             "allocated_chips": len(jax.devices()),
-            "shape": {"batch": 1, "length": 8192, "heads": 4, "rank": 128, "width": 128},
+            "shape": {"batch": 1, "length": 8192, "heads": args.heads, "rank": 128, "width": 128},
             "block_sizes": {"chunk": 16},
             "dtype": "BF16 operands and FP32 state; FP32 qualification separately",
             "xla_flags": os.environ.get("XLA_FLAGS", ""),
@@ -189,11 +192,11 @@ def main():
     from experiments.grug.moe_cplm.train_belay import tpu_recurrence  # noqa: PLC0415
 
     with jax.default_device(jax.local_devices()[0]), patch.object(kda, "_parallel_chunk_recurrence", tpu_recurrence):
-        record("checks", validate_boundary_stack())
-        xs, state = fixture(128)
+        record("checks", validate_boundary_stack(heads=args.heads))
+        xs, state = fixture(128, heads=args.heads)
         stay = (jnp.broadcast_to(jnp.array([0, 0, 1], jnp.float32), xs[0].shape), *xs[1:])
         record("hard-stay", compare(candidate(stay, state, mixed=True), native(stay, state)))
-        xs, state = fixture(8192)
+        xs, state = fixture(8192, heads=args.heads)
         record("native", benchmark(native, xs, state))
         record("boundary-mixed", benchmark(lambda x, s: candidate(x, s, mixed=True), xs, state))
 
