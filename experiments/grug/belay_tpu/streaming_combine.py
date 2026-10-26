@@ -11,7 +11,7 @@ import jax.numpy as jnp
 from experiments.grug.belay_tpu.routing_tpu import restore_assignment_scalars_sort
 
 
-def sum_routes(rows, positions, weights=None, *, implementation="unrolled"):
+def sum_routes(rows, positions, weights=None, *, implementation="unrolled", output_dtype=None):
     """Sum [tokens, topk] expert-row indices with FP32 accumulation.
 
     The scan variant keeps one token-sized accumulator. Unrolled variants expose
@@ -40,10 +40,10 @@ def sum_routes(rows, positions, weights=None, *, implementation="unrolled"):
     else:
         for slot in range(topk):
             result = accumulate(slot, result)
-    return result.astype(rows.dtype)
+    return result.astype(rows.dtype if output_dtype is None else output_dtype)
 
 
-def sum_routes_blocked(rows, positions, weights=None, *, tile_tokens=1024):
+def sum_routes_blocked(rows, positions, weights=None, *, tile_tokens=1024, output_dtype=None):
     """Reduce all routes within bounded token tiles without a global accumulator."""
     tokens, topk = positions.shape
     tile = min(tokens, tile_tokens)
@@ -56,32 +56,45 @@ def sum_routes_blocked(rows, positions, weights=None, *, tile_tokens=1024):
         values = rows[index].astype(jnp.float32)
         if coefficient is not None:
             values = values * coefficient[..., None].astype(jnp.float32)
-        return values.sum(axis=1).astype(rows.dtype)
+        return values.sum(axis=1).astype(rows.dtype if output_dtype is None else output_dtype)
 
     outputs = jax.lax.map(reduce_tile, (indices, coefficients))
     return outputs.reshape(-1, rows.shape[1])[:tokens]
 
 
-@partial(jax.custom_vjp, nondiff_argnums=(4, 5, 6))
+@partial(jax.custom_vjp, nondiff_argnums=(4, 5, 6, 7))
 def combine_streaming(
-    rows, order, inverse, weights, implementation="unrolled", scalar_permutation="gather", token_tile=0
+    rows,
+    order,
+    inverse,
+    weights,
+    implementation="unrolled",
+    scalar_permutation="gather",
+    token_tile=0,
+    output_dtype=None,
 ):
-    """Combine routed expert outputs and form pullbacks in expert row order."""
+    """Combine expert rows, retaining FP32 token sums when output_dtype is FP32."""
     if scalar_permutation not in ("gather", "sort"):
         raise ValueError("Unknown scalar permutation implementation")
     del order
     if token_tile:
-        return sum_routes_blocked(rows, inverse.reshape(weights.shape), weights, tile_tokens=token_tile)
-    return sum_routes(rows, inverse.reshape(weights.shape), weights, implementation=implementation)
+        return sum_routes_blocked(
+            rows, inverse.reshape(weights.shape), weights, tile_tokens=token_tile, output_dtype=output_dtype
+        )
+    return sum_routes(
+        rows, inverse.reshape(weights.shape), weights, implementation=implementation, output_dtype=output_dtype
+    )
 
 
-def _forward(rows, order, inverse, weights, implementation, scalar_permutation, token_tile):
-    output = combine_streaming(rows, order, inverse, weights, implementation, scalar_permutation, token_tile)
+def _forward(rows, order, inverse, weights, implementation, scalar_permutation, token_tile, output_dtype):
+    output = combine_streaming(
+        rows, order, inverse, weights, implementation, scalar_permutation, token_tile, output_dtype
+    )
     return output, (rows, order, inverse, weights)
 
 
-def _backward(implementation, scalar_permutation, token_tile, residuals, gradient):
-    del implementation, token_tile
+def _backward(implementation, scalar_permutation, token_tile, output_dtype, residuals, gradient):
+    del implementation, token_tile, output_dtype
     rows, order, inverse, weights = residuals
     token_gradient = gradient[order // weights.shape[1]].astype(jnp.float32)
     row_weights = (

@@ -88,7 +88,7 @@ def hybrid_gathered_expert_mlp(
         outputs = local_experts.expert_mlp(rows, up, down, owned_accepted, active_rows)
         outputs = jnp.where(active[:, None], outputs, 0)
         partial_output = combine_streaming(
-            outputs.astype(jnp.float32), order, inverse, group_weights, implementation="scan"
+            outputs, order, inverse, group_weights, implementation="scan", output_dtype=jnp.float32
         )
         result = jax.lax.psum_scatter(
             partial_output, "expert", scatter_dimension=0, tiled=True, axis_index_groups=token_groups

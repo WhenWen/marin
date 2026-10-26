@@ -122,3 +122,39 @@ def test_token_tiles_match_weighted_outputs_and_pullbacks(tile_tokens, dtype, em
     expected_sum = np.asarray(rows, np.float32)[np.asarray(inverse)].reshape(tokens, topk, width).sum(axis=1)
     actual_sum = sum_routes_blocked(rows, inverse.reshape(tokens, topk), tile_tokens=tile_tokens)
     np.testing.assert_allclose(np.asarray(actual_sum, np.float32), expected_sum, atol=tolerance, rtol=tolerance)
+
+
+@pytest.mark.parametrize("implementation", ["unrolled", "scan", "flat", "blocked"])
+@pytest.mark.parametrize("empty", [False, True])
+def test_fp32_token_output_preserves_bf16_route_gradients(implementation, empty):
+    rng = np.random.default_rng(439)
+    tokens, topk, width = 31, 10, 256
+    order = jnp.asarray(rng.permutation(tokens * topk), jnp.int32)
+    inverse = jnp.argsort(order)
+    rows = jnp.asarray(rng.normal(size=(tokens * topk, width)), jnp.bfloat16)
+    rows = rows.at[0 if empty else 279 :].set(0)
+    weights = jnp.asarray(rng.random((tokens, topk)), jnp.bfloat16).at[:, 0].set(0)
+    gradient = jnp.asarray(rng.normal(size=(tokens, width)), jnp.float32)
+
+    def reference(x, w):
+        slots = x.astype(jnp.float32)[inverse].reshape(tokens, topk, width)
+        return (slots * w.astype(jnp.float32)[..., None]).sum(axis=1)
+
+    def candidate(x, w):
+        return combine_streaming(
+            x,
+            order,
+            inverse,
+            w,
+            implementation="scan" if implementation == "blocked" else implementation,
+            token_tile=8 if implementation == "blocked" else 0,
+            output_dtype=jnp.float32,
+        )
+
+    expected, expected_backward = jax.vjp(reference, rows, weights)
+    actual, actual_backward = jax.vjp(candidate, rows, weights)
+    assert actual.dtype == jnp.float32
+    np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
+    for got, want in zip(actual_backward(gradient), expected_backward(gradient), strict=True):
+        assert np.isfinite(got).all()
+        np.testing.assert_allclose(np.asarray(got, np.float32), np.asarray(want, np.float32), atol=2e-2, rtol=2e-2)
