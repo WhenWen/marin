@@ -21,7 +21,9 @@ from experiments.grug.belay_tpu.operator_check import initialize_operator_check
 from experiments.grug.belay_tpu.streaming_combine import combine_streaming, sum_routes, sum_routes_blocked
 
 
-def evaluate(implementation, mode, rows, order, inverse, weights, gradient, *, token_tile=0):
+def evaluate(
+    implementation, mode, rows, order, inverse, weights, gradient, *, token_tile=0, backward_tile=0, output_dtype=None
+):
     if mode == "dispatch_backward":
         positions = inverse.reshape(weights.shape)
         if token_tile:
@@ -36,7 +38,13 @@ def evaluate(implementation, mode, rows, order, inverse, weights, gradient, *, t
     elif implementation == "expert_order":
         combine = combine_expert_order
     else:
-        combine = functools.partial(combine_streaming, implementation=implementation, token_tile=token_tile)
+        combine = functools.partial(
+            combine_streaming,
+            implementation=implementation,
+            token_tile=token_tile,
+            backward_tile=backward_tile,
+            output_dtype=output_dtype,
+        )
     if mode == "combine_forward":
         return (combine(rows, order, inverse, weights),)
     output, backward = jax.vjp(lambda x, w: combine(x, order, inverse, w), rows, weights)
@@ -60,18 +68,26 @@ def main():
     choices = parser.add_mutually_exclusive_group()
     choices.add_argument("--scalar-permutations", action="store_true")
     choices.add_argument("--token-tiles", type=int, nargs="+")
+    choices.add_argument("--backward-tiles", type=int, nargs="+")
+    parser.add_argument("--paired-shape", action="store_true", help="Use 65536 tokens and FP32 output cotangents")
     args = parser.parse_args()
+    if args.paired_shape and not args.backward_tiles:
+        parser.error("The paired shape is a backward-tile comparison")
     output, operator_topology, reference_topology = initialize_operator_check()
     tracker.log_summary(
         {
             "kernel_check/input_seed": 424,
             "kernel_check/token_tiles": args.token_tiles or [],
+            "kernel_check/backward_tiles": args.backward_tiles or [],
+            "kernel_check/paired_shape": args.paired_shape,
             "kernel_check/scalar_permutations": args.scalar_permutations,
         }
     )
     failures = []
     with jax.default_device(jax.local_devices()[0]):
-        tokens, topk, width = 32768, 10, 256
+        tokens, topk, width = 65536 if args.paired_shape else 32768, 10, 256
+        output_dtype = jnp.float32 if args.paired_shape else None
+        gradient_dtype = jnp.float32 if args.paired_shape else jnp.bfloat16
         for case in ("balanced", "skewed"):
             rng = np.random.default_rng(424)
             labels = rng.integers(384, size=tokens * topk)
@@ -82,17 +98,19 @@ def main():
             rows = jnp.asarray(rng.standard_normal((tokens * topk, width), dtype=np.float32), jnp.bfloat16)
             rows = rows.at[9 * rows.shape[0] // 10 :].set(0)
             weights = jnp.asarray(rng.random((tokens, topk), dtype=np.float32)).at[:, 0].set(0)
-            if args.scalar_permutations or args.token_tiles:
+            if args.scalar_permutations or args.token_tiles or args.backward_tiles:
                 weights = weights.astype(jnp.bfloat16)
-            gradient = jnp.asarray(rng.standard_normal((tokens, width), dtype=np.float32), jnp.bfloat16)
+            gradient = jnp.asarray(rng.standard_normal((tokens, width), dtype=np.float32), gradient_dtype)
             inputs = (rows, order, inverse, weights, gradient)
             reference_gradient = None
-            if args.scalar_permutations:
+            if args.scalar_permutations or args.backward_tiles:
                 reference_gradient = routing_weight_gradient_reference(
                     np.asarray(rows), np.asarray(order), np.asarray(inverse), np.asarray(gradient), topk=topk
                 )
             modes = (
-                ("combine_vjp",) if args.scalar_permutations else ("combine_forward", "combine_vjp", "dispatch_backward")
+                ("combine_vjp",)
+                if args.scalar_permutations or args.backward_tiles
+                else ("combine_forward", "combine_vjp", "dispatch_backward")
             )
             for mode in modes:
                 variants = ("source", "unrolled", "scan", "flat")
@@ -100,12 +118,23 @@ def main():
                     variants = ("source", "expert_order", "unrolled", "scan", "flat")
                 if args.scalar_permutations:
                     variants = ("scan", "scan_sorted")
-                configurations = [(variant, 0) for variant in variants]
+                configurations = [(variant, 0, 0) for variant in variants]
                 if args.token_tiles:
-                    configurations = [("scan", 0), *[("scan", tile) for tile in args.token_tiles]]
+                    configurations = [("scan", 0, 0), *[("scan", tile, 0) for tile in args.token_tiles]]
+                if args.backward_tiles:
+                    configurations = [("scan", 0, 0), *[("scan", 0, tile) for tile in args.backward_tiles]]
                 expected = None
-                for implementation, token_tile in configurations:
-                    function = jax.jit(functools.partial(evaluate, implementation, mode, token_tile=token_tile))
+                for implementation, token_tile, backward_tile in configurations:
+                    function = jax.jit(
+                        functools.partial(
+                            evaluate,
+                            implementation,
+                            mode,
+                            token_tile=token_tile,
+                            backward_tile=backward_tile,
+                            output_dtype=output_dtype,
+                        )
+                    )
                     start = time.perf_counter()
                     compiled = function.lower(*inputs).compile()
                     compile_seconds = time.perf_counter() - start
@@ -124,10 +153,12 @@ def main():
                         else None
                     )
                     if oracle_passed is False:
-                        failures.append((case, mode, implementation, token_tile, "routing_gradient_oracle"))
+                        failures.append(
+                            (case, mode, implementation, token_tile, backward_tile, "routing_gradient_oracle")
+                        )
                     passed = all(np.isfinite(row["normalized_max"]) and row["normalized_max"] <= 1 for row in deviations)
                     if not passed:
-                        failures.append((case, mode, implementation, token_tile))
+                        failures.append((case, mode, implementation, token_tile, backward_tile))
                     samples = []
                     for _ in range(9):
                         start = time.perf_counter()
@@ -148,7 +179,9 @@ def main():
                         "rank": jax.process_index(),
                         "operator_topology": operator_topology,
                         "reference_topology": reference_topology,
-                        "block_sizes": {"routes": topk, "tokens": token_tile},
+                        "block_sizes": {"routes": topk, "tokens": token_tile, "backward_rows": backward_tile},
+                        "output_dtype": str(actual[0].dtype),
+                        "gradient_dtype": str(gradient.dtype),
                         "passed": passed and oracle_passed is not False,
                         "source_parity_pass": passed,
                         "errors": deviations,
