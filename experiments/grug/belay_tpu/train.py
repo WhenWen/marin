@@ -75,6 +75,7 @@ from experiments.grug.belay_tpu.model import (
     forward_flops_per_token,
 )
 from experiments.grug.belay_tpu.packed_kda_check import check_packed_kda
+from experiments.grug.belay_tpu.tpu_kernel_profiles import apply_tpu_kernel_profile, kda_options
 from experiments.grug.belay_tpu.useful_mfu import UsefulMfuWindows
 from experiments.grug.checkpointing import (
     restore_grug_state_from_checkpoint,
@@ -410,6 +411,8 @@ class GrugRunConfig:
     # restores checkpoints benefits from a deep budget.
     max_retries_failure: int = 0
     max_task_failures: int = 10
+    # Execution-only choices; the recipe, state tree and optimizer schedule remain fixed.
+    tpu_kernel_profile: str = "source"
 
     def __post_init__(self) -> None:
         if (
@@ -1146,6 +1149,7 @@ def _stall_diagnostic(timeout) -> None:
 
 def _run_grug_local(config: GrugRunConfig) -> None:
     """Entry point for the grug template training loop."""
+    apply_tpu_kernel_profile(config.tpu_kernel_profile)
     # The GPU client reads the pinned-host limit when it is created, which happens in this process after the
     # dispatcher: an environment variable forwarded from the coordinator does not reach it on GB200 (probe
     # lc1-hostlim2 saw it unset and capped at 64 GB), so set it here before any device is touched.
@@ -1172,7 +1176,7 @@ def _run_grug_local(config: GrugRunConfig) -> None:
     trainer.initialize()
     levanter.tracker.log_configuration(config)
     if os.environ.get("BELAY_PACKED_KDA_CHECK") == "1":
-        check_packed_kda()
+        check_packed_kda(**kda_options(config.tpu_kernel_profile))
 
     run_id = trainer.id
     if run_id is None:

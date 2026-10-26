@@ -14,13 +14,16 @@ from pathlib import Path
 
 import draccus
 import gcsfs
+import levanter.tracker as tracker
 from fray.cluster import ResourceConfig
 from levanter.callbacks.progress_watchdog import ProgressWatchdogConfig
 from levanter.tracker.json_logger import JsonLoggerConfig
 from levanter.tracker.wandb import WandbConfig
+from levanter.trainer import _initialize_global_tracker
 from marin.execution.lazy import StepContext
 
 from experiments.grug.belay_tpu import belay_ckpt1, launch, train
+from experiments.grug.belay_tpu.tpu_kernel_profiles import KERNEL_PROFILES
 
 SOURCE_COMMIT = "8415c3ce8411051c1e22bc13184c272b88ec2b6c"
 ISSUE_URL = "https://github.com/WhenWen/astra-d8-research/issues/253"
@@ -70,8 +73,14 @@ def build_config(
     *,
     expert_axis_size: int = 16,
     local_experts: bool = False,
+    kernel_profile: str = "source",
+    pipeline_depth: int = 0,
 ) -> train.GrugRunConfig:
     """Materialize the upstream recipe, changing only documented TPU bindings."""
+    if kernel_profile not in KERNEL_PROFILES or pipeline_depth not in (0, 1):
+        raise ValueError("Unsupported Ckpt 1 kernel profile or pipeline depth")
+    if kernel_profile != "source" and not local_experts:
+        raise ValueError("Optimized kernel profiles require local experts")
     model_settings = settings((*belay_ckpt1.MODEL_SETTINGS, *belay_ckpt1.LADDER_MODEL_SETTINGS))
     model_settings.update(mla_num_heads="4", intermediate_dim="384", shared_expert_intermediate_dim="384")
     recipe = launch.build_h100_ladder_run(
@@ -131,6 +140,7 @@ def build_config(
             original.model,
             moe_ragged_chunks=max(1, 16 // expert_axis_size),
             moe_local_gathered_experts=local_experts,
+            tpu_attention="pallas" if kernel_profile == "kda-owner-attention-v1" else "xla",
             # Save attention activations for backward.
             attn_res_remat_attention=False,
         ),
@@ -143,6 +153,7 @@ def build_config(
             expert_axis_size=expert_axis_size,
             replica_axis_size=1,
             model_axis_size=chips // expert_axis_size,
+            pipeline_depth=pipeline_depth,
         ),
         # Sonic is a GPU kernel. Scatter preserves dropless evaluation semantics;
         # equivalence remains a required TPU gate before claiming reproduction.
@@ -153,6 +164,7 @@ def build_config(
             original.eval, dropless_eval_moe_implementation="scatter", eval_batch_size=expert_axis_size
         ),
         processes_per_task=1,
+        tpu_kernel_profile=kernel_profile,
     )
 
 
@@ -199,17 +211,28 @@ def main() -> None:
     parser.add_argument("--tpu", choices=("v4-32", "v4-64"), default="v4-32")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--local-experts", action="store_true")
+    parser.add_argument("--kernel-profile", choices=KERNEL_PROFILES, default="source")
+    parser.add_argument("--pipeline-depth", type=int, choices=(0, 1), default=0)
     parser.add_argument("--resume-from", help="Restore complete training state; keep this run's checkpoints separate")
     parser.add_argument("--config-output", type=Path, required=True)
     parser.add_argument("--profile-start-step", type=int)
     parser.add_argument("--profile-steps", type=int, default=10)
     # Training deliberately uses the upstream complete schedule, not a shortened
     # optimizer schedule hidden inside a smoke configuration.
-    parser.add_argument("--run", action="store_true")
+    action = parser.add_mutually_exclusive_group()
+    action.add_argument("--run", action="store_true")
+    action.add_argument("--logging-only", action="store_true", help="Check online tracking without optimizer updates")
     args = parser.parse_args()
     tokenizer = verified_tokenizer(args.tokenizer)
     config = build_config(
-        args.run_id, args.output_path, tokenizer, args.tpu, args.seed, local_experts=args.local_experts
+        args.run_id,
+        args.output_path,
+        tokenizer,
+        args.tpu,
+        args.seed,
+        local_experts=args.local_experts,
+        kernel_profile=args.kernel_profile,
+        pipeline_depth=args.pipeline_depth,
     )
     if args.resume_from:
         trainer = config.trainer.trainer
@@ -253,6 +276,13 @@ def main() -> None:
         ),
         flush=True,
     )
+    if args.logging_only:
+        _initialize_global_tracker(config.trainer.trainer.tracker, args.run_id)
+        tracker.log_configuration(config)
+        tracker.log_summary({"execution/logging_only_pass": True, "execution/optimizer_updates": 0})
+        tracker.current_tracker().finish()
+        print(json.dumps({"logging_only_pass": True, "optimizer_updates": 0}), flush=True)
+        return
     if not args.run:
         return
     if os.environ.get("JAX_PLATFORMS") != "tpu,cpu":

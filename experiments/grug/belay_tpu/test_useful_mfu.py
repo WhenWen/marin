@@ -3,6 +3,7 @@
 
 """Non-training checks for the measured interval and unchanged FLOP ledger."""
 
+import hashlib
 import json
 from types import SimpleNamespace
 
@@ -103,3 +104,16 @@ def test_windows_include_loading_and_callbacks_without_adjacent_updates(
         assert window["seconds"] == pytest.approx(3.25)
         assert window["useful_flops_lower_bound"] == flops
         assert window["useful_mfu_lower_bound"] == pytest.approx(flops / 3.25 / (16 * mfu.BF16_PEAK_PER_V4_CHIP))
+
+
+def test_attention_backend_preserves_frozen_ledger_but_model_changes_do_not():
+    # Pallas is execution-equivalent but previously failed the frozen-model hash.
+    legacy = {"hidden_dim": 512, "num_experts_per_token": 10}
+    expected = hashlib.sha256(json.dumps(legacy, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    source = {**legacy, "tpu_attention": "xla"}
+    assert mfu.model_fingerprint(source) == expected
+    assert mfu.model_fingerprint({**source, "tpu_attention": "pallas"}) == expected
+    assert mfu.model_fingerprint({**source, "hidden_dim": 256}) != expected
+    assert mfu.model_fingerprint({**source, "num_experts_per_token": 8}) != expected
+    with pytest.raises(ValueError, match="Unknown attention backend"):
+        mfu.model_fingerprint({**source, "tpu_attention": "unverified"})

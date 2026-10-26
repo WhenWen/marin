@@ -58,6 +58,16 @@ def useful_flops(valid_queries: int, causal_pairs: int, drops: int) -> int:
     return 3 * forward
 
 
+def model_fingerprint(model_dict: dict) -> str:
+    """Canonicalize only the two equivalent attention execution backends."""
+    model_dict = dict(model_dict)
+    # The frozen ledger predates this execution-only selector.
+    if model_dict.pop("tpu_attention", "xla") not in ("xla", "pallas"):
+        raise ValueError("Unknown attention backend in the useful-FLOP ledger")
+    model_json = json.dumps(model_dict, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(model_json.encode()).hexdigest()
+
+
 class UsefulMfuWindows:
     """Opt-in instrumentation; never changes parameters, gradients or batches."""
 
@@ -73,9 +83,9 @@ class UsefulMfuWindows:
         # Local-token execution changes transport and rounding, not the frozen
         # model's useful FLOP count. Preserve the pre-backend configuration hash.
         model_dict.pop("moe_local_gathered_experts", None)
-        model_json = json.dumps(model_dict, sort_keys=True, separators=(",", ":"))
+        model_hash = model_fingerprint(model_dict)
         if (
-            hashlib.sha256(model_json.encode()).hexdigest() != MODEL_CONFIG_SHA256
+            model_hash != MODEL_CONFIG_SHA256
             or config.trainer.trainer.train_batch_size != 128
             or model.max_seq_len != 4096
             or config.trainer.pipeline_depth not in (0, 1)
