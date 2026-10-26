@@ -78,7 +78,7 @@ class UsefulMfuWindows:
             hashlib.sha256(model_json.encode()).hexdigest() != MODEL_CONFIG_SHA256
             or config.trainer.trainer.train_batch_size != 128
             or model.max_seq_len != 4096
-            or config.trainer.pipeline_depth != 0
+            or config.trainer.pipeline_depth not in (0, 1)
             or config.trainer.grad_accum_microbatches != 1
             or jax.default_backend() != "tpu"
             or jax.device_count() not in (16, 32)
@@ -89,6 +89,7 @@ class UsefulMfuWindows:
         return cls(initial_step=initial_step)
 
     def __init__(self, *, initial_step=0):
+        self.initial_step = initial_step
         self.window_starts = tuple(initial_step + offset for offset in WINDOW_STARTS)
         self.started = None
         self.first_step = None
@@ -98,6 +99,18 @@ class UsefulMfuWindows:
     def write(self, record):
         with self.output.open("a") as file:
             file.write(json.dumps(record) + "\n")
+
+    def boundary_before(self, step):
+        """Drain the preceding update before entering or leaving a measured window."""
+        return step in self.window_starts or step in (start + WINDOW_STEPS for start in self.window_starts)
+
+    def prepare_counts(self, step, batch):
+        """Queue the ledger counter before the next update, including a restored-run warmup."""
+        if self.started is None and step != self.initial_step:
+            return None
+        if batch.tokens.shape != (128, 4096) or batch.attn_mask.segment_ids is None:
+            raise ValueError("MFU windows require packed Ckpt 1 batches")
+        return batch_counts(batch.loss_weight, batch.attn_mask.segment_ids[0])
 
     def begin_if_due(self, step, state):
         if step not in self.window_starts:
@@ -110,16 +123,15 @@ class UsefulMfuWindows:
         self.records = []
         self.started = time.perf_counter()
 
-    def observe(self, step, state, batch, metrics):
-        if self.started is None and step != 0:
+    def observe(self, step, state, counts, metrics):
+        if counts is None:
+            if self.started is not None:
+                raise ValueError("MFU window is missing its queued batch counts")
             return
-        if state is None or batch.tokens.shape != (128, 4096) or batch.attn_mask.segment_ids is None:
-            raise ValueError("MFU windows require complete state and packed Ckpt 1 batches")
-        queries, pairs, binary = jax.device_get(batch_counts(batch.loss_weight, batch.attn_mask.segment_ids[0]))
+        queries, pairs, binary = jax.device_get(counts)
         if not bool(binary):
             raise ValueError("FLOP ledger requires binary loss weights")
         if self.started is None:
-            # Compile the counter during warmup, outside every measured window.
             return
         if step != self.first_step + len(self.records):
             raise RuntimeError("MFU window has a missing or repeated step")
@@ -136,6 +148,8 @@ class UsefulMfuWindows:
         self.write(record)
         if len(self.records) != WINDOW_STEPS:
             return
+        if state is None:
+            raise ValueError("The last MFU update must finish before its state is donated")
         jax.block_until_ready(state)
         multihost_utils.sync_global_devices(f"useful-mfu-end-{step}")
         seconds = time.perf_counter() - self.started
@@ -145,6 +159,7 @@ class UsefulMfuWindows:
         peak = BF16_PEAK_PER_V4_CHIP * jax.device_count()
         summary = {
             "stage": "useful_mfu_window",
+            "timing_protocol": 2,
             "rank": jax.process_index(),
             "first_step": self.first_step,
             "last_step": step,

@@ -1511,7 +1511,7 @@ def _run_grug_local(config: GrugRunConfig) -> None:
             host_gap_start = time.perf_counter()
             stall_sampler.disarm(step)
             if useful_mfu is not None:
-                useful_mfu.observe(step, step_state, rec.batch, metrics)
+                useful_mfu.observe(step, step_state, rec.flop_counts, metrics)
             if host_gap_start - ready_time > HOST_GAP_WARN:
                 logger.warning(
                     "post-step host work %.3f s after step %d on process %d",
@@ -1532,14 +1532,18 @@ def _run_grug_local(config: GrugRunConfig) -> None:
                 if config.trainer.pipeline_depth not in (0, 1):
                     raise ValueError(f"pipeline_depth must be 0 or 1, got {config.trainer.pipeline_depth}")
                 while host_step < stop_step:
+                    if useful_mfu is not None and useful_mfu.boundary_before(host_step):
+                        # Do not donate the boundary state or charge an update outside this window.
+                        if pending is not None:
+                            finish_step(pending, state)
+                            pending = None
+                        useful_mfu.begin_if_due(host_step, state)
                     with jax.profiler.TraceAnnotation("load_batch"):
                         batch = next(iterator)
                     if pending is not None and pending.needs_state:
                         finish_step(pending, state)
                         pending = None
                     current_step = host_step
-                    if useful_mfu is not None:
-                        useful_mfu.begin_if_due(current_step, state)
                     watch_due = (
                         watch_config.is_enabled
                         and watch_config.interval > 0
@@ -1593,6 +1597,9 @@ def _run_grug_local(config: GrugRunConfig) -> None:
                             first_step_watchdog.start()
                     dispatch_start = time.perf_counter()
                     state_leaves, metrics, inline_watch_stats = train_step(state_leaves, batch)
+                    # Queue this before another train dispatch; doing device work in finish_step would
+                    # otherwise wait behind the next update and remove the host/device overlap.
+                    flop_counts = None if useful_mfu is None else useful_mfu.prepare_counts(current_step, batch)
                     state = jax.tree.unflatten(state_treedef, state_leaves)
                     if (
                         config.trainer.routing_dump_dir is not None
@@ -1614,11 +1621,13 @@ def _run_grug_local(config: GrugRunConfig) -> None:
                         metrics=metrics,
                         batch=batch,
                         watch_stats=watch_stats,
+                        flop_counts=flop_counts,
                         dispatch_time=dispatch_time,
                         step_start=step_start,
                         needs_state=(
                             host_step >= stop_step
                             or config.trainer.pipeline_depth == 0
+                            or (useful_mfu is not None and useful_mfu.boundary_before(host_step))
                             or (eval_interval is not None and host_step % eval_interval == 0)
                             or host_step % CHECKPOINT_POLL_STEPS == 0
                             or (config.trainer.hlo_dump_path is not None and not hlo_written)
@@ -2012,6 +2021,7 @@ class _PendingStep:
     metrics: dict
     batch: object
     watch_stats: object
+    flop_counts: object
     dispatch_time: float
     step_start: float
     needs_state: bool
