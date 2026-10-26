@@ -10,13 +10,15 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from experiments.grug.belay_tpu.fused_expert_backward import fused_expert_relu2
 from experiments.grug.belay_tpu.fused_row_relu2 import fused_row_relu2
 
 
 @pytest.mark.parametrize("dtype", [jnp.float32, jnp.bfloat16])
-@pytest.mark.parametrize("groups", [(63, 0, 271, 178), (0, 512, 0, 0)])
+@pytest.mark.parametrize("operation", [fused_row_relu2, fused_expert_relu2])
+@pytest.mark.parametrize("groups", [(63, 0, 271, 178), (0, 512, 0, 0), (128, 128, 0, 256)])
 @pytest.mark.parametrize("rejected", [0, 179, 512])
-def test_local_fused_relu2_matches_independent_expert_slices(dtype, groups, rejected):
+def test_local_fused_relu2_matches_independent_expert_slices(dtype, operation, groups, rejected):
     rng = np.random.default_rng(445)
     x = jnp.asarray(rng.normal(scale=0.1, size=(512, 128)), dtype)
     up = jnp.asarray(rng.normal(scale=0.05, size=(4, 128, 256)), dtype)
@@ -25,7 +27,7 @@ def test_local_fused_relu2_matches_independent_expert_slices(dtype, groups, reje
     active = jnp.arange(512)[:, None] < 512 - rejected
 
     def candidate(x, up, down):
-        output = fused_row_relu2(
+        output = operation(
             jnp.where(active, x, 0), up, down, jnp.asarray(groups, jnp.int32), interpret=True, tile_rows=128
         )
         return jnp.where(active, output, 0)

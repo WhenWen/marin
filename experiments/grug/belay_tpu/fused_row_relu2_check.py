@@ -1,7 +1,7 @@
 # Copyright The Marin Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Compare complete fused expert forward/VJP with the selected row GEMMs."""
+"""Compare all-gradient fusion with selected row GEMMs and the prior fusion."""
 
 import functools
 import json
@@ -15,6 +15,7 @@ import levanter.tracker as tracker
 import numpy as np
 
 from experiments.grug.belay_tpu.expert_gradient_adapter import partitioned_grouped_dot
+from experiments.grug.belay_tpu.fused_expert_backward import fused_expert_relu2
 from experiments.grug.belay_tpu.fused_row_relu2 import fused_row_relu2
 from experiments.grug.belay_tpu.kernel_check import measure_errors
 from experiments.grug.belay_tpu.operator_check import initialize_operator_check
@@ -60,7 +61,7 @@ def main():
 
     def record(row):
         print(json.dumps(row), flush=True)
-        with (output / "fused-row-relu2-check.jsonl").open("a") as file:
+        with (output / "fused-expert-backward-check.jsonl").open("a") as file:
             file.write(json.dumps(row) + "\n")
 
     with jax.default_device(jax.local_devices()[0]):
@@ -92,7 +93,12 @@ def main():
                         expected = jax.jit(functools.partial(evaluate, reference, mode))(*inputs)
                     oracle = "independent_expert_slices"
                 executables, mode_records = {}, {}
-                for name, function in (("selected", selected), ("fused", fused_row_relu2)):
+                implementations = (
+                    ("selected", selected),
+                    ("fused_v1", fused_row_relu2),
+                    ("fused_all", fused_expert_relu2),
+                )
+                for name, function in implementations:
                     start = time.perf_counter()
                     compiled = jax.jit(functools.partial(evaluate, function, mode)).lower(*inputs).compile()
                     compile_time = time.perf_counter() - start
@@ -106,7 +112,7 @@ def main():
                     if not passed:
                         failures.append((case, mode, name))
                     row = {
-                        "stage": "fused_row_relu2_compiled",
+                        "stage": "fused_expert_backward_compiled",
                         "kernel": mode,
                         "implementation": name,
                         "case": case,
@@ -134,17 +140,21 @@ def main():
                     record(row)
                     executables[name], mode_records[name] = compiled, row
                 for iteration in range(12):
-                    sequence = ("selected", "fused") if iteration % 2 == 0 else ("fused", "selected")
+                    names = tuple(name for name, _ in implementations)
+                    rotation = iteration % len(names)
+                    sequence = names[rotation:] + names[:rotation]
+                    if iteration % 2:
+                        sequence = sequence[::-1]
                     for name in sequence:
                         start = time.perf_counter()
                         jax.block_until_ready(executables[name](*inputs))
                         mode_records[name]["samples"].append(time.perf_counter() - start)
                 for row in mode_records.values():
-                    row["stage"] = "fused_row_relu2_comparison"
+                    row["stage"] = "fused_expert_backward_comparison"
                     row["steady_state_time"] = float(np.median(row["samples"][2:]))
                     record(row)
                     records.append(row)
-    tracker.log_summary({"kernel_check/fused_row_relu2_pass": not failures, "kernel_check/records": len(records)})
+    tracker.log_summary({"kernel_check/fused_expert_backward_pass": not failures, "kernel_check/records": len(records)})
     tracker.current_tracker().finish()
     if failures:
         raise AssertionError(f"Fused expert oracle failures: {failures}")
