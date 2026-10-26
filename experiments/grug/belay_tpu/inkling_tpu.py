@@ -18,6 +18,7 @@ from jax.sharding import PartitionSpec as P
 from jaxtyping import Array, Float, Int
 from levanter.grug.attention import AttentionMask, align_kv_heads
 
+from experiments.grug.belay_tpu.causal_attention import causal_attention_local
 from experiments.grug.belay_tpu.inkling_pallas import pallas_attention_local
 
 BLOCK = 128
@@ -115,6 +116,8 @@ def inkling_attention(q, k, v, mask: AttentionMask, band, *, implementation: str
     """Shard batch/heads before calling the Ckpt 1 causal attention kernel."""
     if implementation == "pallas":
         kernel = pallas_attention_local
+    elif implementation == "causal":
+        kernel = functools.partial(causal_attention_local, bucket_size=512)
     elif implementation == "xla":
         kernel = saved_attention_local
     else:

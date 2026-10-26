@@ -741,7 +741,7 @@ class GrugModelConfig:
     head_dim: int | None = 128
     gpu_attention: str = "gpu_fa4_cute"  # "gpu_pallas_fa4": Pallas fwd, FA4 bwd
     tpu_attention: str = "xla"
-    """Saved-probability Inkling implementation: xla or pallas."""
+    """Saved-probability Inkling: xla, pallas, or causal (512-query buckets)."""
     max_seq_len: int = 4096
     sliding_window: int = 2048
     global_every: int = 4

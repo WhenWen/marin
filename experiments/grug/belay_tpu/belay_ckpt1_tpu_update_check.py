@@ -172,7 +172,7 @@ def main():
     parser.add_argument("--kda-fused-prep", action="store_true")
     parser.add_argument("--kda-fused-recurrence", action="store_true")
     parser.add_argument("--kda-state-head-group", type=int, choices=(1, 4), default=1)
-    parser.add_argument("--attention-kernel", choices=("xla", "pallas"), default="xla")
+    parser.add_argument("--attention-kernel", choices=("xla", "pallas", "causal"), default="xla")
     parser.add_argument("--route-counts", choices=("source", "factorized"), default="source")
     parser.add_argument("--capacity-layout", choices=("source", "intervals"), default="source")
     parser.add_argument("--streaming-scalars", choices=("gather", "sort"), default="gather")
