@@ -59,10 +59,10 @@ def useful_flops(valid_queries: int, causal_pairs: int, drops: int) -> int:
 
 
 def model_fingerprint(model_dict: dict) -> str:
-    """Canonicalize only the two equivalent attention execution backends."""
+    """Canonicalize the verified equivalent attention execution backends."""
     model_dict = dict(model_dict)
     # The frozen ledger predates this execution-only selector.
-    if model_dict.pop("tpu_attention", "xla") not in ("xla", "pallas"):
+    if model_dict.pop("tpu_attention", "xla") not in ("xla", "pallas", "causal"):
         raise ValueError("Unknown attention backend in the useful-FLOP ledger")
     model_json = json.dumps(model_dict, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(model_json.encode()).hexdigest()
