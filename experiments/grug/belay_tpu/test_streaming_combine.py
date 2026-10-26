@@ -94,10 +94,11 @@ def test_routing_weight_reference_matches_autodiff(width, empty):
     np.testing.assert_allclose(actual, expected, rtol=1e-12, atol=1e-12)
 
 
+@pytest.mark.parametrize("backward_tile", [0, 17])
 @pytest.mark.parametrize("tile_tokens", [8, 32])
 @pytest.mark.parametrize("dtype", [jnp.float32, jnp.bfloat16])
 @pytest.mark.parametrize("empty", [False, True])
-def test_token_tiles_match_weighted_outputs_and_pullbacks(tile_tokens, dtype, empty):
+def test_token_tiles_match_weighted_outputs_and_pullbacks(backward_tile, tile_tokens, dtype, empty):
     rng = np.random.default_rng(437)
     tokens, topk, width = 31, 10, 16
     order = jnp.asarray(rng.permutation(tokens * topk), jnp.int32)
@@ -111,7 +112,7 @@ def test_token_tiles_match_weighted_outputs_and_pullbacks(tile_tokens, dtype, em
         output, backward = jax.vjp(lambda x, w: combine(x, order, inverse, w), rows, weights)
         return output, backward(gradient)
 
-    actual = evaluate(functools.partial(combine_streaming, token_tile=tile_tokens))
+    actual = evaluate(functools.partial(combine_streaming, token_tile=tile_tokens, backward_tile=backward_tile))
     expected = evaluate(combine_local)
     tolerance = 1e-4 if dtype == jnp.float32 else 2e-2
     for got, want in zip(jax.tree.leaves(actual), jax.tree.leaves(expected), strict=True):
@@ -124,9 +125,10 @@ def test_token_tiles_match_weighted_outputs_and_pullbacks(tile_tokens, dtype, em
     np.testing.assert_allclose(np.asarray(actual_sum, np.float32), expected_sum, atol=tolerance, rtol=tolerance)
 
 
+@pytest.mark.parametrize("backward_tile", [0, 17, 512])
 @pytest.mark.parametrize("implementation", ["unrolled", "scan", "flat", "blocked"])
 @pytest.mark.parametrize("empty", [False, True])
-def test_fp32_token_output_preserves_bf16_route_gradients(implementation, empty):
+def test_fp32_token_output_preserves_bf16_route_gradients(backward_tile, implementation, empty):
     rng = np.random.default_rng(439)
     tokens, topk, width = 31, 10, 256
     order = jnp.asarray(rng.permutation(tokens * topk), jnp.int32)
@@ -149,6 +151,7 @@ def test_fp32_token_output_preserves_bf16_route_gradients(implementation, empty)
             implementation="scan" if implementation == "blocked" else implementation,
             token_tile=8 if implementation == "blocked" else 0,
             output_dtype=jnp.float32,
+            backward_tile=backward_tile,
         )
 
     expected, expected_backward = jax.vjp(reference, rows, weights)
