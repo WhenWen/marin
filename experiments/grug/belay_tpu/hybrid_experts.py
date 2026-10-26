@@ -38,7 +38,17 @@ gather_group.defvjp(_gather_forward, _gather_backward)
 
 
 def hybrid_gathered_expert_mlp(
-    x, selected, combine, w_up, w_down, *, mesh, capacity_factor, capacity_pools=16, expert_group_size=2
+    x,
+    selected,
+    combine,
+    w_up,
+    w_down,
+    *,
+    mesh,
+    capacity_factor,
+    capacity_pools=16,
+    expert_group_size=2,
+    expert_combine=None,
 ):
     """Compute disjoint expert subsets on each group of contiguous token shards.
 
@@ -85,11 +95,14 @@ def hybrid_gathered_expert_mlp(
         rows = jnp.where(active[:, None], dispatch_streaming(group_x, order, inverse, ids.shape[1]), 0)
         # Group sizes exclude the unused suffix. The output mask prevents reads
         # of unwritten Pallas rows from affecting outputs or parameter gradients.
-        outputs = local_experts.expert_mlp(rows, up, down, owned_accepted, active_rows)
-        outputs = jnp.where(active[:, None], outputs, 0)
-        partial_output = combine_streaming(
-            outputs, order, inverse, group_weights, implementation="scan", output_dtype=jnp.float32
-        )
+        if expert_combine is None:
+            outputs = local_experts.expert_mlp(rows, up, down, owned_accepted, active_rows)
+            outputs = jnp.where(active[:, None], outputs, 0)
+            partial_output = combine_streaming(
+                outputs, order, inverse, group_weights, implementation="scan", output_dtype=jnp.float32
+            )
+        else:
+            partial_output = expert_combine(rows, up, down, owned_accepted, active_rows, order, inverse, group_weights)
         result = jax.lax.psum_scatter(
             partial_output, "expert", scatter_dimension=0, tiled=True, axis_index_groups=token_groups
         ).astype(x_local.dtype)

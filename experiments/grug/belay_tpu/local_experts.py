@@ -127,7 +127,7 @@ def route_layout(flat, counts, accepted_counts):
     return order, inverse, keep
 
 
-def local_expert_mlp(x, selected, combine, w_up, w_down, *, accepted_counts):
+def local_expert_mlp(x, selected, combine, w_up, w_down, *, accepted_counts, expert_combine=None):
     """Compute locally after global capacity allocation, retaining activations."""
     tokens, topk = selected.shape
     experts = w_up.shape[0]
@@ -139,14 +139,19 @@ def local_expert_mlp(x, selected, combine, w_up, w_down, *, accepted_counts):
     # output initialized, including empty experts and completely rejected shards.
     physical_counts = accepted_counts.at[-1].add(flat.size - accepted_counts.sum())
     rows = jnp.where(active[:, None], dispatch_local(x, order, inverse, topk), 0)
-    outputs = expert_mlp(rows, w_up, w_down, physical_counts, accepted_counts.sum())
-    outputs = jnp.where(active[:, None], outputs, 0)
-    # Match the source combine's FP32 sum; rejected routes have zero outputs.
-    result = combine_local(outputs, order, inverse, combine)
+    if expert_combine is None:
+        outputs = expert_mlp(rows, w_up, w_down, physical_counts, accepted_counts.sum())
+        outputs = jnp.where(active[:, None], outputs, 0)
+        # Match the source combine's FP32 sum; rejected routes have zero outputs.
+        result = combine_local(outputs, order, inverse, combine)
+    else:
+        result = expert_combine(rows, w_up, w_down, physical_counts, accepted_counts.sum(), order, inverse, combine)
     return result, keep.reshape(tokens, topk)
 
 
-def gathered_expert_mlp(x, selected, combine, w_up, w_down, *, mesh, capacity_factor, capacity_pools=16):
+def gathered_expert_mlp(
+    x, selected, combine, w_up, w_down, *, mesh, capacity_factor, capacity_pools=16, expert_combine=None
+):
     """Run local-token MoE on an expert-state-sharded, model-axis-one mesh."""
     if any(size != 1 for name, size in mesh.shape.items() if name != "expert"):
         raise ValueError("Local-token MoE requires only the expert mesh axis to have size greater than one")
@@ -161,7 +166,9 @@ def gathered_expert_mlp(x, selected, combine, w_up, w_down, *, mesh, capacity_fa
         accepted = clip_capacity_pools(all_counts, pools=capacity_pools, capacity=capacity)
         local_accepted = accepted[jax.lax.axis_index("expert")]
         up, down = gather_expert_weights(up), gather_expert_weights(down)
-        output, _ = local_expert_mlp(x_local, ids, weights, up, down, accepted_counts=local_accepted)
+        output, _ = local_expert_mlp(
+            x_local, ids, weights, up, down, accepted_counts=local_accepted, expert_combine=expert_combine
+        )
         dropped = jax.lax.psum(ids.size - local_accepted.sum(), "expert")
         return output, dropped
 
