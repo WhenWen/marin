@@ -16,7 +16,8 @@ from experiments.grug.belay_tpu.kda_tpu import chunk_kda_tpu
 from experiments.grug.belay_tpu.local_experts import gather_expert_weights
 from experiments.grug.belay_tpu.streaming_combine import combine_streaming, dispatch_streaming
 
-KERNEL_PROFILES = ("source", "capacity-kda-v1", "kda-owner-attention-v1")
+OWNER_ATTENTION_PROFILES = ("kda-owner-attention-v1", "kda-owner-attention-sort-v1")
+KERNEL_PROFILES = ("source", "capacity-kda-v1", *OWNER_ATTENTION_PROFILES)
 
 
 def kda_options(profile: str) -> dict:
@@ -45,11 +46,13 @@ def apply_tpu_kernel_profile(profile: str) -> None:
     local_experts.route_layout = interval_route_layout
     local_experts.grouped_dot = functools.partial(partitioned_grouped_dot, row_partitions=2)
     local_experts.combine_local = functools.partial(
-        combine_streaming, implementation="scan", scalar_permutation="gather"
+        combine_streaming,
+        implementation="scan",
+        scalar_permutation="sort" if profile == "kda-owner-attention-sort-v1" else "gather",
     )
     local_experts.dispatch_local = dispatch_streaming
     local_experts.gather_expert_weights = (
-        gather_expert_weights_with_owner_sum if profile == "kda-owner-attention-v1" else gather_expert_weights
+        gather_expert_weights_with_owner_sum if profile in OWNER_ATTENTION_PROFILES else gather_expert_weights
     )
     model._selected_router_logits = routing_tpu.unrolled_router_logits
     ep_ragged_all_to_all._accepted_assignments = routing_tpu.accepted_assignments_cutoff

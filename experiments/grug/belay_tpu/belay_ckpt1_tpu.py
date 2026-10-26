@@ -23,7 +23,7 @@ from levanter.trainer import _initialize_global_tracker
 from marin.execution.lazy import StepContext
 
 from experiments.grug.belay_tpu import belay_ckpt1, launch, train
-from experiments.grug.belay_tpu.tpu_kernel_profiles import KERNEL_PROFILES
+from experiments.grug.belay_tpu.tpu_kernel_profiles import KERNEL_PROFILES, OWNER_ATTENTION_PROFILES
 
 SOURCE_COMMIT = "8415c3ce8411051c1e22bc13184c272b88ec2b6c"
 ISSUE_URL = "https://github.com/WhenWen/astra-d8-research/issues/253"
@@ -140,7 +140,7 @@ def build_config(
             original.model,
             moe_ragged_chunks=max(1, 16 // expert_axis_size),
             moe_local_gathered_experts=local_experts,
-            tpu_attention="pallas" if kernel_profile == "kda-owner-attention-v1" else "xla",
+            tpu_attention="pallas" if kernel_profile in OWNER_ATTENTION_PROFILES else "xla",
             # Save attention activations for backward.
             attn_res_remat_attention=False,
         ),
