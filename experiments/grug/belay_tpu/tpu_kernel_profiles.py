@@ -16,7 +16,8 @@ from experiments.grug.belay_tpu.kda_tpu import chunk_kda_tpu
 from experiments.grug.belay_tpu.local_experts import gather_expert_weights
 from experiments.grug.belay_tpu.streaming_combine import combine_streaming, dispatch_streaming
 
-OWNER_ATTENTION_PROFILES = ("kda-owner-attention-v1", "kda-owner-attention-sort-v1")
+SORTED_SCALAR_PROFILES = ("kda-owner-attention-sort-v1", "kda-owner-causal-sort-v1")
+OWNER_ATTENTION_PROFILES = ("kda-owner-attention-v1", *SORTED_SCALAR_PROFILES)
 KERNEL_PROFILES = ("source", "capacity-kda-v1", *OWNER_ATTENTION_PROFILES)
 
 
@@ -48,7 +49,7 @@ def apply_tpu_kernel_profile(profile: str) -> None:
     local_experts.combine_local = functools.partial(
         combine_streaming,
         implementation="scan",
-        scalar_permutation="sort" if profile == "kda-owner-attention-sort-v1" else "gather",
+        scalar_permutation="sort" if profile in SORTED_SCALAR_PROFILES else "gather",
     )
     local_experts.dispatch_local = dispatch_streaming
     local_experts.gather_expert_weights = (

@@ -134,13 +134,16 @@ def build_config(
         tracker=trackers,
         progress_watchdog=ProgressWatchdogConfig(),
     )
+    attention = "pallas" if kernel_profile in OWNER_ATTENTION_PROFILES else "xla"
+    if kernel_profile == "kda-owner-causal-sort-v1":
+        attention = "causal"
     return dataclasses.replace(
         original,
         model=dataclasses.replace(
             original.model,
             moe_ragged_chunks=max(1, 16 // expert_axis_size),
             moe_local_gathered_experts=local_experts,
-            tpu_attention="pallas" if kernel_profile in OWNER_ATTENTION_PROFILES else "xla",
+            tpu_attention=attention,
             # Save attention activations for backward.
             attn_res_remat_attention=False,
         ),
