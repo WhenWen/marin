@@ -57,6 +57,7 @@ from experiments.grug.belay_tpu.remat_check import check_attention_remat
 from experiments.grug.belay_tpu.saved_relu2_adapter import saved_relu2_mlp, select_saved_relu2
 from experiments.grug.belay_tpu.streaming_combine import combine_streaming, dispatch_streaming
 from experiments.grug.belay_tpu.weighted_routes import weighted_local_expert_mlp
+from experiments.grug.belay_tpu.weighted_routes_check import check_weighted_routes
 from experiments.grug.fast_track.grugmuon_stacked import _zeropower_via_newtonschulz_local
 from experiments.grug.fast_track.qb_balancing import bincount_upper_quantile as source_bincount_upper_quantile
 
@@ -384,6 +385,8 @@ def main():
         fused_recurrence=args.kda_fused_recurrence,
         state_head_group=args.kda_state_head_group,
     )
+    if args.weighted_route_layout:
+        check_weighted_routes()
     nonce = bytes(multihost_utils.broadcast_one_to_all(np.frombuffer(uuid.uuid4().bytes, dtype=np.uint8))).hex()
     checkpoint_path = f"{output_root}/attempt-{nonce}/checkpoint-after-first-update"
     output = Path(os.environ["IRIS_OUTPUT_DIR"])
