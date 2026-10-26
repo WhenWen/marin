@@ -271,3 +271,14 @@ def _backward(interpret, partitions, tile_rows, residuals, gradient):
 
 
 fused_expert_relu2.defvjp(_forward, _backward)
+
+
+def fused_expert_mlp(rows, w_up, w_down, groups, active_rows, *, interpret=False, tile_rows=512):
+    """Adapt the fused local kernel after the caller masks rejected routes.
+
+    ``local_expert_mlp`` supplies zero input rows for the rejected suffix and
+    masks that suffix again before combine, including its incoming cotangent.
+    The physical groups include those rows so every kernel output is initialized.
+    """
+    del active_rows
+    return fused_expert_relu2(rows, w_up, w_down, groups, interpret=interpret, tile_rows=tile_rows)

@@ -47,6 +47,7 @@ from experiments.grug.belay_tpu.expert_gradient_adapter import (
     weight_first_grouped_dot,
     whole_width_tiling,
 )
+from experiments.grug.belay_tpu.fused_expert_backward import fused_expert_mlp
 from experiments.grug.belay_tpu.grugmuon_stacked import _newtonschulz_batched_syrk
 from experiments.grug.belay_tpu.hybrid_experts import hybrid_gathered_expert_mlp
 from experiments.grug.belay_tpu.joint_expert_combine import make_joint_expert_combine
@@ -186,6 +187,9 @@ def main():
     parser.add_argument(
         "--joint-expert-combine", action="store_true", help="Avoid retaining expert postactivations and outputs"
     )
+    parser.add_argument(
+        "--fused-expert-backward", action="store_true", help="Fuse local expert forward and all gradients"
+    )
     parser.add_argument("--saved-relu2", action="store_true", help="Fuse expert ReLU2 and save preactivations")
     parser.add_argument(
         "--expert-reduction", choices=("native", "butterfly", "all-to-all", "all-to-all-source"), default="native"
@@ -310,6 +314,18 @@ def main():
         ep_ragged_all_to_all._permute_assignment_weights = routing_tpu.permute_assignment_weights_sort
     if args.saved_output:
         ep_ragged_all_to_all._routed_experts = saved_output_routed_experts
+    if args.fused_expert_backward:
+        if (
+            not args.local_experts
+            or args.expert_group_size != 1
+            or args.saved_relu2
+            or args.saved_output
+            or args.joint_expert_combine
+            or args.weighted_route_layout
+            or args.partitioned_expert_gradients
+        ):
+            parser.error("Fused expert backward requires ordinary local experts without another expert-kernel override")
+        local_experts.expert_mlp = fused_expert_mlp
     if args.saved_relu2:
         ep_ragged_all_to_all._select_expert_mlp = select_saved_relu2
         local_experts.expert_mlp = saved_relu2_mlp
@@ -331,6 +347,7 @@ def main():
     if args.logging_only:
         _initialize_global_tracker(trainer.tracker, run_id)
         tracker.log_configuration(config)
+        tracker.log_configuration({"diagnostic_options": vars(args)})
         tracker.log_summary({"diagnostic/logging_only_pass": True, "diagnostic/optimizer_updates": 0})
         tracker.current_tracker().finish()
         print(json.dumps({"logging_only_pass": True, "optimizer_updates": 0}), flush=True)
@@ -368,6 +385,7 @@ def main():
             "diagnostic/kda_state_head_group": args.kda_state_head_group,
             "diagnostic/attention_kernel": args.attention_kernel,
             "diagnostic/saved_relu2": args.saved_relu2,
+            "diagnostic/fused_expert_backward": args.fused_expert_backward,
             "diagnostic/requested_unique_updates": total_updates,
             "diagnostic/profile_updates": args.profile_steps,
             "diagnostic/reference_step1": args.reference_step1,
