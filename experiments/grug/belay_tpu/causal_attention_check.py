@@ -17,6 +17,7 @@ import jax
 import jax.numpy as jnp
 import levanter.tracker as tracker
 import numpy as np
+from jax.experimental import multihost_utils
 from levanter.schedule import BatchSchedule
 from levanter.trainer import _initialize_global_tracker
 
@@ -40,7 +41,7 @@ def causal(q, k, v, band, ids):
 
 async def native_segments(config):
     """Verify two complete native batches and select eight sequences per chip."""
-    with jax.default_device(jax.devices("cpu")[0]):
+    with jax.default_device(jax.local_devices(backend="cpu")[0]):
         native = config.trainer.trainer
         schedule = BatchSchedule(native.train_batch_size)
         key, _ = jax.random.split(jax.random.PRNGKey(native.seed), 2)
@@ -188,6 +189,7 @@ def main():
                 with (output / "causal-attention-check.jsonl").open("a") as file:
                     file.write(json.dumps(record) + "\n")
                 print(json.dumps(record), flush=True)
+    multihost_utils.sync_global_devices("causal_attention_check_complete")
     tracker.log_summary(
         {
             "kernel_check/numerical_pass": all_numerical_pass,
