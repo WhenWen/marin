@@ -56,6 +56,7 @@ from experiments.grug.belay_tpu.packed_kda_check import check_packed_kda
 from experiments.grug.belay_tpu.remat_check import check_attention_remat
 from experiments.grug.belay_tpu.saved_relu2_adapter import saved_relu2_mlp, select_saved_relu2
 from experiments.grug.belay_tpu.streaming_combine import combine_streaming, dispatch_streaming
+from experiments.grug.belay_tpu.weighted_routes import weighted_local_expert_mlp
 from experiments.grug.fast_track.grugmuon_stacked import _zeropower_via_newtonschulz_local
 from experiments.grug.fast_track.qb_balancing import bincount_upper_quantile as source_bincount_upper_quantile
 
@@ -174,6 +175,7 @@ def main():
     parser.add_argument("--route-counts", choices=("source", "factorized"), default="source")
     parser.add_argument("--capacity-layout", choices=("source", "intervals"), default="source")
     parser.add_argument("--streaming-scalars", choices=("gather", "sort"), default="gather")
+    parser.add_argument("--weighted-route-layout", action="store_true", help="Carry weights in the capacity sorts")
     parser.add_argument(
         "--streaming-movement", action="store_true", help="Accumulate expert routes without full restores"
     )
@@ -260,6 +262,19 @@ def main():
             combine_streaming, implementation="scan", scalar_permutation=args.streaming_scalars
         )
         local_experts.dispatch_local = dispatch_streaming
+    if args.weighted_route_layout:
+        if (
+            not args.local_experts
+            or not args.streaming_movement
+            or args.capacity_layout != "intervals"
+            or args.streaming_scalars != "gather"
+            or args.expert_group_size != 1
+            or args.joint_expert_combine
+            or args.saved_relu2
+            or args.saved_output
+        ):
+            parser.error("Weighted route layout requires ordinary ownership, interval capacity and streaming movement")
+        local_experts.local_expert_mlp = weighted_local_expert_mlp
     if args.expert_reduction == "butterfly":
         local_experts.reduce_expert_gradients = butterfly_reduce_scatter
     elif args.expert_reduction == "all-to-all":
@@ -337,6 +352,7 @@ def main():
             "diagnostic/local_movement": args.local_movement,
             "diagnostic/streaming_movement": args.streaming_movement,
             "diagnostic/streaming_scalars": args.streaming_scalars,
+            "diagnostic/weighted_route_layout": args.weighted_route_layout,
             "diagnostic/route_counts": args.route_counts,
             "diagnostic/capacity_layout": args.capacity_layout,
             "diagnostic/partitioned_expert_gradients": args.partitioned_expert_gradients,
