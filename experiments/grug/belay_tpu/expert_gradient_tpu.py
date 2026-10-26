@@ -19,9 +19,11 @@ from jax.experimental.pallas import tpu as pltpu
 from jax.experimental.pallas.ops.tpu.megablox.gmm import make_group_metadata
 
 
-@partial(jax.jit, static_argnames=("partitions", "tile_rows", "output_dtype", "interpret"))
-def expert_weight_gradient(lhs, rhs, groups, *, partitions=2, tile_rows=512, output_dtype=jnp.float32, interpret=False):
-    """Compute per-expert lhs.T @ rhs with disjoint expert partitions."""
+@partial(jax.jit, static_argnames=("partitions", "tile_rows", "output_dtype", "interpret", "lhs_relu2"))
+def expert_weight_gradient(
+    lhs, rhs, groups, *, partitions=2, tile_rows=512, output_dtype=jnp.float32, interpret=False, lhs_relu2=False
+):
+    """Compute per-expert lhs.T @ rhs, optionally rebuilding ReLU² in each tile."""
     m, k = lhs.shape
     n = rhs.shape[1]
     experts = groups.shape[0]
@@ -64,7 +66,8 @@ def expert_weight_gradient(lhs, rhs, groups, *, partitions=2, tile_rows=512, out
                 mask = (row >= offsets[part, group]) & (row < offsets[part, group + 1])
                 return jnp.where(mask, value, 0)
 
-            x = masked_rows(left[...], k)
+            left_value = jnp.square(jnp.maximum(left[...], 0)) if lhs_relu2 else left[...]
+            x = masked_rows(left_value, k)
             dy = masked_rows(right[...], n)
             accumulator[...] += lax.dot_general(
                 x,
