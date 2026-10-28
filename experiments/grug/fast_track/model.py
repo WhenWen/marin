@@ -802,7 +802,7 @@ class MoEMLP(eqx.Module):
                 intermediate_dim=cfg.intermediate_dim,
                 initializer_std=cfg.initializer_std,
                 key=k_expert,
-                implementation="fixed_pooled_wave_all_to_all",
+                implementation="fixed_pooled_wave_all_to_all" if jax.default_backend() == "gpu" else "scatter",
                 activation=ActivationFunctionEnum.silu,
                 capacity_factor=cfg.capacity_factor,
                 pooled_transport_capacity_factor=cfg.pooled_transport_capacity_factor,
@@ -1475,8 +1475,12 @@ class Transformer(eqx.Module):
             reduction=reduction,
             logsumexp_weight=logsumexp_weight,
             dtype=loss_dtype,
-            implementation="xla_fast_bwd",
-            block_sizes=_CE_BLOCK_SIZES,
+            implementation="pallas_tpu" if jax.default_backend() == "tpu" else "xla_fast_bwd",
+            block_sizes=(
+                BlockSizes(b_block_size=1024, h_block_size=128, v_block_size=512)
+                if jax.default_backend() == "tpu"
+                else _CE_BLOCK_SIZES
+            ),
         )
         # Router z-loss is logged for monitoring only; it is not added to the training loss.
         loss = cross_entropy_loss
