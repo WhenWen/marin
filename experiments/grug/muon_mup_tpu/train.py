@@ -142,7 +142,8 @@ def build_config(args, run_id, checkpoint_root):
             keep=None,
             save_interval=timedelta(minutes=20),
         ),
-        jax_config={"jax_enable_pgle": False, "jax_default_matmul_precision": "high"},
+        # Mosaic grouped matmul expects native bf16 products for bf16 inputs.
+        jax_config={"jax_enable_pgle": False, "jax_default_matmul_precision": "default"},
     )
     return train.GrugRunConfig(
         model=model,
