@@ -12,11 +12,14 @@ from unittest.mock import patch
 
 import jax
 import jax.numpy as jnp
+from levanter.grug.attention import _core as attention_core
 
 from experiments.grug.fast_track import model
 from experiments.grug.moe import kda
+from experiments.grug.muon_mup_tpu.inkling_tpu import sliced_dense_rel_bias
 from experiments.grug.muon_mup_tpu.kda_state_tpu import state_pass
 
+REFERENCE_DENSE_BIAS = attention_core.dense_rel_bias
 REFERENCE_QUANTILE = model._bincount_upper_quantile
 REFERENCE_RECURRENCE = kda._parallel_chunk_recurrence
 
@@ -112,11 +115,13 @@ def tpu_recurrence(prep, state, mm, lead, dk, dv):
 @contextmanager
 def execution_mode(mode):
     """Select explicit execution patches before tracing, without changing configuration."""
-    if mode not in ("reference", "histogram", "tpu"):
+    if mode not in ("reference", "histogram", "tpu", "inkling"):
         raise ValueError(f"Unknown execution mode: {mode}")
     with ExitStack() as stack:
-        quantile = REFERENCE_QUANTILE if mode == "reference" else two_stage_quantile
+        quantile = two_stage_quantile if mode in ("histogram", "tpu") else REFERENCE_QUANTILE
         recurrence = tpu_recurrence if mode == "tpu" else REFERENCE_RECURRENCE
+        dense_bias = sliced_dense_rel_bias if mode == "inkling" else REFERENCE_DENSE_BIAS
+        stack.enter_context(patch.object(attention_core, "dense_rel_bias", dense_bias))
         stack.enter_context(patch.object(model, "_bincount_upper_quantile", quantile))
         stack.enter_context(patch.object(kda, "_parallel_chunk_recurrence", recurrence))
         yield

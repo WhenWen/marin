@@ -39,7 +39,7 @@ from experiments.grug.fast_track.heuristic import MoeHeuristic
 from experiments.grug.fast_track.model import AttnResLayerBackward, GrugModelConfig, LocalMixer
 from experiments.grug.fast_track.optimizer import GrugMoeMuonHConfig
 from experiments.grug.muon_mup_tpu.optimizer import MuonComparisonConfig
-from experiments.grug.muon_mup_tpu.qualify import QualificationComplete, qualify
+from experiments.grug.muon_mup_tpu.qualify import QualificationComplete, profile_steps, qualify
 from experiments.grug.muon_mup_tpu.tpu_execution import execution_mode
 
 HERE = Path(__file__).parent
@@ -201,8 +201,10 @@ def main():
     parser.add_argument("--output", type=Path, default=Path("/tmp/muon-mup-results"))
     parser.add_argument("--logging-check", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--execution", choices=("reference", "histogram", "tpu"), default="reference")
+    parser.add_argument("--execution", choices=("reference", "histogram", "tpu", "inkling"), default="reference")
     parser.add_argument("--qualify", action="store_true")
+    parser.add_argument("--qualification-modes", nargs="+", default=["reference", "histogram", "tpu"])
+    parser.add_argument("--profile-steps", type=int, default=0)
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     identities = json.loads((HERE / "tokenizer_identity.json").read_text())
@@ -251,9 +253,17 @@ def main():
             "execution": args.execution,
             "execution_sources": {
                 name: hashlib.sha256((HERE / name).read_bytes()).hexdigest()
-                for name in ("train.py", "optimizer.py", "tpu_execution.py", "kda_state_tpu.py", "qualify.py")
+                for name in (
+                    "train.py",
+                    "optimizer.py",
+                    "tpu_execution.py",
+                    "kda_state_tpu.py",
+                    "qualify.py",
+                    "inkling_tpu.py",
+                )
             },
             "qualification": args.qualify,
+            "profile_steps": args.profile_steps,
             "source_commit": SOURCE_COMMIT,
             "data_commit": DATA_COMMIT,
             "data_sha256": hashlib.sha256((HERE / "july_data.json").read_bytes()).hexdigest(),
@@ -276,6 +286,21 @@ def main():
         return evaluator(**kwargs)
 
     def checked_factory(*params, **kwargs):
+        if args.profile_steps:
+
+            def profile(state, batch):
+                profile_steps(
+                    state,
+                    batch,
+                    *params,
+                    z_loss_weight=kwargs["z_loss_weight"],
+                    native_factory=native_factory,
+                    directory=args.output / "profile",
+                    count=args.profile_steps,
+                    persist=persist,
+                )
+
+            return profile
         if args.qualify:
 
             def diagnostic(state, batch):
@@ -286,6 +311,7 @@ def main():
                     z_loss_weight=kwargs["z_loss_weight"],
                     native_factory=native_factory,
                     persist=persist,
+                    modes=tuple(args.qualification_modes),
                 )
 
             return diagnostic
@@ -341,7 +367,16 @@ def main():
         persist("complete.json", {"steps": args.steps, "final_evaluation_complete": True})
     except QualificationComplete:
         levanter.tracker.current_tracker().finish()
-        persist("qualification-complete.json", {"full_training_run": False})
+        if args.profile_steps:
+            for file in (args.output / "profile").rglob("*"):
+                if file.is_file():
+                    destination = (
+                        root + f"/profile/host-{jax.process_index()}/" + str(file.relative_to(args.output / "profile"))
+                    )
+                    StoragePath(destination).write_bytes(file.read_bytes())
+            persist("profile-complete.json", {"full_training_run": False, "profile_steps": args.profile_steps})
+        else:
+            persist("qualification-complete.json", {"full_training_run": False})
     finally:
         if handler is not None:
             handler.upload()

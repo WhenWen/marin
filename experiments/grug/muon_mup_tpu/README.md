@@ -75,12 +75,15 @@ It does not import the Belay model, CPLM head or its optimizer.
 It advances one reference step, then supplies that resulting state to all three
 implementations. They share weights, pending QB betas and optimizer state, with
 nonzero warmup LR.
-The histogram gate requires bitwise-identical loss, gradients, updates and auxiliary
-metrics. The KDA gate was fixed before TPU measurements: loss difference at
+After the initial TPU measurement, the user explicitly accepted the histogram's
+rounding differences (gradient relative L2 7.7e-7, original Muon update relative
+L2 8.1e-5). Its revised gate keeps exact loss and auxiliary metrics, finite values,
+gradient relative L2 at most 1e-5 and update relative L2 at most 1e-3. The KDA gate was fixed before TPU measurements: loss difference at
 most 2e-4, global gradient/update relative L2 at most 0.005, each gradient leaf
 relative L2 at most 0.02. Relative L2 divides the difference norm by the reference
 norm; the per-leaf denominator has a floor of `1e-8 * sqrt(leaf.size)`. Auxiliary metrics and per-leaf update differences are retained but do not gate
-KDA selection. These tolerances must not be weakened after measurement.
+KDA selection. Tolerances must not be weakened without user approval; the original diagnostic
+reports retain their initial verdicts, with acceptance reviews stored separately.
 
 Each mode then runs two warmups and eight synchronized complete optimizer steps
 as independent evaluations from the same fixed state and batch; this measures
@@ -99,3 +102,43 @@ for training after checking production throughput. The ported source files are
 `experiments/grug/moe/kda_state_tpu.py` and
 `experiments/grug/fast_track/qb_balancing.py` in the Marin Belay checkout at
 `fcad3cbe6`; the premeasurement limits are recorded in `qualify.py` and the report.
+
+### Measured ports and remaining bottleneck
+
+On October 28, the first full-model qualification measured these synchronized
+median step times on global batch 16 × sequence length 4096 / TPU v4-32:
+
+| Execution | Original Muon | MuonH |
+| --- | ---: | ---: |
+| Reference | 4.7944 s | 4.7945 s |
+| Two-stage histogram | 4.7518 s | 4.7654 s |
+| Histogram + KDA state kernel | 4.7234 s | 4.7261 s |
+
+The user accepted the histogram rounding differences. Both arms retain identical
+loss and routing statistics; gradient relative L2 is below 8e-7 and update relative
+L2 below 9e-5. Acceptance reviews are stored beside the original reports, without
+rewriting their initial bitwise-gate verdicts. The KDA port changed updates by
+13.5% (Muon) and 10.8% (MuonH) in global relative L2 against reference, and was not selected. Neither port gave a useful
+speed improvement at the original KMA geometry.
+
+An eight-step original-Muon reference device profile located the bottleneck in dense Inkling bias
+expansion: four elementwise gathers, two scatter transposes and two sorts consume
+about 4.50 seconds of each 4.80-second device step (summed XLA operations on one TPU core). The profile and a compact
+trace summary are under
+`gs://marin-us-central2/kaiyuew/muon-mup-20261028/tpu-port-profile/1b360cfec4f1460a81bd692a11f2a80f/`.
+
+`--execution inkling` ports aligned slice indexing from the existing TPU
+`blocked_inkling_attention` implementation at Marin `1c64d46c541fe5c61492f580ac5a080915771f49`.
+It replaces only dense bias expansion, preserving the original full QK contraction,
+softmax, masks, KDA and optimizer. Six FP32/BF16 forward-and-transpose cases pass
+bitwise CPU comparison. Full-model TPU qualification is pending for both arms.
+Use `--qualify --qualification-modes reference inkling` to reproduce it.
+`--profile-steps 8 --execution reference`, in a separate invocation without
+`--qualify`, captures eight warmed native optimizer steps with online W&B.
+`experiments/grug/muon_mup_tpu/trace_summary.py` accepts the emitted
+`.trace.json.gz` via `--source` and a GCS JSON destination via `--output`; it
+streams the trace on a CPU worker in the storage region. The acceptance reviews
+are `acceptance-review.json` under the qualification attempt directories
+`tpu-port-qualification/130b5c270ceb41f49f91cf17fe5d3ad9` and
+`tpu-port-qualification-muonh/7c100e26e3294216b3a5e27a9785a6e6`, relative to
+`gs://marin-us-central2/kaiyuew/muon-mup-20261028/`.

@@ -16,8 +16,9 @@ from experiments.grug.muon_mup_tpu.tpu_execution import execution_mode
 
 logger = logging.getLogger(__name__)
 MODES = ("reference", "histogram", "tpu")
-# Set before accelerator measurements. Histogram must be bitwise identical.
-# The reordered FP32 KDA recurrence may introduce BF16 rounding differences.
+# The KDA limits were set before measurement. On October 28 the user accepted
+# the measured histogram rounding differences and removed its bitwise-only gate.
+HISTOGRAM_LIMITS = {"gradient_rel_l2": 1e-5, "update_rel_l2": 1e-3}
 LIMITS = {"loss_abs": 2e-4, "gradient_rel_l2": 0.005, "leaf_rel_l2": 0.02, "update_rel_l2": 0.005}
 
 
@@ -66,22 +67,30 @@ def summarize(reference, candidate):
     }
 
 
-def qualify(state, batch, optimizer, mp, z_loss_weight, native_factory, persist):
+def qualify(state, batch, optimizer, mp, z_loss_weight, native_factory, persist, modes=MODES):
+    if not modes or modes[0] != "reference":
+        raise ValueError("Qualification modes must start with reference")
     if jax.process_index() == 0 and (wandb.run is None or wandb.run.offline or wandb.run.disabled):
         raise RuntimeError("Qualification requires online W&B before optimizer updates")
     if jax.process_index() == 0:
         wandb.log({"preflight/logging_ready": 1, "preflight/training_updates": 0}, step=0)
-    report = {"limits": LIMITS, "modes": {}, "timing": "2 warmups + 8 synchronized full steps at fixed state/batch"}
+    report = {
+        "limits": LIMITS,
+        "histogram_limits": HISTOGRAM_LIMITS,
+        "acceptance_policy": "user-approved histogram rounding, 2026-10-28",
+        "modes": {},
+        "timing": "2 warmups + 8 synchronized full steps at fixed state/batch",
+    }
     persist("qualification.json", report)
     # Advance once so the checked optimizer update has nonzero warmup LR and real momentum/QB state.
     with execution_mode("reference"):
         native = native_factory(optimizer, mp, z_loss_weight=z_loss_weight)
-        advance = jax.jit(native.__wrapped__)
-        state, metrics, _ = advance(state, batch)
+        baseline_step = jax.jit(native.__wrapped__).lower(state, batch).compile()
+        state, metrics, _ = baseline_step(state, batch)
         jax.block_until_ready(state)
         if jax.process_index() == 0:
             wandb.log({"qualification/bootstrap_loss": float(metrics["train/loss"])}, step=1)
-    del advance, native
+    del native
     jax.clear_caches()
     qb_params = train._apply_qb_betas(state.params, state.pending_qb_betas)
     z_loss = z_loss_weight if z_loss_weight > 0 else None
@@ -90,14 +99,17 @@ def qualify(state, batch, optimizer, mp, z_loss_weight, native_factory, persist)
         return train._loss_and_grads(params, batch, mp, z_loss)
 
     reference_grads = reference_updates = reference_aux = reference_loss = None
-    for index, mode in enumerate(MODES):
+    update_step = None
+    for index, mode in enumerate(modes):
         logger.info("QUALIFICATION numerical mode=%s", mode)
         # Clear nested jit traces, so no candidate accidentally reuses reference code.
         jax.clear_caches()
         with execution_mode(mode):
             (loss, aux), grads = jax.jit(gradient)(qb_params, batch)
             jax.block_until_ready(grads)
-            updates = jax.jit(optimizer.update)(grads, state.opt_state, qb_params)[0]
+            if update_step is None:
+                update_step = jax.jit(optimizer.update).lower(grads, state.opt_state, qb_params).compile()
+            updates = update_step(grads, state.opt_state, qb_params)[0]
             jax.block_until_ready(updates)
         loss = float(loss)
         if mode == "reference":
@@ -112,8 +124,10 @@ def qualify(state, batch, optimizer, mp, z_loss_weight, native_factory, persist)
             if mode == "histogram":
                 passed = (
                     loss_diff == 0
-                    and grad_diff["max_abs"] == 0
-                    and update_diff["max_abs"] == 0
+                    and grad_diff["finite"]
+                    and update_diff["finite"]
+                    and grad_diff["relative_l2"] <= HISTOGRAM_LIMITS["gradient_rel_l2"]
+                    and update_diff["relative_l2"] <= HISTOGRAM_LIMITS["update_rel_l2"]
                     and aux_diff["max_abs"] == 0
                 )
             else:
@@ -145,12 +159,12 @@ def qualify(state, batch, optimizer, mp, z_loss_weight, native_factory, persist)
             )
     del reference_grads, reference_updates, reference_aux
     # Measure each complete step including routing, backward, NS/Adam, and QB state.
-    for index, mode in enumerate(MODES):
+    for index, mode in enumerate(modes):
         logger.info("QUALIFICATION throughput mode=%s", mode)
         jax.clear_caches()
         with execution_mode(mode):
             native = native_factory(optimizer, mp, z_loss_weight=z_loss_weight)
-            step = jax.jit(native.__wrapped__)
+            step = baseline_step if mode == "reference" else jax.jit(native.__wrapped__)
             times = []
             for iteration in range(10):
                 start = time.perf_counter()
@@ -176,7 +190,7 @@ def qualify(state, batch, optimizer, mp, z_loss_weight, native_factory, persist)
     baseline = report["modes"]["reference"]["median_step_seconds"]
     eligible = [
         mode
-        for mode in MODES[1:]
+        for mode in modes[1:]
         if report["modes"][mode]["numerical_pass"] and report["modes"][mode]["median_step_seconds"] < baseline * 0.9
     ]
     report["selected"] = (
@@ -184,4 +198,38 @@ def qualify(state, batch, optimizer, mp, z_loss_weight, native_factory, persist)
     )
     persist("qualification.json", report)
     logger.info("QUALIFICATION selected=%s", report["selected"])
+    raise QualificationComplete()
+
+
+def profile_steps(state, batch, optimizer, mp, z_loss_weight, native_factory, directory, count, persist):
+    """Capture device operations from warmed full training steps on the real batch."""
+    if jax.process_index() == 0 and (wandb.run is None or wandb.run.offline or wandb.run.disabled):
+        raise RuntimeError("Profiling requires online W&B")
+    if jax.process_index() == 0:
+        wandb.log({"preflight/logging_ready": 1, "preflight/training_updates": 0}, step=0)
+    step = native_factory(optimizer, mp, z_loss_weight=z_loss_weight)
+    records = []
+
+    def advance(state, index):
+        start = time.perf_counter()
+        state, metrics, _ = step(state, batch)
+        jax.block_until_ready(state)
+        record = {
+            "update": index + 1,
+            "train/loss": float(metrics["train/loss"]),
+            "step_seconds": time.perf_counter() - start,
+        }
+        records.append(record)
+        persist("profile-losses.json", records)
+        logging.getLogger("levanter.json_logger").info("%s", record)
+        if jax.process_index() == 0:
+            wandb.log(record, step=index + 1)
+        return state
+
+    for index in range(2):
+        state = advance(state, index)
+    with jax.profiler.trace(str(directory)):
+        for index in range(2, count + 2):
+            with jax.profiler.StepTraceAnnotation("train", step_num=index):
+                state = advance(state, index)
     raise QualificationComplete()
