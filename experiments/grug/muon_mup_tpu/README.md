@@ -57,7 +57,7 @@ uv run --no-sync --with pytest --with pytest-timeout python -m pytest experiment
 
 The optimizer checks include numerical direction/decay checks, Adam-group parity,
 and a four-device expert-sharding regression. MuonH B16 passed TPU preflight
-and is training. B128 exceeded HBM before updates; B64 runs but has worse token
+and was training with `reference` execution as of October 28, 23:15 PDT. B128 exceeded HBM before updates; B64 runs but has worse token
 throughput than B16. The formal paired comparison uses B16 and 19,800 steps.
 Final validation results are pending. Local submission state is under
 `scratch/20261028-1105_monitoring_state.json`.
@@ -72,17 +72,17 @@ implementation at `fcad3cbe6`. The adapter uses KMA's existing chunk preparation
 It does not import the Belay model, CPLM head or its optimizer.
 
 `--qualify` uses the real first B16 batch and native online W&B initialization.
-It advances one reference step, then supplies that resulting state to all three
-implementations. They share weights, pending QB betas and optimizer state, with
+It advances one reference step, then supplies that resulting state to each requested
+implementation. The requested modes share weights, pending QB betas and optimizer state, with
 nonzero warmup LR.
 After the initial TPU measurement, the user explicitly accepted the histogram's
 rounding differences (gradient relative L2 7.7e-7, original Muon update relative
 L2 8.1e-5). Its revised gate keeps exact loss and auxiliary metrics, finite values,
-gradient relative L2 at most 1e-5 and update relative L2 at most 1e-3. The KDA gate was fixed before TPU measurements: loss difference at
+gradient relative L2 at most 1e-5 and update relative L2 at most 1e-3. The KDA and Inkling gate was fixed before their TPU measurements: loss difference at
 most 2e-4, global gradient/update relative L2 at most 0.005, each gradient leaf
 relative L2 at most 0.02. Relative L2 divides the difference norm by the reference
 norm; the per-leaf denominator has a floor of `1e-8 * sqrt(leaf.size)`. Auxiliary metrics and per-leaf update differences are retained but do not gate
-KDA selection. Tolerances must not be weakened without user approval; the original diagnostic
+KDA or Inkling selection. Tolerances must not be weakened without user approval; the original diagnostic
 reports retain their initial verdicts, with acceptance reviews stored separately.
 
 Each mode then runs two warmups and eight synchronized complete optimizer steps
@@ -98,7 +98,7 @@ Run `python -m experiments.grug.muon_mup_tpu.train` with the usual training
 arguments and `--qualify`. The reports are written below the attempt UUID under
 `--artifact-root` and `--output`; `qualification.json` contains `selected` and
 per-mode errors, pass flags and timings. Pass its accepted mode as `--execution`
-for training after checking production throughput. The ported source files are
+for training, then check production throughput on the running job. The ported source files are
 `experiments/grug/moe/kda_state_tpu.py` and
 `experiments/grug/fast_track/qb_balancing.py` in the Marin Belay checkout at
 `fcad3cbe6`; the premeasurement limits are recorded in `qualify.py` and the report.
@@ -131,7 +131,34 @@ trace summary are under
 `blocked_inkling_attention` implementation at Marin `1c64d46c541fe5c61492f580ac5a080915771f49`.
 It replaces only dense bias expansion, preserving the original full QK contraction,
 softmax, masks, KDA and optimizer. Six FP32/BF16 forward-and-transpose cases pass
-bitwise CPU comparison. Full-model TPU qualification is pending for both arms.
+bitwise CPU comparison. Full-model TPU qualification passed for both arms.
+Loss and auxiliary metrics are identical; gradient relative L2 is 1.01e-6
+for Muon and 8.34e-7 for MuonH, with update relative L2 1.91e-4 and 1.66e-4.
+The synchronized complete-step medians are 0.3699 s for Muon and 0.3954 s
+for MuonH, versus 4.7952 s and 4.7973 s for their respective references:
+12.97× and 12.13× speedups. Both reports select `inkling`. These timings exclude
+data loading and logging. Native production checks over logged steps 50–100
+(51 steps, excluding compilation) measured median step times of 0.2815 s for
+Muon and 0.2823 s for MuonH: 232,848 and 232,155 tokens/s. The native donated
+state is faster than the diagnostic that retains its input state. Native step
+timings also exclude data loading and callbacks. Elapsed W&B timestamps over
+the same interval give 0.3647 s and 0.3777 s per step, including those costs:
+179,684 and 173,529 tokens/s end to end. Reported MFU
+is 3.283% and 3.273%, versus about 0.193% for the reference. Both arms passed
+the finite-gradient preflight with initial loss 11.8044195 and reached over
+150 updates by October 28, 23:23 PDT. Final validation results remain pending.
+
+The qualification reports are under `inkling-qualification-muon/bdb740c5831b4535aeacee114813c61c`
+and `inkling-qualification-muonh/13f4b979842f487f82fd15b7f1421285`, relative to
+`gs://marin-us-central2/kaiyuew/muon-mup-20261028/`.
+The full 19,800-update B16 comparison was submitted with `--execution inkling`
+as Iris jobs `kma-muon-original-inkling-20261028-b16-s0-v1` and
+`kma-muonh-inkling-20261028-b16-s0-v1`. Each starts from initialization with a
+fresh online W&B run: [original Muon](https://wandb.ai/marin-community/marin/runs/kma-muon-original-inkling-d512-b16-s0-7545c3670287)
+and [MuonH](https://wandb.ai/marin-community/marin/runs/kma-muonh-inkling-d512-b16-s0-b8c1d55ff590).
+The older reference jobs remain running as of October 28, 23:15 PDT:
+MuonH B16 has completed 8,392 updates and original Muon B16 has completed 1,142.
+
 Use `--qualify --qualification-modes reference inkling` to reproduce it.
 `--profile-steps 8 --execution reference`, in a separate invocation without
 `--qualify`, captures eight warmed native optimizer steps with online W&B.
