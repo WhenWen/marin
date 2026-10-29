@@ -37,8 +37,7 @@ from rigging.filesystem.storage_path import StoragePath
 from experiments.grug.fast_track import train
 from experiments.grug.fast_track.heuristic import MoeHeuristic
 from experiments.grug.fast_track.model import AttnResLayerBackward, GrugModelConfig, LocalMixer
-from experiments.grug.fast_track.optimizer import GrugMoeMuonHConfig
-from experiments.grug.muon_mup_tpu.optimizer import MuonComparisonConfig
+from experiments.grug.muon_mup_tpu.optimizer import MuonComparisonConfig, MuonHSweepConfig
 from experiments.grug.muon_mup_tpu.qualify import QualificationComplete, profile_steps, qualify
 from experiments.grug.muon_mup_tpu.tpu_execution import execution_mode
 
@@ -84,7 +83,8 @@ def build_config(args, run_id, checkpoint_root):
         beta2=heuristic.beta2,
         epsilon=heuristic.epsilon,
     )
-    optimizer = GrugMoeMuonHConfig(**optimizer_args)
+    optimizer_args["learning_rate"] *= args.lr_mult
+    optimizer = MuonHSweepConfig(**optimizer_args, head_lr=REFERENCE_HEAD_LR * scaling)
     if args.optimizer != "muonh":
         optimizer_args["learning_rate"] = REFERENCE_MUON_LR * scaling * args.lr_mult
         optimizer = MuonComparisonConfig(**optimizer_args, head_lr=REFERENCE_HEAD_LR * scaling)

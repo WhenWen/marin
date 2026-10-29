@@ -59,7 +59,7 @@ The optimizer checks include numerical direction/decay checks, Adam-group parity
 and a four-device expert-sharding regression. MuonH B16 passed TPU preflight
 and was training with `reference` execution as of October 28, 23:15 PDT. B128 exceeded HBM before updates; B64 runs but has worse token
 throughput than B16. The formal paired comparison uses B16 and 19,800 steps.
-Final validation results are pending. Local submission state is under
+The completed comparison is reported below. Local submission state is under
 `scratch/20261028-1105_monitoring_state.json`.
 
 ## TPU execution qualification
@@ -146,7 +146,7 @@ the same interval give 0.3647 s and 0.3777 s per step, including those costs:
 179,684 and 173,529 tokens/s end to end. Reported MFU
 is 3.283% and 3.273%, versus about 0.193% for the reference. Both arms passed
 the finite-gradient preflight with initial loss 11.8044195 and reached over
-150 updates by October 28, 23:23 PDT. Final validation results remain pending.
+150 updates by October 28, 23:23 PDT. Final validation was pending at that observation.
 
 The qualification reports are under `inkling-qualification-muon/bdb740c5831b4535aeacee114813c61c`
 and `inkling-qualification-muonh/13f4b979842f487f82fd15b7f1421285`, relative to
@@ -169,3 +169,39 @@ are `acceptance-review.json` under the qualification attempt directories
 `tpu-port-qualification/130b5c270ceb41f49f91cf17fe5d3ad9` and
 `tpu-port-qualification-muonh/7c100e26e3294216b3a5e27a9785a6e6`, relative to
 `gs://marin-us-central2/kaiyuew/muon-mup-20261028/`.
+
+## Completed baseline and matched matrix LR sweeps
+
+Both Inkling runs completed 19,800 updates and final evaluation. Their comparison
+keys match: the model, data, seed, precision, execution and evaluation protocol
+are identical. Final macro BPB (lower is better):
+
+| Optimizer | Paloma | Uncheatable |
+| --- | ---: | ---: |
+| Original Muon | 1.27324748 | 1.05293880 |
+| MuonH | 1.26944342 | 1.04656432 |
+
+MuonH has lower BPB in 22 of 23 domains. This is one seed at the reference learning
+rates; it does not establish the ranking after tuning. The final per-domain
+metrics and comparison keys are saved in
+`gs://marin-us-central2/kaiyuew/muon-mup-20261029/lr-sweep/baseline-comparison.json`.
+
+The October 29 sweeps use matrix LR multipliers 0.25, 0.5, 1, 2 and 4 for each
+optimizer, reusing the completed 1x runs. All LR values below are peak schedule
+values; warmup and linear decay remain unchanged. The original Muon base LR is
+0.005606496627706948; the MuonH base LR is 0.007928783568302187. Every point keeps
+head LR 0.007928783568302187, Adam LR 0.0018297192849928126, B16, seed 0 and
+19,800 updates. KDA write-strength matrices retain twice the matrix LR.
+
+`--lr-mult` now applies to either optimizer. The experiment-local
+`MuonHSweepConfig` separates MuonH's head schedule from its matrix schedule.
+Multi-step tests compare its updates to the original optimizer at 0.25x, 1x
+and 4x: matrix groups match the corresponding native MuonH LR, while head and
+Adam groups match the unchanged reference schedules, bitwise. The original Muon resolved
+1x configuration is unchanged by this implementation change.
+
+Use the existing TPU launch with `--optimizer muonh --lr-mult <multiplier>
+--execution inkling --batch-size 16 --steps 19800 --seed 0`; selecting `muonh`
+automatically uses `MuonHSweepConfig`. Selecting `muon` uses original-scaling
+Muon. Submission identities and artifact roots are recorded in `manifest.json`
+(Muon) and `muonh-manifest.json` under the same GCS sweep directory above.
