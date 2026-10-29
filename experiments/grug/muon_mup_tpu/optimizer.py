@@ -1,9 +1,8 @@
 # Copyright The Marin Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Fixed-width Muon spectral scaling ablation, preserving the reference Adam groups."""
+"""Original-scaling Muon, preserving the supplied reference Adam groups."""
 
-import math
 from dataclasses import dataclass
 
 import jax
@@ -20,7 +19,7 @@ from experiments.grug.fast_track.optimizer import (
 )
 
 
-def muon_step(*, learning_rate, weight_decay, spectral, momentum, nesterov, steps, eps, coefficient_type):
+def muon_step(*, learning_rate, weight_decay, momentum, nesterov, steps, eps, coefficient_type):
     direction = _grug_scale_with_muon(momentum, nesterov, steps, eps, coefficient_type)
 
     def update(grads, state, params):
@@ -31,10 +30,8 @@ def muon_step(*, learning_rate, weight_decay, spectral, momentum, nesterov, step
             if u is None:
                 return None
             # The shared transform already applies sqrt(max(1, fan_out/fan_in)).
-            # Correct only the direction; decoupled decay uses the group LR.
-            fan_in, fan_out = p.shape[-2:]
-            correction = math.sqrt(min(1.0, fan_out / fan_in)) if spectral else 1.0
-            return -learning_rate * (correction * u + weight_decay * p)
+            # Decoupled decay uses the group LR, without the shape multiplier.
+            return -learning_rate * (u + weight_decay * p)
 
         return jax.tree.map(step, updates, params, is_leaf=lambda x: x is None), state
 
@@ -44,13 +41,12 @@ def muon_step(*, learning_rate, weight_decay, spectral, momentum, nesterov, step
 @OptimizerConfig.register_subclass("muon_mup_tpu")
 @dataclass(frozen=True)
 class MuonComparisonConfig(GrugMoeMuonHConfig):
-    """Muon matrices with either original or RMS-to-RMS spectral scaling.
+    """Original Muon matrices with sqrt(max(1, fan_out/fan_in)) scaling.
 
     This ablation does not reparameterize the network's readout or initializer.
     AdamH head and all Adam groups retain their reference learning rates.
     """
 
-    spectral: bool = True
     matrix_weight_decay: float = 0.1
     head_lr: float = 0.02242598651082779
 
@@ -61,7 +57,6 @@ class MuonComparisonConfig(GrugMoeMuonHConfig):
                     muon_step(
                         learning_rate=lr,
                         weight_decay=self.matrix_weight_decay,
-                        spectral=self.spectral,
                         momentum=self.momentum,
                         nesterov=self.nesterov,
                         steps=self.backend_steps,

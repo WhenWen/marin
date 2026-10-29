@@ -84,9 +84,7 @@ def build_config(args, run_id, checkpoint_root):
     optimizer = GrugMoeMuonHConfig(**optimizer_args)
     if args.optimizer != "muonh":
         optimizer_args["learning_rate"] = REFERENCE_MUON_LR * scaling * args.lr_mult
-        optimizer = MuonComparisonConfig(
-            **optimizer_args, spectral=args.optimizer == "muon-mup", head_lr=REFERENCE_HEAD_LR * scaling
-        )
+        optimizer = MuonComparisonConfig(**optimizer_args, head_lr=REFERENCE_HEAD_LR * scaling)
     values = json.loads((HERE / "july_data.json").read_text())
     components = {
         name: DatasetComponent(
@@ -187,7 +185,7 @@ class MetricsFileHandler(logging.FileHandler):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--optimizer", choices=("muonh", "muon", "muon-mup"), required=True)
+    parser.add_argument("--optimizer", choices=("muonh", "muon"), required=True)
     parser.add_argument("--lr-mult", type=float, default=1.0)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--steps", type=int, required=True)

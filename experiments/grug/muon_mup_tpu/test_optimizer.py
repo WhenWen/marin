@@ -14,8 +14,7 @@ from experiments.grug.muon_mup_tpu.optimizer import MuonComparisonConfig, muon_s
 
 
 @pytest.mark.parametrize("shape", [(8, 4), (4, 8), (8, 8), (2, 8, 4), (2, 3, 4, 8)])
-@pytest.mark.parametrize("spectral", [False, True])
-def test_muon_direction_scaling_and_decoupled_decay(shape, spectral):
+def test_muon_direction_scaling_and_decoupled_decay(shape):
     p = jax.random.normal(jax.random.PRNGKey(1), shape)
     g = jax.random.normal(jax.random.PRNGKey(2), shape)
     reference = _grug_scale_with_muon()
@@ -23,7 +22,6 @@ def test_muon_direction_scaling_and_decoupled_decay(shape, spectral):
     tx = muon_step(
         learning_rate=0.02,
         weight_decay=0.1,
-        spectral=spectral,
         momentum=0.95,
         nesterov=True,
         steps=5,
@@ -32,8 +30,7 @@ def test_muon_direction_scaling_and_decoupled_decay(shape, spectral):
     )
     actual, _ = tx.update(g, tx.init(p), p)
     direction_only = -actual / 0.02 - 0.1 * p
-    expected_ratio = np.sqrt(min(1, shape[-1] / shape[-2])) if spectral else 1
-    np.testing.assert_allclose(direction_only, direction * expected_ratio, atol=2e-7, rtol=2e-5)
+    np.testing.assert_allclose(direction_only, direction, atol=2e-7, rtol=2e-5)
     zero_update, _ = tx.update(jnp.zeros_like(g), tx.init(p), p)
     np.testing.assert_allclose(optax.apply_updates(p, zero_update), 0.998 * p, atol=3e-7, rtol=1e-6)
 
@@ -72,7 +69,7 @@ def test_expert_update_preserves_sharding_before_weight_decay():
         with set_mesh(mesh):
             p = jax.sharding.reshard(jnp.ones((2,4,8,16)), P(None,'expert','model','data'))
             g = jax.sharding.reshard(jax.random.normal(jax.random.PRNGKey(0), p.shape), p.sharding)
-            tx = muon_step(learning_rate=0.01, weight_decay=0.1, spectral=True,
+            tx = muon_step(learning_rate=0.01, weight_decay=0.1,
                            momentum=0.95, nesterov=True, steps=5, eps=1e-8, coefficient_type='quintic')
             updates, _ = jax.jit(tx.update)(g, tx.init(p), p)
             assert updates.sharding == p.sharding
