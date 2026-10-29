@@ -61,3 +61,41 @@ and is training. B128 exceeded HBM before updates; B64 runs but has worse token
 throughput than B16. The formal paired comparison uses B16 and 19,800 steps.
 Final validation results are pending. Local submission state is under
 `scratch/20261028-1105_monitoring_state.json`.
+
+## TPU execution qualification
+
+`--execution reference` retains the first TPU adaptation. `histogram` replaces
+only the flat QB histogram with exact integer two-stage histograms; `tpu` also
+ports the ordered FP32 KDA state pass and its reverse pass from the Belay
+implementation at `fcad3cbe6`. The adapter uses KMA's existing chunk preparation,
+16-token chunks, document boundaries, 384 experts and routing interpolation.
+It does not import the Belay model, CPLM head or its optimizer.
+
+`--qualify` uses the real first B16 batch and native online W&B initialization.
+It advances one reference step, then supplies that resulting state to all three
+implementations. They share weights, pending QB betas and optimizer state, with
+nonzero warmup LR.
+The histogram gate requires bitwise-identical loss, gradients, updates and auxiliary
+metrics. The KDA gate was fixed before TPU measurements: loss difference at
+most 2e-4, global gradient/update relative L2 at most 0.005, each gradient leaf
+relative L2 at most 0.02. Relative L2 divides the difference norm by the reference
+norm; the per-leaf denominator has a floor of `1e-8 * sqrt(leaf.size)`. Auxiliary metrics and per-leaf update differences are retained but do not gate
+KDA selection. These tolerances must not be weakened after measurement.
+
+Each mode then runs two warmups and eight synchronized complete optimizer steps
+as independent evaluations from the same fixed state and batch; this measures
+computation, without data loading or logging overhead. The diagnostic uses non-donating buffers to retain the common
+input state. Production throughput must also be checked with the native donated
+state. Only a numerically qualified mode with at least a 10% median step-time
+improvement over `reference` in this diagnostic can be selected. `qualification.json` is persisted incrementally;
+`qualification-complete.json` is distinct from a completed training run.
+The result collector separates execution modes when matching comparisons.
+
+Run `python -m experiments.grug.muon_mup_tpu.train` with the usual training
+arguments and `--qualify`. The reports are written below the attempt UUID under
+`--artifact-root` and `--output`; `qualification.json` contains `selected` and
+per-mode errors, pass flags and timings. Pass its accepted mode as `--execution`
+for training after checking production throughput. The ported source files are
+`experiments/grug/moe/kda_state_tpu.py` and
+`experiments/grug/fast_track/qb_balancing.py` in the Marin Belay checkout at
+`fcad3cbe6`; the premeasurement limits are recorded in `qualify.py` and the report.

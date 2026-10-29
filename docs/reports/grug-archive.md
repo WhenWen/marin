@@ -76,3 +76,10 @@ goes stale on the next commit.
 - Status: deleted
 - Purpose: historical head-to-head comparison.
 - Superseded by: 8d752a775 — template-first workflow centered on `experiments/grug/base/`.
+
+### original-muon-kma-tpu
+- Path: `experiments/grug/muon_mup_tpu/`
+- Origin: `fast_track` at `4eba59cafa27a1ea174d1b5d6a28d9d1660eba10`
+- Status: active
+- Purpose: original KMA d512 and original-scaling Muon versus MuonH on PR 10678 data; qualify execution-only TPU histogram and KDA ports from Belay `fcad3cbe6`.
+- Report: [Configuration and qualification](../../experiments/grug/muon_mup_tpu/README.md)

@@ -802,7 +802,7 @@ class MoEMLP(eqx.Module):
                 intermediate_dim=cfg.intermediate_dim,
                 initializer_std=cfg.initializer_std,
                 key=k_expert,
-                implementation="fixed_pooled_wave_all_to_all" if jax.default_backend() == "gpu" else "scatter",
+                implementation="scatter" if jax.default_backend() == "tpu" else "fixed_pooled_wave_all_to_all",
                 activation=ActivationFunctionEnum.silu,
                 capacity_factor=cfg.capacity_factor,
                 pooled_transport_capacity_factor=cfg.pooled_transport_capacity_factor,

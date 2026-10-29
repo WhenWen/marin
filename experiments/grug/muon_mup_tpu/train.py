@@ -18,6 +18,7 @@ from unittest.mock import patch
 import jax
 import jax.numpy as jnp
 import jmp
+import levanter.tracker
 import numpy as np
 import wandb
 from fray.cluster import ResourceConfig
@@ -38,6 +39,8 @@ from experiments.grug.fast_track.heuristic import MoeHeuristic
 from experiments.grug.fast_track.model import AttnResLayerBackward, GrugModelConfig, LocalMixer
 from experiments.grug.fast_track.optimizer import GrugMoeMuonHConfig
 from experiments.grug.muon_mup_tpu.optimizer import MuonComparisonConfig
+from experiments.grug.muon_mup_tpu.qualify import QualificationComplete, qualify
+from experiments.grug.muon_mup_tpu.tpu_execution import execution_mode
 
 HERE = Path(__file__).parent
 SOURCE_COMMIT = "4eba59cafa27a1ea174d1b5d6a28d9d1660eba10"
@@ -198,6 +201,8 @@ def main():
     parser.add_argument("--output", type=Path, default=Path("/tmp/muon-mup-results"))
     parser.add_argument("--logging-check", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--execution", choices=("reference", "histogram", "tpu"), default="reference")
+    parser.add_argument("--qualify", action="store_true")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     identities = json.loads((HERE / "tokenizer_identity.json").read_text())
@@ -243,6 +248,12 @@ def main():
         "identity.json",
         {
             "run_id": run_id,
+            "execution": args.execution,
+            "execution_sources": {
+                name: hashlib.sha256((HERE / name).read_bytes()).hexdigest()
+                for name in ("train.py", "optimizer.py", "tpu_execution.py", "kda_state_tpu.py", "qualify.py")
+            },
+            "qualification": args.qualify,
             "source_commit": SOURCE_COMMIT,
             "data_commit": DATA_COMMIT,
             "data_sha256": hashlib.sha256((HERE / "july_data.json").read_bytes()).hexdigest(),
@@ -265,6 +276,19 @@ def main():
         return evaluator(**kwargs)
 
     def checked_factory(*params, **kwargs):
+        if args.qualify:
+
+            def diagnostic(state, batch):
+                qualify(
+                    state,
+                    batch,
+                    *params,
+                    z_loss_weight=kwargs["z_loss_weight"],
+                    native_factory=native_factory,
+                    persist=persist,
+                )
+
+            return diagnostic
         native = native_factory(*params, **kwargs)
         first = True
 
@@ -311,9 +335,13 @@ def main():
             patch.object(train, "_make_train_step", checked_factory),
             patch.object(train, "TaggedEvaluator", bounded_evaluator),
             patch.object(train, "_TRAIN_LOADER_BUFFER_SIZE", 4),
+            execution_mode(args.execution),
         ):
             train._run_grug_local(config)
         persist("complete.json", {"steps": args.steps, "final_evaluation_complete": True})
+    except QualificationComplete:
+        levanter.tracker.current_tracker().finish()
+        persist("qualification-complete.json", {"full_training_run": False})
     finally:
         if handler is not None:
             handler.upload()

@@ -26,6 +26,7 @@ def collect_attempt(api, fs, path):
     trainer = config["trainer"]["trainer"]
     comparison = {
         "model": config["model"],
+        "execution": identity.get("execution", "reference"),
         "data_sha256": identity["data_sha256"],
         "data_seed": config["trainer"]["data_seed"],
         "seed": identity["seed"],
