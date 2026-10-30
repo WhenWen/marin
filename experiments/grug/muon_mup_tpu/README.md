@@ -64,6 +64,17 @@ The completed comparison is reported below. Local submission state is under
 
 ## TPU execution qualification
 
+For d768, the execution adapter passes CE block sizes `(B=1024, H=128, V=256)`.
+Despite the API's H setting, the TPU forward kernel loads all 768 hidden
+dimensions and four vocabulary tiles;
+the previous V=512 setting required 16.94 MiB VMEM on v4, above its 16 MiB limit.
+This changes kernel tiling only. `--qualify-ce` checks loss and gradients of
+input hidden states and output-head weights against XLA at the failing local
+shape `(tokens=4096, hidden=768, vocabulary=128256)`, including masked tokens and
+the final partially populated group of four vocabulary tiles. It writes
+`ce-qualification.json` before the full-model finite-gradient preflight and
+continues the requested training schedule only if both checks pass.
+
 `--execution reference` retains the first TPU adaptation. `histogram` replaces
 only the flat QB histogram with exact integer two-stage histograms; `tpu` also
 ports the ordered FP32 KDA state pass and its reverse pass from the Belay

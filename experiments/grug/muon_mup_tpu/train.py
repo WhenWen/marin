@@ -38,7 +38,12 @@ from experiments.grug.fast_track import train
 from experiments.grug.fast_track.heuristic import MoeHeuristic
 from experiments.grug.fast_track.model import AttnResLayerBackward, GrugModelConfig, LocalMixer
 from experiments.grug.muon_mup_tpu.optimizer import MuonComparisonConfig, MuonHSweepConfig, MuonWComparisonConfig
-from experiments.grug.muon_mup_tpu.qualify import QualificationComplete, profile_steps, qualify
+from experiments.grug.muon_mup_tpu.qualify import (
+    QualificationComplete,
+    profile_steps,
+    qualify,
+    qualify_d768_cross_entropy,
+)
 from experiments.grug.muon_mup_tpu.tpu_execution import execution_mode
 
 HERE = Path(__file__).parent
@@ -213,6 +218,7 @@ def main():
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--execution", choices=("reference", "histogram", "tpu", "inkling"), default="reference")
     parser.add_argument("--qualify", action="store_true")
+    parser.add_argument("--qualify-ce", action="store_true")
     parser.add_argument("--qualification-modes", nargs="+", default=["reference", "histogram", "tpu"])
     parser.add_argument("--profile-steps", type=int, default=0)
     args = parser.parse_args()
@@ -274,6 +280,7 @@ def main():
                 )
             },
             "qualification": args.qualify,
+            "ce_qualification": args.qualify_ce,
             "profile_steps": args.profile_steps,
             "source_commit": SOURCE_COMMIT,
             "data_commit": DATA_COMMIT,
@@ -345,6 +352,8 @@ def main():
             if first:
                 if jax.process_index() == 0 and (wandb.run is None or wandb.run.offline or wandb.run.disabled):
                     raise RuntimeError("Online W&B must initialize before optimizer steps")
+                if args.qualify_ce:
+                    qualify_d768_cross_entropy(persist)
                 loss, finite = jax.device_get(preflight(state, batch))
                 if not bool(finite) or not np.isfinite(loss):
                     raise ValueError("Nonfinite full-model forward/backward preflight")

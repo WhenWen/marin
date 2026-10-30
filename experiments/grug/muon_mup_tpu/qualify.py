@@ -10,9 +10,13 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import wandb
+from levanter.kernels.pallas.fused_cross_entropy_loss import fused_cross_entropy_loss_and_logsumexp_penalty
 
 from experiments.grug.fast_track import train
-from experiments.grug.muon_mup_tpu.tpu_execution import execution_mode
+from experiments.grug.muon_mup_tpu.tpu_execution import (
+    D768_CE_BLOCK_SIZES,
+    execution_mode,
+)
 
 logger = logging.getLogger(__name__)
 MODES = ("reference", "histogram", "tpu")
@@ -65,6 +69,55 @@ def summarize(reference, candidate):
             for name, rel, row in zip(names, relative, rows, strict=True)
         ],
     }
+
+
+def qualify_d768_cross_entropy(persist):
+    """Check TPU CE loss and both gradients at the failed shard shape against XLA."""
+    if jax.default_backend() != "tpu":
+        raise RuntimeError("The d768 CE qualification must run on TPU")
+    hidden = jax.random.normal(jax.random.PRNGKey(41), (4096, 768), dtype=jnp.bfloat16)
+    head = (jax.random.normal(jax.random.PRNGKey(42), (768, 128256)) * (0.5 / np.sqrt(768))).astype(jnp.bfloat16)
+    # Cover the partial final vocabulary tile and masked tokens.
+    labels = (jnp.arange(4096, dtype=jnp.int32) * 31).at[-1].set(128255)
+    weight = (jnp.arange(4096) % 7 != 0).astype(jnp.float32)
+
+    def loss(x, w, implementation):
+        # Call the shard-local kernel directly; the Grug wrapper would shard B
+        # again under the training mesh and miss the failing 4096-token shape.
+        return fused_cross_entropy_loss_and_logsumexp_penalty(
+            x,
+            labels,
+            w,
+            weight=weight,
+            dtype=jnp.float32,
+            implementation=implementation,
+            block_sizes=D768_CE_BLOCK_SIZES,
+        )
+
+    evaluate = jax.jit(jax.value_and_grad(loss, argnums=(0, 1)), static_argnums=2)
+    reference_loss, reference_grads = evaluate(hidden, head, "xla")
+    candidate_loss, candidate_grads = evaluate(hidden, head, "pallas_tpu")
+    gradient_reports = [summarize(a, b) for a, b in zip(reference_grads, candidate_grads, strict=True)]
+    loss_abs = abs(float(candidate_loss) - float(reference_loss))
+    passed = loss_abs <= LIMITS["loss_abs"] and all(
+        g["finite"] and g["relative_l2"] <= LIMITS["gradient_rel_l2"] for g in gradient_reports
+    )
+    report = {
+        "shape": [4096, 768, 128256],
+        "reference": "xla",
+        "loss_abs": loss_abs,
+        "loss": float(candidate_loss),
+        "gradients": gradient_reports,
+        "passed": passed,
+        "loss_abs_limit": LIMITS["loss_abs"],
+        "gradient_rel_l2_limit": LIMITS["gradient_rel_l2"],
+    }
+    persist("ce-qualification.json", report)
+    if jax.process_index() == 0:
+        wandb.log({"qualification/ce/loss_abs": loss_abs, "qualification/ce/passed": int(passed)}, step=0)
+    if not passed:
+        raise ValueError(f"d768 CE numerical qualification failed: {report}")
+    evaluate.clear_cache()
 
 
 def qualify(state, batch, optimizer, mp, z_loss_weight, native_factory, persist, modes=MODES):

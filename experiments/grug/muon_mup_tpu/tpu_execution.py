@@ -13,6 +13,7 @@ from unittest.mock import patch
 import jax
 import jax.numpy as jnp
 from levanter.grug.attention import _core as attention_core
+from levanter.grug.loss import BlockSizes
 
 from experiments.grug.fast_track import model
 from experiments.grug.moe import kda
@@ -22,6 +23,16 @@ from experiments.grug.muon_mup_tpu.kda_state_tpu import state_pass
 REFERENCE_DENSE_BIAS = attention_core.dense_rel_bias
 REFERENCE_QUANTILE = model._bincount_upper_quantile
 REFERENCE_RECURRENCE = kda._parallel_chunk_recurrence
+REFERENCE_CROSS_ENTROPY = model.fused_linear_softmax_cross_entropy_loss
+D768_CE_BLOCK_SIZES = BlockSizes(b_block_size=1024, h_block_size=128, v_block_size=256)
+
+
+def tpu_cross_entropy(hidden, lm_head, labels, **kwargs):
+    # The TPU forward kernel loads full H and four V tiles, irrespective of
+    # h_block_size. At H=768, V=512 exceeds v4's 16 MiB VMEM during compilation.
+    if jax.default_backend() == "tpu" and hidden.shape[-1] == 768:
+        kwargs["block_sizes"] = D768_CE_BLOCK_SIZES
+    return REFERENCE_CROSS_ENTROPY(hidden, lm_head, labels, **kwargs)
 
 
 def factorized_expert_histogram(indices: jax.Array, n_bins: int, group_size: int, radix: int) -> jax.Array:
@@ -124,4 +135,5 @@ def execution_mode(mode):
         stack.enter_context(patch.object(attention_core, "dense_rel_bias", dense_bias))
         stack.enter_context(patch.object(model, "_bincount_upper_quantile", quantile))
         stack.enter_context(patch.object(kda, "_parallel_chunk_recurrence", recurrence))
+        stack.enter_context(patch.object(model, "fused_linear_softmax_cross_entropy_loss", tpu_cross_entropy))
         yield
