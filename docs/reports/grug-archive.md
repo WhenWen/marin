@@ -83,3 +83,10 @@ goes stale on the next commit.
 - Status: active
 - Purpose: original KMA d512 and original-scaling Muon versus MuonH on PR 10678 data; qualify execution-only TPU histogram and KDA ports from Belay `fcad3cbe6`.
 - Report: [Configuration and qualification](../../experiments/grug/muon_mup_tpu/README.md)
+
+### grug-july-muon-tpu
+- Path: `experiments/grug/july_muon_tpu/`
+- Origin: `moe` at `444b5ea66bda75b6dfc7746ff20c9dfec6ba159a`
+- Status: active
+- Purpose: compare original July MoE with MuonW/AdamW and reference MuonH across matched matrix LR sweeps.
+- Diff: [experiment configuration](../../experiments/grug/july_muon_tpu/README.md)

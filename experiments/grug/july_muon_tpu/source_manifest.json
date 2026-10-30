@@ -1,0 +1,13 @@
+{
+  "recipe_commit": "444b5ea66bda75b6dfc7746ff20c9dfec6ba159a",
+  "historical_runtime_commit": "3fd402a926c907d7cb87a04935e56db972652c48",
+  "historical_run_id": "ee2b97cc326f2f8107f7",
+  "source_hashes": {
+    "july-recipe/adamh.py": "2e1cd0de78ba20c9e1418ad7b07f12530d29057b230335a47ed832b9c8f3739f",
+    "july-recipe/heuristic.py": "ff89998a1edc03955ffbb6bbf5fff53c5aa4a32f3444925695776631148a0c86",
+    "july-recipe/model.py": "8e0c9207a6728f5953b40be98d56372e0a8613aec651e513cda7445b77715b19",
+    "july-recipe/optimizer.py": "401a6a71fdbc5296b4aa2c350545aae0a66553a08a9159d4034ad8b415b4842b",
+    "july-recipe/source-manifest.json": "bd61b227ff1999f6f63dade469c3a7588495ecaf60772e4843341ff944991033",
+    "july-recipe/train.py": "f7755364db1b817c1041b31a8b8261b162d77ff9ef3ab1bbc6b0acded6dce533"
+  }
+}
