@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import jax
 import optax
 from levanter.optim.config import OptimizerConfig
+from levanter.utils.jax_utils import leaf_key_paths
 
 from experiments.grug.fast_track.adamh import scale_by_adamh
 from experiments.grug.fast_track.grugmuon_stacked import _grug_scale_with_muon
@@ -51,6 +52,20 @@ class MuonComparisonConfig(GrugMoeMuonHConfig):
     matrix_weight_decay: float = 0.1
     head_lr: float = 0.02242598651082779
 
+    def head_transform(self, lr):
+        return scale_by_adamh(self.beta1, self.beta2, self.epsilon, lr)
+
+    def fallback_transform(self, lr, num_train_steps):
+        return optax.chain(
+            _scale_by_adam_gate_router_decay(
+                self.beta1, self.beta2, self.epsilon, self.gate_router_weight_decay, num_train_steps
+            ),
+            optax.scale(-lr),
+        )
+
+    def query_transform(self, lr):
+        return optax.chain(optax.scale_by_adam(self.beta1, self.beta2, self.epsilon), optax.scale(-lr))
+
     def build(self, num_train_steps):
         def optimizer(learning_rate, adam_lr, head_lr):
             def matrix(lr):
@@ -71,17 +86,9 @@ class MuonComparisonConfig(GrugMoeMuonHConfig):
                 {
                     "muonh": matrix(learning_rate),
                     "kda_beta": matrix(learning_rate * self.kda_beta_lr_mult),
-                    "adamh": scale_by_adamh(self.beta1, self.beta2, self.epsilon, head_lr),
-                    "adam": optax.chain(
-                        _scale_by_adam_gate_router_decay(
-                            self.beta1, self.beta2, self.epsilon, self.gate_router_weight_decay, num_train_steps
-                        ),
-                        optax.scale(-adam_lr),
-                    ),
-                    "attn_res_query": optax.chain(
-                        optax.scale_by_adam(self.beta1, self.beta2, self.epsilon),
-                        optax.scale(-adam_lr * self.attn_res_query_lr_scale),
-                    ),
+                    "adamh": self.head_transform(head_lr),
+                    "adam": self.fallback_transform(adam_lr, num_train_steps),
+                    "attn_res_query": self.query_transform(adam_lr * self.attn_res_query_lr_scale),
                 },
                 self.create_mask,
             )
@@ -146,3 +153,36 @@ class MuonHSweepConfig(GrugMoeMuonHConfig):
             adam_lr=self.lr_scheduler(num_train_steps, override_lr=self.adam_lr),
             head_lr=self.lr_scheduler(num_train_steps, override_lr=self.head_lr),
         )
+
+
+def logical_matrix_decay_mask(params):
+    """Exclude vector parameters even when ArrayStacked adds a layer dimension."""
+
+    def decay(param, path):
+        path = ".".join(path) if isinstance(path, (tuple, list)) else str(path)
+        logical_rank = param.ndim - int(".stacked." in path)
+        return logical_rank >= 2
+
+    return jax.tree.map(decay, params, leaf_key_paths(params))
+
+
+@OptimizerConfig.register_subclass("muonw_mup_tpu")
+@dataclass(frozen=True)
+class MuonWComparisonConfig(MuonComparisonConfig):
+    """Original-scaling Muon with AdamW on every fallback group."""
+
+    def head_transform(self, lr):
+        return optax.adamw(
+            lr,
+            b1=self.beta1,
+            b2=self.beta2,
+            eps=self.epsilon,
+            weight_decay=self.matrix_weight_decay,
+            mask=logical_matrix_decay_mask,
+        )
+
+    def fallback_transform(self, lr, num_train_steps):
+        return self.head_transform(lr)
+
+    def query_transform(self, lr):
+        return self.head_transform(lr)

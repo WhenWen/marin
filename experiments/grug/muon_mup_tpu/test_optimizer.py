@@ -10,7 +10,12 @@ from levanter.testing.cpu_devices import run_on_cpu_devices
 
 from experiments.grug.fast_track.grugmuon_stacked import _grug_scale_with_muon
 from experiments.grug.fast_track.optimizer import GrugMoeMuonHConfig
-from experiments.grug.muon_mup_tpu.optimizer import MuonComparisonConfig, MuonHSweepConfig, muon_step
+from experiments.grug.muon_mup_tpu.optimizer import (
+    MuonComparisonConfig,
+    MuonHSweepConfig,
+    MuonWComparisonConfig,
+    muon_step,
+)
 
 
 @pytest.mark.parametrize("shape", [(8, 4), (4, 8), (8, 8), (2, 8, 4), (2, 3, 4, 8)])
@@ -115,3 +120,55 @@ def test_muonh_sweep_preserves_reference_updates_and_fixed_adam_groups(multiplie
             expected = changed if group in ("muonh", "kda_beta") else original
             np.testing.assert_array_equal(actual, expected)
         params = optax.apply_updates(params, updates)
+
+
+def test_muonw_decays_logical_matrices_and_keeps_stacked_vectors_undecayed():
+    params = {
+        "output_proj": jnp.ones((8, 16)),
+        "token_embed": jnp.ones((16, 8)),
+        "attn_res_query_final": jnp.ones(8),
+        "kda_blocks": {
+            "stacked": {
+                "rms_attn": {"weight": jnp.ones((2, 8))},
+                "attn_res_query_attn": jnp.ones((2, 8)),
+                "mlp": {"router": jnp.ones((2, 8, 4)), "router_bias": jnp.ones((2, 4))},
+                "attn": {"a_log": jnp.ones((2, 4)), "w_a_down": jnp.ones((2, 8, 4))},
+            }
+        },
+    }
+    config = MuonWComparisonConfig(
+        learning_rate=0.01, head_lr=0.02, adam_lr=0.005, warmup=0, min_lr_ratio=1, beta1=0.9, beta2=0.99, epsilon=1e-8
+    )
+    tx = config.build(100)
+    labels = config.create_mask(params)
+    # Independent expected decay policy: vectors remain vectors after layer stacking.
+    decay = {
+        "output_proj": True,
+        "token_embed": True,
+        "attn_res_query_final": False,
+        "kda_blocks": {
+            "stacked": {
+                "rms_attn": {"weight": False},
+                "attn_res_query_attn": False,
+                "mlp": {"router": True, "router_bias": False},
+                "attn": {"a_log": False, "w_a_down": True},
+            }
+        },
+    }
+    references = {
+        group: optax.adamw(lr, b1=0.9, b2=0.99, eps=1e-8, weight_decay=0.1, mask=decay)
+        for group, lr in [("adamh", 0.02), ("adam", 0.005), ("attn_res_query", 0.0005)]
+    }
+    state = tx.init(params)
+    ref_states = {group: ref.init(params) for group, ref in references.items()}
+    for _ in range(3):
+        grads = jax.tree.map(lambda p: 0.2 * jnp.cos(p), params)
+        actual, state = tx.update(grads, state, params)
+        for group, ref in references.items():
+            expected, ref_states[group] = ref.update(grads, ref_states[group], params)
+            for label, a, e in zip(
+                jax.tree.leaves(labels), jax.tree.leaves(actual), jax.tree.leaves(expected), strict=True
+            ):
+                if label == group:
+                    np.testing.assert_allclose(a, e, rtol=2e-6, atol=1e-8)
+        params = optax.apply_updates(params, actual)

@@ -1,7 +1,7 @@
 # Copyright The Marin Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Original KMA d512 on PR 10678's frozen regional caches."""
+"""KMA d512 and d768 on PR 10678's frozen regional caches."""
 
 import argparse
 import hashlib
@@ -37,7 +37,7 @@ from rigging.filesystem.storage_path import StoragePath
 from experiments.grug.fast_track import train
 from experiments.grug.fast_track.heuristic import MoeHeuristic
 from experiments.grug.fast_track.model import AttnResLayerBackward, GrugModelConfig, LocalMixer
-from experiments.grug.muon_mup_tpu.optimizer import MuonComparisonConfig, MuonHSweepConfig
+from experiments.grug.muon_mup_tpu.optimizer import MuonComparisonConfig, MuonHSweepConfig, MuonWComparisonConfig
 from experiments.grug.muon_mup_tpu.qualify import QualificationComplete, profile_steps, qualify
 from experiments.grug.muon_mup_tpu.tpu_execution import execution_mode
 
@@ -53,11 +53,16 @@ REFERENCE_ADAM_LR = 0.005175227656344875
 
 
 def build_config(args, run_id, checkpoint_root):
+    hidden = int(args.size[1:])
     model = GrugModelConfig(
         vocab_size=128256,
-        hidden_dim=512,
-        num_layers=6,
-        initializer_std=0.5 / math.sqrt(512),
+        hidden_dim=hidden,
+        num_layers=6 if hidden == 512 else 8,
+        num_heads=hidden // 128,
+        intermediate_dim=hidden // 2,
+        shared_expert_intermediate_dim=hidden // 2,
+        latent_dim=hidden // 2,
+        initializer_std=0.5 / math.sqrt(hidden),
         local_mixer=LocalMixer.KDA,
         mla=True,
         inkling_relpos=True,
@@ -71,11 +76,14 @@ def build_config(args, run_id, checkpoint_root):
     )
     scaling = math.sqrt(args.batch_size / REFERENCE_BATCH)
     heuristic = MoeHeuristic().build_optimizer_config(
-        num_train_steps=args.steps, batch_size=args.batch_size, hidden_dim=512, seq_len=SEQUENCE_LENGTH
+        num_train_steps=args.steps, batch_size=args.batch_size, hidden_dim=hidden, seq_len=SEQUENCE_LENGTH
     )
+    head_lr = REFERENCE_HEAD_LR * scaling if hidden == 512 else heuristic.learning_rate
+    adam_lr = REFERENCE_ADAM_LR * scaling if hidden == 512 else heuristic.adam_lr
+    muon_lr = REFERENCE_MUON_LR * scaling if hidden == 512 else head_lr / math.sqrt(2)
     optimizer_args = dict(
-        learning_rate=REFERENCE_HEAD_LR * scaling,
-        adam_lr=REFERENCE_ADAM_LR * scaling,
+        learning_rate=head_lr,
+        adam_lr=adam_lr,
         warmup=0.01,
         min_lr_ratio=0.05,
         lr_schedule="linear",
@@ -84,10 +92,11 @@ def build_config(args, run_id, checkpoint_root):
         epsilon=heuristic.epsilon,
     )
     optimizer_args["learning_rate"] *= args.lr_mult
-    optimizer = MuonHSweepConfig(**optimizer_args, head_lr=REFERENCE_HEAD_LR * scaling)
+    optimizer = MuonHSweepConfig(**optimizer_args, head_lr=head_lr)
     if args.optimizer != "muonh":
-        optimizer_args["learning_rate"] = REFERENCE_MUON_LR * scaling * args.lr_mult
-        optimizer = MuonComparisonConfig(**optimizer_args, head_lr=REFERENCE_HEAD_LR * scaling)
+        optimizer_args["learning_rate"] = muon_lr * args.lr_mult
+        cls = MuonWComparisonConfig if args.optimizer == "muonw" else MuonComparisonConfig
+        optimizer = cls(**optimizer_args, head_lr=head_lr)
     values = json.loads((HERE / "july_data.json").read_text())
     components = {
         name: DatasetComponent(
@@ -115,7 +124,7 @@ def build_config(args, run_id, checkpoint_root):
         name=run_id,
         id=run_id,
         group="muon-mup-kma-july-20261028",
-        tags=[args.optimizer, "kma-d512", "tpu"],
+        tags=[args.optimizer, "kma-" + args.size, "tpu"],
         mode="online",
         resume="never",
         background=False,
@@ -188,7 +197,8 @@ class MetricsFileHandler(logging.FileHandler):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--optimizer", choices=("muonh", "muon"), required=True)
+    parser.add_argument("--optimizer", choices=("muonh", "muon", "muonw"), required=True)
+    parser.add_argument("--size", choices=("d512", "d768"), default="d512")
     parser.add_argument("--lr-mult", type=float, default=1.0)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--steps", type=int, required=True)
@@ -250,6 +260,7 @@ def main():
         "identity.json",
         {
             "run_id": run_id,
+            "size": args.size,
             "execution": args.execution,
             "execution_sources": {
                 name: hashlib.sha256((HERE / name).read_bytes()).hexdigest()
@@ -343,6 +354,8 @@ def main():
                 preflight.clear_cache()
                 first = False
             result = native(state, batch)
+            if not np.isfinite(float(result[1]["train/loss"])):
+                raise ValueError("Nonfinite training loss")
             if int(result[0].step) == args.steps:
                 persist(
                     "training-endpoint.json",
@@ -364,6 +377,8 @@ def main():
             execution_mode(args.execution),
         ):
             train._run_grug_local(config)
+        if jax.process_index() == 0 and not (args.output / "training-endpoint.json").exists():
+            raise RuntimeError("Training returned before requested endpoint")
         persist("complete.json", {"steps": args.steps, "final_evaluation_complete": True})
     except QualificationComplete:
         levanter.tracker.current_tracker().finish()

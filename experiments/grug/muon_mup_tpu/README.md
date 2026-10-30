@@ -205,3 +205,30 @@ Use the existing TPU launch with `--optimizer muonh --lr-mult <multiplier>
 automatically uses `MuonHSweepConfig`. Selecting `muon` uses original-scaling
 Muon. Submission identities and artifact roots are recorded in `manifest.json`
 (Muon) and `muonh-manifest.json` under the same GCS sweep directory above.
+
+## KMA d768 validation
+
+`--size d768` selects the fast-track KMA rung: width 768, eight layers,
+384 experts, top-8 routing, and latent/expert widths 384. The Llama 3.1 vocab
+remains 128,256, giving 1,604,663,844 parameters. The data-matched ladder budget
+is 3,633,315,840 tokens: 55,440 updates at batch 16 and sequence length 4,096.
+The TPU Inkling execution mode preserves the qualified model math.
+
+`--optimizer muonw` uses original-scaling Muon with matrix WD 0.1 and AdamW
+for every fallback group, including the head. AdamW decays logical matrices;
+layer-stacked norm/bias vectors and AttnRes queries remain exempt. Existing
+`muon` retains the attachment's AdamH head and original fallback rules.
+
+At d768's budget and batch, the heuristic sets MuonH/head LR to
+0.0048275735852692635 and Adam LR to 0.0011140554427544456. MuonW's matrix
+LR is 0.0034136100188209497, preserving the attachment's 1/sqrt(2) ratio to
+the MuonH base. KDA beta retains its 2x matrix multiplier and AttnRes queries
+retain their 0.1x fallback LR. These are transferred base settings, not
+measured d768 optima.
+
+```bash
+uv run python -m experiments.grug.muon_mup_tpu.train \
+  --size d768 --optimizer muonw --steps 55440 --batch-size 16 \
+  --execution inkling --run-name kma-muonw-d768-b16-s0 \
+  --artifact-root gs://marin-us-central2/kaiyuew/kma-d768-20261029/muonw
+```
