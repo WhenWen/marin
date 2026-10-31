@@ -72,7 +72,7 @@ def summarize(reference, candidate):
 
 
 def qualify_d768_cross_entropy(persist):
-    """Check TPU CE loss and both gradients at the failed shard shape against XLA."""
+    """Check TPU CE loss and gradients against XLA with FP32 accumulation."""
     if jax.default_backend() != "tpu":
         raise RuntimeError("The d768 CE qualification must run on TPU")
     persist("ce-stage.json", {"stage": "prepare_inputs"})
@@ -98,6 +98,7 @@ def qualify_d768_cross_entropy(persist):
                 dtype=jnp.float32,
                 implementation=implementation,
                 block_sizes=D768_CE_BLOCK_SIZES,
+                precision=jax.lax.Precision.HIGHEST if shard_x.dtype == jnp.float32 else None,
             )
 
         # Pallas requires manual partitioning. Replicate this diagnostic so
@@ -111,8 +112,16 @@ def qualify_d768_cross_entropy(persist):
         )(x, w, labels, weight)
 
     evaluate = jax.jit(jax.value_and_grad(loss, argnums=(0, 1)), static_argnums=2)
-    persist("ce-stage.json", {"stage": "xla_reference"})
-    reference_loss, reference_grads = jax.block_until_ready(evaluate(hidden, head, "xla"))
+    persist("ce-stage.json", {"stage": "xla_bf16_diagnostic"})
+    bf16_loss, bf16_grads = jax.block_until_ready(evaluate(hidden, head, "xla"))
+    # The XLA backward accumulator inherits the input dtype. With BF16 inputs,
+    # rounding after each vocabulary tile makes it an inaccurate reference.
+    # Promote the same quantized values before differentiation, so the oracle
+    # accumulates in FP32; the production Pallas call still receives BF16.
+    persist("ce-stage.json", {"stage": "xla_fp32_reference"})
+    reference_loss, reference_grads = jax.block_until_ready(
+        evaluate(hidden.astype(jnp.float32), head.astype(jnp.float32), "xla")
+    )
     persist("ce-stage.json", {"stage": "pallas_candidate"})
     candidate_loss, candidate_grads = jax.block_until_ready(evaluate(hidden, head, "pallas_tpu"))
     gradient_reports = [summarize(a, b) for a, b in zip(reference_grads, candidate_grads, strict=True)]
@@ -122,13 +131,17 @@ def qualify_d768_cross_entropy(persist):
     )
     report = {
         "shape": [4096, 768, 128256],
-        "reference": "xla",
+        "reference": "xla_fp32_highest",
         "loss_abs": loss_abs,
         "loss": float(candidate_loss),
         "gradients": gradient_reports,
         "passed": passed,
         "loss_abs_limit": LIMITS["loss_abs"],
         "gradient_rel_l2_limit": LIMITS["gradient_rel_l2"],
+        "bf16_xla_diagnostic": {
+            "loss_abs": abs(float(bf16_loss) - float(reference_loss)),
+            "gradients": [summarize(a, b) for a, b in zip(reference_grads, bf16_grads, strict=True)],
+        },
     }
     persist("ce-qualification.json", report)
     if jax.process_index() == 0:
