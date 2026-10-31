@@ -75,10 +75,16 @@ def qualify_d768_cross_entropy(persist):
     """Check TPU CE loss and both gradients at the failed shard shape against XLA."""
     if jax.default_backend() != "tpu":
         raise RuntimeError("The d768 CE qualification must run on TPU")
-    hidden = jax.random.normal(jax.random.PRNGKey(41), (4096, 768), dtype=jnp.bfloat16)
-    head = (jax.random.normal(jax.random.PRNGKey(42), (768, 128256)) * (0.5 / np.sqrt(768))).astype(jnp.bfloat16)
+    persist("ce-stage.json", {"stage": "prepare_inputs"})
+    # Generate diagnostic inputs on the host rather than compiling a separate
+    # 98-million-element TPU random-number program before testing the CE kernel.
+    hidden = jnp.asarray(np.random.default_rng(41).standard_normal((4096, 768), dtype=np.float32).astype(jnp.bfloat16))
+    head_host = np.random.default_rng(42).standard_normal((768, 128256), dtype=np.float32)
+    head_host *= 0.5 / np.sqrt(768)
+    head = jnp.asarray(head_host.astype(jnp.bfloat16))
+    del head_host
     # Cover the partial final vocabulary tile and masked tokens.
-    labels = (jnp.arange(4096, dtype=jnp.int32) * 31).at[-1].set(128255)
+    labels = (jnp.arange(4096, dtype=jnp.int32) * 31).at[-2].set(128255)
     weight = (jnp.arange(4096) % 7 != 0).astype(jnp.float32)
 
     def loss(x, w, implementation):
@@ -95,8 +101,10 @@ def qualify_d768_cross_entropy(persist):
         )
 
     evaluate = jax.jit(jax.value_and_grad(loss, argnums=(0, 1)), static_argnums=2)
-    reference_loss, reference_grads = evaluate(hidden, head, "xla")
-    candidate_loss, candidate_grads = evaluate(hidden, head, "pallas_tpu")
+    persist("ce-stage.json", {"stage": "xla_reference"})
+    reference_loss, reference_grads = jax.block_until_ready(evaluate(hidden, head, "xla"))
+    persist("ce-stage.json", {"stage": "pallas_candidate"})
+    candidate_loss, candidate_grads = jax.block_until_ready(evaluate(hidden, head, "pallas_tpu"))
     gradient_reports = [summarize(a, b) for a, b in zip(reference_grads, candidate_grads, strict=True)]
     loss_abs = abs(float(candidate_loss) - float(reference_loss))
     passed = loss_abs <= LIMITS["loss_abs"] and all(
