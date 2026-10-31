@@ -164,7 +164,7 @@ def build_config(args, run_id, checkpoint_root):
         model=model,
         optimizer=optimizer,
         data=data,
-        resources=ResourceConfig.with_tpu("v4-32"),
+        resources=ResourceConfig.with_tpu(args.tpu),
         tensorstore_cache_bytes=1024**3,
         trainer=train.GrugTrainerConfig(
             trainer=trainer,
@@ -204,6 +204,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--optimizer", choices=("muonh", "muon", "muonw"), required=True)
     parser.add_argument("--size", choices=("d512", "d768"), default="d512")
+    parser.add_argument("--tpu", choices=("v4-8", "v4-32"), default="v4-32")
     parser.add_argument("--lr-mult", type=float, default=1.0)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--steps", type=int, required=True)
@@ -267,6 +268,7 @@ def main():
         {
             "run_id": run_id,
             "size": args.size,
+            "tpu": args.tpu,
             "execution": args.execution,
             "execution_sources": {
                 name: hashlib.sha256((HERE / name).read_bytes()).hexdigest()

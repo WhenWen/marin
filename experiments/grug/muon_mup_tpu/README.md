@@ -64,6 +64,11 @@ The completed comparison is reported below. Local submission state is under
 
 ## TPU execution qualification
 
+`--tpu v4-8` allows the same global batch and training schedule on four v4
+chips when v4-32 capacity is unavailable. The default remains `v4-32`.
+This changes data parallelism and throughput; compare throughput only with the
+recorded device topology. It does not shrink the model or training token budget.
+
 For d768, the execution adapter passes CE block sizes `(B=1024, H=128, V=256)`.
 Despite the API's H setting, the TPU forward kernel loads all 768 hidden
 dimensions and four vocabulary tiles;
