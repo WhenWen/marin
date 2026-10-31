@@ -86,19 +86,29 @@ def qualify_d768_cross_entropy(persist):
     # Cover the partial final vocabulary tile and masked tokens.
     labels = (jnp.arange(4096, dtype=jnp.int32) * 31).at[-2].set(128255)
     weight = (jnp.arange(4096) % 7 != 0).astype(jnp.float32)
+    mesh = jax.sharding.get_mesh()
 
     def loss(x, w, implementation):
-        # Call the shard-local kernel directly; the Grug wrapper would shard B
-        # again under the training mesh and miss the failing 4096-token shape.
-        return fused_cross_entropy_loss_and_logsumexp_penalty(
-            x,
-            labels,
-            w,
-            weight=weight,
-            dtype=jnp.float32,
-            implementation=implementation,
-            block_sizes=D768_CE_BLOCK_SIZES,
-        )
+        def shard_loss(shard_x, shard_w, shard_labels, shard_weight):
+            return fused_cross_entropy_loss_and_logsumexp_penalty(
+                shard_x,
+                shard_labels,
+                shard_w,
+                weight=shard_weight,
+                dtype=jnp.float32,
+                implementation=implementation,
+                block_sizes=D768_CE_BLOCK_SIZES,
+            )
+
+        # Pallas requires manual partitioning. Replicate this diagnostic so
+        # every shard retains the failing 4096-token shape, without dividing B.
+        return jax.shard_map(
+            shard_loss,
+            mesh=mesh,
+            in_specs=(jax.P(),) * 4,
+            out_specs=jax.P(),
+            check_vma=False,
+        )(x, w, labels, weight)
 
     evaluate = jax.jit(jax.value_and_grad(loss, argnums=(0, 1)), static_argnums=2)
     persist("ce-stage.json", {"stage": "xla_reference"})
