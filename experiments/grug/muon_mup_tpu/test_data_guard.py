@@ -22,6 +22,7 @@ from experiments.grug.muon_mup_tpu.data_guard import (
     check_caches,
     validate_batch_statistics,
 )
+from experiments.grug.muon_mup_tpu.train import persist_json_artifact
 
 
 def write_cache(root):
@@ -147,3 +148,19 @@ def test_batch_diagnostics_reduce_across_explicit_data_shards():
         """,
         device_count=4,
     )
+
+
+def test_nested_diagnostic_evidence_is_persisted_to_both_sinks(tmp_path):
+    output = tmp_path / "local" / "attempt"
+    destination = tmp_path / "artifacts" / "attempt"
+    name = "data-integrity/step-0.json"
+    value = {"step": 0, "passed": True, "caches": {"train/corpus": {"rows": 1}}}
+    persist_json_artifact(output, str(destination), name, value)
+    local_bytes = (output / name).read_bytes()
+    assert json.loads(local_bytes) == value
+    assert (destination / name).read_bytes() == local_bytes
+    # A later failure replaces the same evidence consistently in both sinks.
+    value["passed"] = False
+    persist_json_artifact(output, str(destination), name, value)
+    assert json.loads((output / name).read_bytes()) == value
+    assert (destination / name).read_bytes() == (output / name).read_bytes()

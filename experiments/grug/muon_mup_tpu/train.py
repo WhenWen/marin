@@ -191,6 +191,15 @@ def build_config(args, run_id, checkpoint_root):
     )
 
 
+def persist_json_artifact(output: Path, destination: str, name: str, value) -> None:
+    """Write identical JSON evidence locally and to the artifact store."""
+    content = json.dumps(value, default=str, indent=2).encode()
+    local_path = output / name
+    local_path.parent.mkdir(parents=True, exist_ok=True)
+    local_path.write_bytes(content)
+    (StoragePath(destination) / name).write_bytes(content)
+
+
 class MetricsFileHandler(logging.FileHandler):
     def __init__(self, path, destination):
         super().__init__(path)
@@ -266,9 +275,7 @@ def main():
 
     def persist(name, value):
         if jax.process_index() == 0:
-            content = json.dumps(value, default=str, indent=2).encode()
-            (args.output / name).write_bytes(content)
-            StoragePath(root + "/" + name).write_bytes(content)
+            persist_json_artifact(args.output, root, name, value)
 
     persist("resolved-config.json", asdict(config))
     persist(
