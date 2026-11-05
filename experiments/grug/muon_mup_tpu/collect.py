@@ -38,6 +38,14 @@ def collect_attempt(api, fs, path):
     }
     record["comparison_key"] = hashlib.sha256(json.dumps(comparison, sort_keys=True).encode()).hexdigest()
     record["optimizer"] = config["optimizer"]
+    review_path = path + "/validity-review.json"
+    if fs.exists(review_path):
+        with fs.open(review_path) as stream:
+            review = json.load(stream)
+        record["validity_review"] = review
+        if review.get("eligible_for_optimizer_comparison") is False:
+            record["ineligible_reason"] = review["reason"]
+            return record
     if run.state != "finished" or not fs.exists(path + "/complete.json"):
         record["ineligible_reason"] = "Training or final evaluation has not completed."
         return record

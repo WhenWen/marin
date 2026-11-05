@@ -37,6 +37,14 @@ from rigging.filesystem.storage_path import StoragePath
 from experiments.grug.fast_track import train
 from experiments.grug.fast_track.heuristic import MoeHeuristic
 from experiments.grug.fast_track.model import AttnResLayerBackward, GrugModelConfig, LocalMixer
+from experiments.grug.muon_mup_tpu.data_guard import (
+    CHECK_INTERVAL,
+    CacheIntegrityError,
+    batch_statistics,
+    check_caches,
+    required_caches,
+    validate_batch_statistics,
+)
 from experiments.grug.muon_mup_tpu.optimizer import MuonComparisonConfig, MuonHSweepConfig, MuonWComparisonConfig
 from experiments.grug.muon_mup_tpu.qualify import (
     QualificationComplete,
@@ -279,6 +287,7 @@ def main():
                     "kda_state_tpu.py",
                     "qualify.py",
                     "inkling_tpu.py",
+                    "data_guard.py",
                 )
             },
             "qualification": args.qualify,
@@ -300,12 +309,33 @@ def main():
         logging.getLogger("levanter.json_logger").addHandler(handler)
     native_factory = train._make_train_step
     evaluator = train.TaggedEvaluator
+    cache_paths = required_caches(config.data)
+    cache_baseline = None
+
+    def check_data(step, *, tracker_active=True):
+        nonlocal cache_baseline
+        paths = cache_paths
+        try:
+            snapshot = check_caches(paths, cache_baseline)
+        except CacheIntegrityError as exc:
+            persist(f"data-integrity/step-{step}.json", {"step": step, "passed": False, "caches": exc.report})
+            if tracker_active:
+                levanter.tracker.log({"data_integrity/passed": 0}, step=step)
+            raise
+        if cache_baseline is None:
+            cache_baseline = snapshot
+        persist(f"data-integrity/step-{step}.json", {"step": step, "passed": True, "caches": snapshot})
+        if tracker_active:
+            levanter.tracker.log({"data_integrity/passed": 1, "data_integrity/cache_count": len(paths)}, step=step)
 
     def bounded_evaluator(**kwargs):
         kwargs["max_examples_per_dataset"] = 2048
         return evaluator(**kwargs)
 
     def checked_factory(*params, **kwargs):
+        # Trainer initializes online tracking before constructing this function,
+        # which runs before model initialization or dataset cache loading.
+        check_data(0)
         if args.profile_steps:
 
             def profile(state, batch):
@@ -351,6 +381,24 @@ def main():
 
         def step(state, batch):
             nonlocal first
+            step_index = int(state.step)
+            statistics = {
+                name: value.item()
+                for name, value in jax.device_get(batch_statistics(batch.tokens, batch.loss_weight)).items()
+            }
+            try:
+                validate_batch_statistics(statistics)
+            except ValueError:
+                persist(f"batch-diagnostics/step-{step_index}.json", {"step": step_index, **statistics})
+                levanter.tracker.log({"data_integrity/batch_passed": 0}, step=step_index)
+                raise
+            if step_index % CHECK_INTERVAL == 0:
+                if step_index > 0:
+                    check_data(step_index)
+                persist(f"batch-diagnostics/step-{step_index}.json", {"step": step_index, **statistics})
+                levanter.tracker.log(
+                    {f"data_batch/{name}": value for name, value in statistics.items()}, step=step_index
+                )
             if first:
                 if jax.process_index() == 0 and (wandb.run is None or wandb.run.offline or wandb.run.disabled):
                     raise RuntimeError("Online W&B must initialize before optimizer steps")
@@ -368,6 +416,7 @@ def main():
             if not np.isfinite(float(result[1]["train/loss"])):
                 raise ValueError("Nonfinite training loss")
             if int(result[0].step) == args.steps:
+                check_data(args.steps - 1)
                 persist(
                     "training-endpoint.json",
                     {
@@ -390,6 +439,9 @@ def main():
             train._run_grug_local(config)
         if jax.process_index() == 0 and not (args.output / "training-endpoint.json").exists():
             raise RuntimeError("Training returned before requested endpoint")
+        # The trainer has finished W&B; validate again after final evaluation
+        # before recording completion, with local/GCS evidence only.
+        check_data(args.steps, tracker_active=False)
         persist("complete.json", {"steps": args.steps, "final_evaluation_complete": True})
     except QualificationComplete:
         levanter.tracker.current_tracker().finish()
