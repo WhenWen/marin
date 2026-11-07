@@ -68,7 +68,7 @@ REFERENCE_ADAM_LR = 0.005175227656344875
 def build_config(args, run_id, checkpoint_root):
     hidden = int(args.size[1:])
     model = GrugModelConfig(
-        vocab_size=128256,
+        vocab_size=16384 if args.ladder16k else 128256,
         hidden_dim=hidden,
         num_layers=6 if hidden == 512 else 8,
         num_heads=hidden // 128,
@@ -131,13 +131,35 @@ def build_config(args, run_id, checkpoint_root):
         block_cross_document_attention=True,
         mixture_block_size=values["mixture_block_size"],
     )
+    if args.ladder16k:
+        values = json.loads((HERE / "ladder16k_data.json").read_text())["data"]
+        data = LmDataConfig(
+            tokenizer=args.tokenizer,
+            components={
+                name: DatasetComponent(
+                    cache_dir=value["cache_dir"],
+                    flat_cache=value["flat_cache"],
+                    tags=value["tags"],
+                    source=UrlDatasetSourceConfig(),
+                    format=TextLmDatasetFormat(text_key="text"),
+                )
+                for name, value in values["components"].items()
+            },
+            train_weights=values["train_weights"],
+            auto_build_caches=False,
+            cache_dir=None,
+            shuffle=BlockShuffleConfig(**values["shuffle"]),
+            permutation_type=values["permutation_type"],
+            block_cross_document_attention=values["block_cross_document_attention"],
+            mixture_block_size=values["mixture_block_size"],
+        )
     tracker = WandbConfig(
         entity=args.entity,
         project=args.project,
         name=run_id,
         id=run_id,
-        group="muon-mup-kma-july-20261028",
-        tags=[args.optimizer, "kma-" + args.size, "tpu"],
+        group="muon-mup-kma-larry16k-b128-20261107" if args.ladder16k else "muon-mup-kma-july-20261028",
+        tags=[args.optimizer, "kma-" + args.size, "h100" if args.h100 else "tpu"],
         mode="online",
         resume="never",
         background=False,
@@ -172,21 +194,26 @@ def build_config(args, run_id, checkpoint_root):
         model=model,
         optimizer=optimizer,
         data=data,
-        resources=ResourceConfig.with_tpu(args.tpu),
+        resources=(
+            ResourceConfig.with_gpu("H100", count=8, cpu=32, ram="600g", disk="900g", replicas=1)
+            if args.h100
+            else ResourceConfig.with_tpu(args.tpu)
+        ),
+        processes_per_task=8 if args.h100 else 1,
         tensorstore_cache_bytes=1024**3,
         trainer=train.GrugTrainerConfig(
             trainer=trainer,
-            data_seed=0,
-            expert_axis_size=1,
+            data_seed=None if args.ladder16k else 0,
+            expert_axis_size=8 if args.h100 else 1,
             replica_axis_size=1,
             save_checkpoints=True,
         ),
         eval=train.GrugEvalConfig(
-            eval_batch_size=16,
+            eval_batch_size=8 if args.h100 else 16,
             steps_per_eval=args.steps // 2,
             compute_bpb=True,
             dropless_eval=True,
-            dropless_eval_moe_implementation="scatter",
+            dropless_eval_moe_implementation="sonic" if args.h100 else "scatter",
         ),
     )
 
@@ -222,6 +249,8 @@ def main():
     parser.add_argument("--optimizer", choices=("muonh", "muon", "muonw"), required=True)
     parser.add_argument("--size", choices=("d512", "d768"), default="d512")
     parser.add_argument("--tpu", choices=("v4-8", "v4-32"), default="v4-32")
+    parser.add_argument("--h100", action="store_true")
+    parser.add_argument("--ladder16k", action="store_true")
     parser.add_argument("--lr-mult", type=float, default=1.0)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--steps", type=int, required=True)
@@ -241,7 +270,8 @@ def main():
     parser.add_argument("--profile-steps", type=int, default=0)
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
-    identities = json.loads((HERE / "tokenizer_identity.json").read_text())
+    identity_file = "ladder16k_tokenizer_identity.json" if args.ladder16k else "tokenizer_identity.json"
+    identities = json.loads((HERE / identity_file).read_text())
     for name, expected in identities.items():
         if hashlib.sha256((Path(args.tokenizer) / name).read_bytes()).hexdigest() != expected:
             raise ValueError(f"Tokenizer identity mismatch: {name}")
@@ -283,7 +313,9 @@ def main():
         {
             "run_id": run_id,
             "size": args.size,
-            "tpu": args.tpu,
+            "accelerator": "H100x8" if args.h100 else args.tpu,
+            "tpu": None if args.h100 else args.tpu,
+            "data_recipe": "larry-ladder16k" if args.ladder16k else "july",
             "execution": args.execution,
             "execution_sources": {
                 name: hashlib.sha256((HERE / name).read_bytes()).hexdigest()
@@ -301,8 +333,12 @@ def main():
             "ce_qualification": args.qualify_ce,
             "profile_steps": args.profile_steps,
             "source_commit": SOURCE_COMMIT,
-            "data_commit": DATA_COMMIT,
-            "data_sha256": hashlib.sha256((HERE / "july_data.json").read_bytes()).hexdigest(),
+            "data_commit": None if args.ladder16k else DATA_COMMIT,
+            "data_sha256": (
+                hashlib.sha256(
+                    (HERE / ("ladder16k_data.json" if args.ladder16k else "july_data.json")).read_bytes()
+                ).hexdigest()
+            ),
             "seed": args.seed,
             "steps": args.steps,
             "tokens": args.steps * args.batch_size * SEQUENCE_LENGTH,
@@ -336,7 +372,7 @@ def main():
             levanter.tracker.log({"data_integrity/passed": 1, "data_integrity/cache_count": len(paths)}, step=step)
 
     def bounded_evaluator(**kwargs):
-        kwargs["max_examples_per_dataset"] = 2048
+        kwargs["max_examples_per_dataset"] = None if args.ladder16k else 2048
         return evaluator(**kwargs)
 
     def checked_factory(*params, **kwargs):

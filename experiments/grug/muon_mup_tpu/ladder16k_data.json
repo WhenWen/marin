@@ -1,0 +1,507 @@
+{
+  "source_url": "https://wandb.ai/marin-community/marin_moe/runs/fasttrack-moe-kma-d768",
+  "data": {
+    "auto_build_caches": false,
+    "block_cross_document_attention": true,
+    "cache_catalog": null,
+    "cache_dir": null,
+    "cache_options": {
+      "batch_size": 128
+    },
+    "chat_template": null,
+    "components": {
+      "paloma/4chan-hero-bpe-v16384": {
+        "cache_dir": "s3://marin-us-east-02a/marin/paloma/4chan-hero-bpe-v16384/2026.09.17",
+        "flat_cache": false,
+        "format": {
+          "text_key": "text"
+        },
+        "pack": null,
+        "source": {
+          "cache_dir": "s3://marin-us-east-02a/marin/paloma/4chan-hero-bpe-v16384/2026.09.17",
+          "format": {
+            "text_key": "text"
+          },
+          "tags": [],
+          "train_urls": [],
+          "validation_urls": []
+        },
+        "split": "validation",
+        "tags": []
+      },
+      "paloma/c4_100_domains-hero-bpe-v16384": {
+        "cache_dir": "s3://marin-us-east-02a/marin/paloma/c4_100_domains-hero-bpe-v16384/2026.09.17",
+        "flat_cache": false,
+        "format": {
+          "text_key": "text"
+        },
+        "pack": null,
+        "source": {
+          "cache_dir": "s3://marin-us-east-02a/marin/paloma/c4_100_domains-hero-bpe-v16384/2026.09.17",
+          "format": {
+            "text_key": "text"
+          },
+          "tags": [],
+          "train_urls": [],
+          "validation_urls": []
+        },
+        "split": "validation",
+        "tags": []
+      },
+      "paloma/c4_en-hero-bpe-v16384": {
+        "cache_dir": "s3://marin-us-east-02a/marin/paloma/c4_en-hero-bpe-v16384/2026.09.17",
+        "flat_cache": false,
+        "format": {
+          "text_key": "text"
+        },
+        "pack": null,
+        "source": {
+          "cache_dir": "s3://marin-us-east-02a/marin/paloma/c4_en-hero-bpe-v16384/2026.09.17",
+          "format": {
+            "text_key": "text"
+          },
+          "tags": [],
+          "train_urls": [],
+          "validation_urls": []
+        },
+        "split": "validation",
+        "tags": []
+      },
+      "paloma/dolma-v1_5-hero-bpe-v16384": {
+        "cache_dir": "s3://marin-us-east-02a/marin/paloma/dolma-v1_5-hero-bpe-v16384/2026.09.17",
+        "flat_cache": false,
+        "format": {
+          "text_key": "text"
+        },
+        "pack": null,
+        "source": {
+          "cache_dir": "s3://marin-us-east-02a/marin/paloma/dolma-v1_5-hero-bpe-v16384/2026.09.17",
+          "format": {
+            "text_key": "text"
+          },
+          "tags": [],
+          "train_urls": [],
+          "validation_urls": []
+        },
+        "split": "validation",
+        "tags": []
+      },
+      "paloma/dolma_100_programing_languages-hero-bpe-v16384": {
+        "cache_dir": "s3://marin-us-east-02a/marin/paloma/dolma_100_programing_languages-hero-bpe-v16384/2026.09.17",
+        "flat_cache": false,
+        "format": {
+          "text_key": "text"
+        },
+        "pack": null,
+        "source": {
+          "cache_dir": "s3://marin-us-east-02a/marin/paloma/dolma_100_programing_languages-hero-bpe-v16384/2026.09.17",
+          "format": {
+            "text_key": "text"
+          },
+          "tags": [],
+          "train_urls": [],
+          "validation_urls": []
+        },
+        "split": "validation",
+        "tags": []
+      },
+      "paloma/dolma_100_subreddits-hero-bpe-v16384": {
+        "cache_dir": "s3://marin-us-east-02a/marin/paloma/dolma_100_subreddits-hero-bpe-v16384/2026.09.17",
+        "flat_cache": false,
+        "format": {
+          "text_key": "text"
+        },
+        "pack": null,
+        "source": {
+          "cache_dir": "s3://marin-us-east-02a/marin/paloma/dolma_100_subreddits-hero-bpe-v16384/2026.09.17",
+          "format": {
+            "text_key": "text"
+          },
+          "tags": [],
+          "train_urls": [],
+          "validation_urls": []
+        },
+        "split": "validation",
+        "tags": []
+      },
+      "paloma/falcon-refinedweb-hero-bpe-v16384": {
+        "cache_dir": "s3://marin-us-east-02a/marin/paloma/falcon-refinedweb-hero-bpe-v16384/2026.09.17",
+        "flat_cache": false,
+        "format": {
+          "text_key": "text"
+        },
+        "pack": null,
+        "source": {
+          "cache_dir": "s3://marin-us-east-02a/marin/paloma/falcon-refinedweb-hero-bpe-v16384/2026.09.17",
+          "format": {
+            "text_key": "text"
+          },
+          "tags": [],
+          "train_urls": [],
+          "validation_urls": []
+        },
+        "split": "validation",
+        "tags": []
+      },
+      "paloma/gab-hero-bpe-v16384": {
+        "cache_dir": "s3://marin-us-east-02a/marin/paloma/gab-hero-bpe-v16384/2026.09.17",
+        "flat_cache": false,
+        "format": {
+          "text_key": "text"
+        },
+        "pack": null,
+        "source": {
+          "cache_dir": "s3://marin-us-east-02a/marin/paloma/gab-hero-bpe-v16384/2026.09.17",
+          "format": {
+            "text_key": "text"
+          },
+          "tags": [],
+          "train_urls": [],
+          "validation_urls": []
+        },
+        "split": "validation",
+        "tags": []
+      },
+      "paloma/m2d2_s2orc_unsplit-hero-bpe-v16384": {
+        "cache_dir": "s3://marin-us-east-02a/marin/paloma/m2d2_s2orc_unsplit-hero-bpe-v16384/2026.09.17",
+        "flat_cache": false,
+        "format": {
+          "text_key": "text"
+        },
+        "pack": null,
+        "source": {
+          "cache_dir": "s3://marin-us-east-02a/marin/paloma/m2d2_s2orc_unsplit-hero-bpe-v16384/2026.09.17",
+          "format": {
+            "text_key": "text"
+          },
+          "tags": [],
+          "train_urls": [],
+          "validation_urls": []
+        },
+        "split": "validation",
+        "tags": []
+      },
+      "paloma/m2d2_wikipedia_unsplit-hero-bpe-v16384": {
+        "cache_dir": "s3://marin-us-east-02a/marin/paloma/m2d2_wikipedia_unsplit-hero-bpe-v16384/2026.09.17",
+        "flat_cache": false,
+        "format": {
+          "text_key": "text"
+        },
+        "pack": null,
+        "source": {
+          "cache_dir": "s3://marin-us-east-02a/marin/paloma/m2d2_wikipedia_unsplit-hero-bpe-v16384/2026.09.17",
+          "format": {
+            "text_key": "text"
+          },
+          "tags": [],
+          "train_urls": [],
+          "validation_urls": []
+        },
+        "split": "validation",
+        "tags": []
+      },
+      "paloma/manosphere_meta_sep-hero-bpe-v16384": {
+        "cache_dir": "s3://marin-us-east-02a/marin/paloma/manosphere_meta_sep-hero-bpe-v16384/2026.09.17",
+        "flat_cache": false,
+        "format": {
+          "text_key": "text"
+        },
+        "pack": null,
+        "source": {
+          "cache_dir": "s3://marin-us-east-02a/marin/paloma/manosphere_meta_sep-hero-bpe-v16384/2026.09.17",
+          "format": {
+            "text_key": "text"
+          },
+          "tags": [],
+          "train_urls": [],
+          "validation_urls": []
+        },
+        "split": "validation",
+        "tags": []
+      },
+      "paloma/mc4-hero-bpe-v16384": {
+        "cache_dir": "s3://marin-us-east-02a/marin/paloma/mc4-hero-bpe-v16384/2026.09.17",
+        "flat_cache": false,
+        "format": {
+          "text_key": "text"
+        },
+        "pack": null,
+        "source": {
+          "cache_dir": "s3://marin-us-east-02a/marin/paloma/mc4-hero-bpe-v16384/2026.09.17",
+          "format": {
+            "text_key": "text"
+          },
+          "tags": [],
+          "train_urls": [],
+          "validation_urls": []
+        },
+        "split": "validation",
+        "tags": []
+      },
+      "paloma/ptb-hero-bpe-v16384": {
+        "cache_dir": "s3://marin-us-east-02a/marin/paloma/ptb-hero-bpe-v16384/2026.09.17",
+        "flat_cache": false,
+        "format": {
+          "text_key": "text"
+        },
+        "pack": null,
+        "source": {
+          "cache_dir": "s3://marin-us-east-02a/marin/paloma/ptb-hero-bpe-v16384/2026.09.17",
+          "format": {
+            "text_key": "text"
+          },
+          "tags": [],
+          "train_urls": [],
+          "validation_urls": []
+        },
+        "split": "validation",
+        "tags": []
+      },
+      "paloma/redpajama-hero-bpe-v16384": {
+        "cache_dir": "s3://marin-us-east-02a/marin/paloma/redpajama-hero-bpe-v16384/2026.09.17",
+        "flat_cache": false,
+        "format": {
+          "text_key": "text"
+        },
+        "pack": null,
+        "source": {
+          "cache_dir": "s3://marin-us-east-02a/marin/paloma/redpajama-hero-bpe-v16384/2026.09.17",
+          "format": {
+            "text_key": "text"
+          },
+          "tags": [],
+          "train_urls": [],
+          "validation_urls": []
+        },
+        "split": "validation",
+        "tags": []
+      },
+      "paloma/twitterAAE_HELM_fixed-hero-bpe-v16384": {
+        "cache_dir": "s3://marin-us-east-02a/marin/paloma/twitterAAE_HELM_fixed-hero-bpe-v16384/2026.09.17",
+        "flat_cache": false,
+        "format": {
+          "text_key": "text"
+        },
+        "pack": null,
+        "source": {
+          "cache_dir": "s3://marin-us-east-02a/marin/paloma/twitterAAE_HELM_fixed-hero-bpe-v16384/2026.09.17",
+          "format": {
+            "text_key": "text"
+          },
+          "tags": [],
+          "train_urls": [],
+          "validation_urls": []
+        },
+        "split": "validation",
+        "tags": []
+      },
+      "paloma/wikitext_103-hero-bpe-v16384": {
+        "cache_dir": "s3://marin-us-east-02a/marin/paloma/wikitext_103-hero-bpe-v16384/2026.09.17",
+        "flat_cache": false,
+        "format": {
+          "text_key": "text"
+        },
+        "pack": null,
+        "source": {
+          "cache_dir": "s3://marin-us-east-02a/marin/paloma/wikitext_103-hero-bpe-v16384/2026.09.17",
+          "format": {
+            "text_key": "text"
+          },
+          "tags": [],
+          "train_urls": [],
+          "validation_urls": []
+        },
+        "split": "validation",
+        "tags": []
+      },
+      "train": {
+        "cache_dir": "s3://marin-us-east-02a/marin/datakit/hero_tok/v16384_shuf/train",
+        "flat_cache": true,
+        "format": {
+          "text_key": "text"
+        },
+        "pack": null,
+        "source": null,
+        "split": "validation",
+        "tags": [
+          "train"
+        ]
+      },
+      "uncheatable_eval/ao3_english-hero-bpe-v16384": {
+        "cache_dir": "s3://marin-us-east-02a/marin/uncheatable_eval/ao3_english-hero-bpe-v16384/2026.06.28",
+        "flat_cache": false,
+        "format": {
+          "text_key": "text"
+        },
+        "pack": null,
+        "source": {
+          "cache_dir": "s3://marin-us-east-02a/marin/uncheatable_eval/ao3_english-hero-bpe-v16384/2026.06.28",
+          "format": {
+            "text_key": "text"
+          },
+          "tags": [],
+          "train_urls": [],
+          "validation_urls": []
+        },
+        "split": "validation",
+        "tags": []
+      },
+      "uncheatable_eval/arxiv_computer_science-hero-bpe-v16384": {
+        "cache_dir": "s3://marin-us-east-02a/marin/uncheatable_eval/arxiv_computer_science-hero-bpe-v16384/2026.06.28",
+        "flat_cache": false,
+        "format": {
+          "text_key": "text"
+        },
+        "pack": null,
+        "source": {
+          "cache_dir": "s3://marin-us-east-02a/marin/uncheatable_eval/arxiv_computer_science-hero-bpe-v16384/2026.06.28",
+          "format": {
+            "text_key": "text"
+          },
+          "tags": [],
+          "train_urls": [],
+          "validation_urls": []
+        },
+        "split": "validation",
+        "tags": []
+      },
+      "uncheatable_eval/arxiv_physics-hero-bpe-v16384": {
+        "cache_dir": "s3://marin-us-east-02a/marin/uncheatable_eval/arxiv_physics-hero-bpe-v16384/2026.06.28",
+        "flat_cache": false,
+        "format": {
+          "text_key": "text"
+        },
+        "pack": null,
+        "source": {
+          "cache_dir": "s3://marin-us-east-02a/marin/uncheatable_eval/arxiv_physics-hero-bpe-v16384/2026.06.28",
+          "format": {
+            "text_key": "text"
+          },
+          "tags": [],
+          "train_urls": [],
+          "validation_urls": []
+        },
+        "split": "validation",
+        "tags": []
+      },
+      "uncheatable_eval/bbc_news-hero-bpe-v16384": {
+        "cache_dir": "s3://marin-us-east-02a/marin/uncheatable_eval/bbc_news-hero-bpe-v16384/2026.06.28",
+        "flat_cache": false,
+        "format": {
+          "text_key": "text"
+        },
+        "pack": null,
+        "source": {
+          "cache_dir": "s3://marin-us-east-02a/marin/uncheatable_eval/bbc_news-hero-bpe-v16384/2026.06.28",
+          "format": {
+            "text_key": "text"
+          },
+          "tags": [],
+          "train_urls": [],
+          "validation_urls": []
+        },
+        "split": "validation",
+        "tags": []
+      },
+      "uncheatable_eval/github_cpp-hero-bpe-v16384": {
+        "cache_dir": "s3://marin-us-east-02a/marin/uncheatable_eval/github_cpp-hero-bpe-v16384/2026.06.28",
+        "flat_cache": false,
+        "format": {
+          "text_key": "text"
+        },
+        "pack": null,
+        "source": {
+          "cache_dir": "s3://marin-us-east-02a/marin/uncheatable_eval/github_cpp-hero-bpe-v16384/2026.06.28",
+          "format": {
+            "text_key": "text"
+          },
+          "tags": [],
+          "train_urls": [],
+          "validation_urls": []
+        },
+        "split": "validation",
+        "tags": []
+      },
+      "uncheatable_eval/github_python-hero-bpe-v16384": {
+        "cache_dir": "s3://marin-us-east-02a/marin/uncheatable_eval/github_python-hero-bpe-v16384/2026.06.28",
+        "flat_cache": false,
+        "format": {
+          "text_key": "text"
+        },
+        "pack": null,
+        "source": {
+          "cache_dir": "s3://marin-us-east-02a/marin/uncheatable_eval/github_python-hero-bpe-v16384/2026.06.28",
+          "format": {
+            "text_key": "text"
+          },
+          "tags": [],
+          "train_urls": [],
+          "validation_urls": []
+        },
+        "split": "validation",
+        "tags": []
+      },
+      "uncheatable_eval/wikipedia_english-hero-bpe-v16384": {
+        "cache_dir": "s3://marin-us-east-02a/marin/uncheatable_eval/wikipedia_english-hero-bpe-v16384/2026.06.28",
+        "flat_cache": false,
+        "format": {
+          "text_key": "text"
+        },
+        "pack": null,
+        "source": {
+          "cache_dir": "s3://marin-us-east-02a/marin/uncheatable_eval/wikipedia_english-hero-bpe-v16384/2026.06.28",
+          "format": {
+            "text_key": "text"
+          },
+          "tags": [],
+          "train_urls": [],
+          "validation_urls": []
+        },
+        "split": "validation",
+        "tags": []
+      }
+    },
+    "enforce_eos": true,
+    "experiment_budget": null,
+    "max_train_batches": null,
+    "mixture_block_size": 2048,
+    "num_validation_sequences": null,
+    "permutation_type": "feistel",
+    "shuffle": {
+      "io_block_size": 256,
+      "perm_type": "feistel",
+      "window_blocks": 512
+    },
+    "shuffle_before_trainval_split": true,
+    "stop_strategy": "restart",
+    "target_budget": null,
+    "tokenizer": "hero-bpe-v16384",
+    "train_weights": {
+      "paloma/4chan-hero-bpe-v16384": 0,
+      "paloma/c4_100_domains-hero-bpe-v16384": 0,
+      "paloma/c4_en-hero-bpe-v16384": 0,
+      "paloma/dolma-v1_5-hero-bpe-v16384": 0,
+      "paloma/dolma_100_programing_languages-hero-bpe-v16384": 0,
+      "paloma/dolma_100_subreddits-hero-bpe-v16384": 0,
+      "paloma/falcon-refinedweb-hero-bpe-v16384": 0,
+      "paloma/gab-hero-bpe-v16384": 0,
+      "paloma/m2d2_s2orc_unsplit-hero-bpe-v16384": 0,
+      "paloma/m2d2_wikipedia_unsplit-hero-bpe-v16384": 0,
+      "paloma/manosphere_meta_sep-hero-bpe-v16384": 0,
+      "paloma/mc4-hero-bpe-v16384": 0,
+      "paloma/ptb-hero-bpe-v16384": 0,
+      "paloma/redpajama-hero-bpe-v16384": 0,
+      "paloma/twitterAAE_HELM_fixed-hero-bpe-v16384": 0,
+      "paloma/wikitext_103-hero-bpe-v16384": 0,
+      "train": 1,
+      "uncheatable_eval/ao3_english-hero-bpe-v16384": 0,
+      "uncheatable_eval/arxiv_computer_science-hero-bpe-v16384": 0,
+      "uncheatable_eval/arxiv_physics-hero-bpe-v16384": 0,
+      "uncheatable_eval/bbc_news-hero-bpe-v16384": 0,
+      "uncheatable_eval/github_cpp-hero-bpe-v16384": 0,
+      "uncheatable_eval/github_python-hero-bpe-v16384": 0,
+      "uncheatable_eval/wikipedia_english-hero-bpe-v16384": 0
+    },
+    "vocab_size": null
+  }
+}

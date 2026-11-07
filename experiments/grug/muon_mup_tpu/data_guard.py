@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 import jax
 import jax.numpy as jnp
 from levanter.data.text.datasets import DatasetComponent, LmDataConfig
-from levanter.store.cache import CACHE_LAYOUT_CONSOLIDATED, CacheLedger, ShardedCacheLayout
+from levanter.store.cache import CACHE_LAYOUT_CONSOLIDATED, CACHE_LAYOUT_SHARDED, CacheLedger, ShardedCacheLayout
 from rigging.filesystem.factory import url_to_fs
 from rigging.filesystem.storage_path import StoragePath
 
@@ -30,12 +30,14 @@ def required_caches(data: LmDataConfig) -> dict[str, str]:
         raise ValueError("The comparison requires its frozen constant mixture weights")
     paths = {}
     for name, component in data.components.items():
-        if not isinstance(component, DatasetComponent) or component.cache_dir is None or component.flat_cache:
+        if not isinstance(component, DatasetComponent) or component.cache_dir is None:
             raise ValueError(f"Expected an explicit split cache for {name}")
         # In this recipe all zero-weight components are the Paloma/uncheatable
         # evaluation suites; training components need not have validation caches.
         split = "train" if data.train_weights.get(name, 0) > 0 else "validation"
-        paths[f"{split}/{name}"] = str(StoragePath(component.cache_dir) / split)
+        paths[f"{split}/{name}"] = (
+            component.cache_dir if component.flat_cache else str(StoragePath(component.cache_dir) / split)
+        )
     return paths
 
 
@@ -51,6 +53,18 @@ def _cache_fingerprint(root: str) -> dict:
     ledger = CacheLedger.from_json(content.decode())
     if not ledger.is_finished or ledger.total_num_rows <= 0:
         raise ValueError(f"Cache is incomplete or empty: {ledger_path}")
+    if ledger.layout == CACHE_LAYOUT_SHARDED:
+        if not ledger.finished_shards or sum(ledger.shard_rows.values()) != ledger.total_num_rows:
+            raise ValueError(f"Invalid sharded cache row counts: {root}")
+        children = {name: _cache_fingerprint(str(StoragePath(root) / name)) for name in ledger.finished_shards}
+        if any(children[name]["rows"] != ledger.shard_rows[name] for name in ledger.finished_shards):
+            raise ValueError(f"Shard row count changed: {root}")
+        return {
+            "root": root,
+            "rows": ledger.total_num_rows,
+            "ledger_sha256": hashlib.sha256(content).hexdigest(),
+            "shards": children,
+        }
     if ledger.layout != CACHE_LAYOUT_CONSOLIDATED:
         raise ValueError(f"Expected the frozen consolidated cache layout: {root}")
     objects = {ledger_path: {"sha256": hashlib.sha256(content).hexdigest(), "bytes": len(content)}}

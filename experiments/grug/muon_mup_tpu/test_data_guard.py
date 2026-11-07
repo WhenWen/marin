@@ -74,6 +74,27 @@ def test_deleted_tensorstore_chunk_is_rejected_as_zero_fill_batch(tmp_path):
         validate_batch_statistics(statistics)
 
 
+def test_sharded_cache_guard_rejects_missing_child_metadata(tmp_path):
+    root = tmp_path / "train"
+    root.mkdir()
+    for name in ("part-0", "part-1"):
+        write_cache(root / name)
+    ledger = CacheLedger(
+        total_num_rows=2,
+        shard_rows={"part-0": 1, "part-1": 1},
+        is_finished=True,
+        finished_shards=["part-0", "part-1"],
+        layout="sharded",
+    )
+    (root / "shard_ledger.json").write_text(ledger.to_json())
+    paths = {"train/hero": str(root)}
+    baseline = check_caches(paths)
+    assert baseline["train/hero"]["rows"] == 2
+    (root / "part-1" / "input_ids" / "data" / "zarr.json").unlink()
+    with pytest.raises(CacheIntegrityError):
+        check_caches(paths, baseline)
+
+
 def test_completed_attempt_with_invalid_data_review_is_excluded(tmp_path):
     identity = {
         "wandb_url": "https://wandb.ai/entity/project/runs/run",
