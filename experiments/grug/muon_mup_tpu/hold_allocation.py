@@ -1,7 +1,7 @@
 # Copyright The Marin Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Keep an Iris allocation idle after its one authorized worker group exits."""
+"""Retain an Iris allocation after worker exit, or release on success when requested."""
 
 import argparse
 import datetime
@@ -20,6 +20,7 @@ def run():
     configure_coreweave_s3()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--artifact-root", required=True)
+    parser.add_argument("--release-on-success", action="store_true")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
@@ -35,7 +36,8 @@ def run():
     except Exception as exc:
         receipt["worker_error"] = type(exc).__name__
     receipt["holding_since_utc"] = datetime.datetime.now(datetime.UTC).isoformat()
-    receipt["state"] = "idle_allocation_retained"
+    release = args.release_on_success and receipt.get("worker_exit_code") == 0
+    receipt["state"] = "completed_allocation_releasing" if release else "idle_allocation_retained"
     content = json.dumps(receipt, indent=2)
     local = Path(os.environ.get("IRIS_OUTPUT_DIR", "/tmp")) / "allocation-holder.json"
     try:
@@ -53,6 +55,8 @@ def run():
         except Exception as exc:
             print(f"Holder receipt upload failed: {type(exc).__name__}; allocation retained", flush=True)
             time.sleep(30)
+    if release:
+        return
     while True:
         time.sleep(60)
 

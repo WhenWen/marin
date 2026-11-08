@@ -87,9 +87,11 @@ def build_config(args, run_id, checkpoint_root):
         attn_res_layer_backward=AttnResLayerBackward.RECOMPUTE,
         kda_save_chunk_states=False,
     )
-    scaling = math.sqrt(args.batch_size / REFERENCE_BATCH)
+    reference_batch = args.optimizer_reference_batch_size or args.batch_size
+    reference_steps = args.optimizer_reference_steps or args.steps
+    scaling = math.sqrt(reference_batch / REFERENCE_BATCH)
     heuristic = MoeHeuristic().build_optimizer_config(
-        num_train_steps=args.steps, batch_size=args.batch_size, hidden_dim=hidden, seq_len=SEQUENCE_LENGTH
+        num_train_steps=reference_steps, batch_size=reference_batch, hidden_dim=hidden, seq_len=SEQUENCE_LENGTH
     )
     head_lr = REFERENCE_HEAD_LR * scaling if hidden == 512 else heuristic.learning_rate
     adam_lr = REFERENCE_ADAM_LR * scaling if hidden == 512 else heuristic.adam_lr
@@ -97,7 +99,13 @@ def build_config(args, run_id, checkpoint_root):
     optimizer_args = dict(
         learning_rate=head_lr,
         adam_lr=adam_lr,
-        warmup=0.01,
+        # Match the reference's integer warmup boundary in tokens, including its
+        # rounding, rather than independently rounding the new step count.
+        warmup=(
+            int(0.01 * reference_steps) * reference_batch // args.batch_size
+            if args.optimizer_reference_steps is not None
+            else 0.01
+        ),
         min_lr_ratio=0.05,
         lr_schedule="linear",
         beta1=heuristic.beta1,
@@ -158,7 +166,8 @@ def build_config(args, run_id, checkpoint_root):
         project=args.project,
         name=run_id,
         id=run_id,
-        group="muon-mup-kma-larry16k-b128-20261107" if args.ladder16k else "muon-mup-kma-july-20261028",
+        group=args.wandb_group
+        or ("muon-mup-kma-larry16k-b128-20261107" if args.ladder16k else "muon-mup-kma-july-20261028"),
         tags=[args.optimizer, "kma-" + args.size, "h100" if args.h100 else "tpu"],
         mode="online",
         resume="never",
@@ -255,6 +264,9 @@ def main():
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--steps", type=int, required=True)
     parser.add_argument("--batch-size", type=int, default=16)
+    parser.add_argument("--optimizer-reference-batch-size", type=int)
+    parser.add_argument("--optimizer-reference-steps", type=int)
+    parser.add_argument("--wandb-group")
     parser.add_argument("--run-name", required=True)
     parser.add_argument("--artifact-root", required=True)
     parser.add_argument("--tokenizer", default="tokenizer")
@@ -269,6 +281,13 @@ def main():
     parser.add_argument("--qualification-modes", nargs="+", default=["reference", "histogram", "tpu"])
     parser.add_argument("--profile-steps", type=int, default=0)
     args = parser.parse_args()
+    if (args.optimizer_reference_steps is None) != (args.optimizer_reference_batch_size is None):
+        parser.error("Optimizer reference batch size and steps must be supplied together")
+    if args.optimizer_reference_steps is not None:
+        if args.optimizer_reference_steps * args.optimizer_reference_batch_size != args.steps * args.batch_size:
+            parser.error("A fixed-optimizer batch ablation must preserve the reference token budget")
+        if int(0.01 * args.optimizer_reference_steps) * args.optimizer_reference_batch_size % args.batch_size:
+            parser.error("The reference warmup token boundary must align with the new batch size")
     args.output.mkdir(parents=True, exist_ok=True)
     identity_file = "ladder16k_tokenizer_identity.json" if args.ladder16k else "tokenizer_identity.json"
     identities = json.loads((HERE / identity_file).read_text())
@@ -340,6 +359,8 @@ def main():
                 ).hexdigest()
             ),
             "seed": args.seed,
+            "optimizer_reference_batch_size": args.optimizer_reference_batch_size,
+            "optimizer_reference_steps": args.optimizer_reference_steps,
             "steps": args.steps,
             "tokens": args.steps * args.batch_size * SEQUENCE_LENGTH,
             "restart_semantics": "fresh initialization; separate W&B curve and checkpoints per process group",
