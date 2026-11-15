@@ -1,6 +1,7 @@
 # Copyright The Marin Authors
 # SPDX-License-Identifier: Apache-2.0
 
+import hashlib
 from dataclasses import dataclass, replace
 
 import jax
@@ -12,7 +13,23 @@ from levanter.checkpoint import CheckpointerConfig
 
 from experiments.grug.checkpointing import restore_grug_state_from_checkpoint
 from experiments.grug.muon_mup_tpu.optimizer import MuonMDConfig, MuownConfig
-from experiments.grug.muon_mup_tpu.recovery import prepare_recovery
+from experiments.grug.muon_mup_tpu.recovery import batch_fingerprint, prepare_recovery
+
+
+def test_batch_fingerprint_preserves_order_across_shards():
+    mesh = jax.sharding.Mesh(np.array(jax.devices()), ("data",), axis_types=(jax.sharding.AxisType.Explicit,))
+    values = np.arange(8 * len(jax.devices()), dtype=np.int32).reshape(-1, 8)
+    sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec("data", None))
+    with jax.set_mesh(mesh):
+        actual = batch_fingerprint(jax.device_put(values, sharding))
+        reordered = batch_fingerprint(jax.device_put(values[:, ::-1].copy(), sharding))
+    assert actual == {
+        "shape": list(values.shape),
+        "dtype": "int32",
+        "sha256": hashlib.sha256(values.tobytes()).hexdigest(),
+    }
+    # Sum and XOR checksums cannot distinguish this permutation of identical tokens.
+    assert actual != reordered
 
 
 @jax.tree_util.register_dataclass

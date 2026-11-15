@@ -11,10 +11,20 @@ from pathlib import Path
 import jax
 import levanter.tracker
 import numpy as np
-from jax.experimental.multihost_utils import broadcast_one_to_all, sync_global_devices
+from jax.experimental.multihost_utils import broadcast_one_to_all, process_allgather, sync_global_devices
 from rigging.filesystem.storage_path import StoragePath
 
 from experiments.grug.checkpointing import restore_grug_state_from_checkpoint
+
+
+def batch_fingerprint(tokens: jax.Array) -> dict:
+    """Hash the complete ordered batch without unsupported GPU XOR collectives."""
+    values = np.asarray(process_allgather(tokens, tiled=True))
+    return {
+        "shape": list(values.shape),
+        "dtype": str(values.dtype),
+        "sha256": hashlib.sha256(values.tobytes()).hexdigest(),
+    }
 
 
 def recovery_contract(config) -> dict:

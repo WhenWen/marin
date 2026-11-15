@@ -59,7 +59,7 @@ from experiments.grug.muon_mup_tpu.qualify import (
     qualify,
     qualify_d768_cross_entropy,
 )
-from experiments.grug.muon_mup_tpu.recovery import prepare_recovery, restore_or_initialize
+from experiments.grug.muon_mup_tpu.recovery import batch_fingerprint, prepare_recovery, restore_or_initialize
 from experiments.grug.muon_mup_tpu.tpu_execution import execution_mode
 
 HERE = Path(__file__).parent
@@ -512,15 +512,9 @@ def main():
                 preflight.clear_cache()
                 first = False
             if args.compare_checkpoint or args.stop_after_steps:
-                digest = jnp.array(
-                    [
-                        jnp.sum(batch.tokens.astype(jnp.uint32)),
-                        jnp.bitwise_xor.reduce(batch.tokens.astype(jnp.uint32).reshape(-1)),
-                    ]
-                )
                 persist(
                     f"continuation/batch-{step_index}.json",
-                    {"step": step_index, "token_checksum": np.asarray(jax.device_get(digest)).tolist()},
+                    {"step": step_index, "token_fingerprint": batch_fingerprint(batch.tokens)},
                 )
             result = native(state, batch)
             if args.compare_checkpoint and int(result[0].step) == args.stop_after_steps:
