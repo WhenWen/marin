@@ -10,7 +10,7 @@ import logging
 import math
 import time
 import uuid
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import timedelta
 from pathlib import Path
 from unittest.mock import patch
@@ -34,6 +34,7 @@ from levanter.tracker.wandb import WandbConfig
 from levanter.trainer import TrainerConfig
 from rigging.filesystem.storage_path import StoragePath
 
+from experiments.grug.checkpointing import restore_grug_state_from_checkpoint
 from experiments.grug.fast_track import train
 from experiments.grug.fast_track.heuristic import MoeHeuristic
 from experiments.grug.fast_track.model import AttnResLayerBackward, GrugModelConfig, LocalMixer
@@ -45,13 +46,20 @@ from experiments.grug.muon_mup_tpu.data_guard import (
     required_caches,
     validate_batch_statistics,
 )
-from experiments.grug.muon_mup_tpu.optimizer import MuonComparisonConfig, MuonHSweepConfig, MuonWComparisonConfig
+from experiments.grug.muon_mup_tpu.optimizer import (
+    MuonComparisonConfig,
+    MuonHSweepConfig,
+    MuonMDConfig,
+    MuonWComparisonConfig,
+    MuownConfig,
+)
 from experiments.grug.muon_mup_tpu.qualify import (
     QualificationComplete,
     profile_steps,
     qualify,
     qualify_d768_cross_entropy,
 )
+from experiments.grug.muon_mup_tpu.recovery import prepare_recovery, restore_or_initialize
 from experiments.grug.muon_mup_tpu.tpu_execution import execution_mode
 
 HERE = Path(__file__).parent
@@ -117,6 +125,10 @@ def build_config(args, run_id, checkpoint_root):
     if args.optimizer != "muonh":
         optimizer_args["learning_rate"] = muon_lr * args.lr_mult
         cls = MuonWComparisonConfig if args.optimizer == "muonw" else MuonComparisonConfig
+        optimizer = cls(**optimizer_args, head_lr=head_lr)
+    if args.optimizer in ("muown", "muon_md"):
+        optimizer_args["learning_rate"] = (0.001 if args.optimizer == "muown" else 0.01) * args.lr_mult
+        cls = MuownConfig if args.optimizer == "muown" else MuonMDConfig
         optimizer = cls(**optimizer_args, head_lr=head_lr)
     values = json.loads((HERE / "july_data.json").read_text())
     components = {
@@ -189,12 +201,14 @@ def build_config(args, run_id, checkpoint_root):
         use_explicit_mesh_axes=True,
         require_accelerator=True,
         load_checkpoint=False,
+        allow_partial_checkpoint=False,
         checkpointer=CheckpointerConfig(
             base_path=checkpoint_root,
             append_run_id_to_base_path=False,
             temporary_base_path=checkpoint_root + "/temporary",
-            keep=None,
-            save_interval=timedelta(minutes=20),
+            keep=[dict(every=250)],
+            save_interval=timedelta(minutes=5),
+            keep_last_temporary_checkpoints=2,
         ),
         # Mosaic grouped matmul expects native bf16 products for bf16 inputs.
         jax_config={"jax_enable_pgle": False, "jax_default_matmul_precision": "default"},
@@ -255,7 +269,7 @@ class MetricsFileHandler(logging.FileHandler):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--optimizer", choices=("muonh", "muon", "muonw"), required=True)
+    parser.add_argument("--optimizer", choices=("muonh", "muon", "muonw", "muown", "muon_md"), required=True)
     parser.add_argument("--size", choices=("d512", "d768"), default="d512")
     parser.add_argument("--tpu", choices=("v4-8", "v4-32"), default="v4-32")
     parser.add_argument("--h100", action="store_true")
@@ -280,6 +294,8 @@ def main():
     parser.add_argument("--qualify-ce", action="store_true")
     parser.add_argument("--qualification-modes", nargs="+", default=["reference", "histogram", "tpu"])
     parser.add_argument("--profile-steps", type=int, default=0)
+    parser.add_argument("--stop-after-steps", type=int)
+    parser.add_argument("--compare-checkpoint")
     args = parser.parse_args()
     if (args.optimizer_reference_steps is None) != (args.optimizer_reference_batch_size is None):
         parser.error("Optimizer reference batch size and steps must be supplied together")
@@ -320,7 +336,13 @@ def main():
     root = args.artifact_root.rstrip("/") + "/" + attempt
     args.output = args.output / attempt
     args.output.mkdir(parents=True, exist_ok=True)
-    config = build_config(args, run_id, root + "/checkpoints")
+    config = build_config(args, run_id, args.artifact_root.rstrip("/") + "/checkpoints")
+    requires_restore = prepare_recovery(config, args.artifact_root, attempt)
+    config = replace(
+        config,
+        stop_after_steps=args.stop_after_steps,
+        trainer=replace(config.trainer, trainer=replace(config.trainer.trainer, load_checkpoint=requires_restore)),
+    )
 
     def persist(name, value):
         if jax.process_index() == 0:
@@ -341,6 +363,8 @@ def main():
                 for name in (
                     "train.py",
                     "optimizer.py",
+                    "decoupled.py",
+                    "recovery.py",
                     "tpu_execution.py",
                     "kda_state_tpu.py",
                     "qualify.py",
@@ -363,10 +387,21 @@ def main():
             "optimizer_reference_steps": args.optimizer_reference_steps,
             "steps": args.steps,
             "tokens": args.steps * args.batch_size * SEQUENCE_LENGTH,
-            "restart_semantics": "fresh initialization; separate W&B curve and checkpoints per process group",
+            "restart_semantics": "shared compatible complete checkpoints; fresh W&B run per process group",
+            "requires_restore": requires_restore,
             "wandb_url": f"https://wandb.ai/{args.entity}/{args.project}/runs/{run_id}",
         },
     )
+
+    def restore_state(state, **kwargs):
+        restored = restore_or_initialize(state, config=config, persist=persist, **kwargs)
+        if int(restored.step) == args.steps:
+            persist(
+                "training-endpoint.json",
+                {"step": args.steps, "restored_at_endpoint": True, "final_evaluation_complete": False},
+            )
+        return restored
+
     handler = None
     if jax.process_index() == 0:
         handler = MetricsFileHandler(args.output / "metrics.jsonl", root + "/metrics.jsonl")
@@ -476,7 +511,37 @@ def main():
                 )
                 preflight.clear_cache()
                 first = False
+            if args.compare_checkpoint or args.stop_after_steps:
+                digest = jnp.array(
+                    [
+                        jnp.sum(batch.tokens.astype(jnp.uint32)),
+                        jnp.bitwise_xor.reduce(batch.tokens.astype(jnp.uint32).reshape(-1)),
+                    ]
+                )
+                persist(
+                    f"continuation/batch-{step_index}.json",
+                    {"step": step_index, "token_checksum": np.asarray(jax.device_get(digest)).tolist()},
+                )
             result = native(state, batch)
+            if args.compare_checkpoint and int(result[0].step) == args.stop_after_steps:
+                reference = restore_grug_state_from_checkpoint(
+                    result[0],
+                    checkpoint_search_paths=[args.compare_checkpoint],
+                    load_checkpoint_setting=True,
+                    mesh=jax.sharding.get_mesh(),
+                    allow_partial=False,
+                )
+                deviations = [
+                    jnp.max(jnp.abs(a.astype(jnp.float32) - b.astype(jnp.float32)))
+                    for a, b in zip(jax.tree.leaves(result[0]), jax.tree.leaves(reference), strict=True)
+                ]
+                max_error = float(jax.device_get(jnp.max(jnp.stack(deviations))))
+                persist(
+                    "continuation-parity.json",
+                    {"step": int(result[0].step), "max_absolute_error": max_error, "passed": max_error == 0.0},
+                )
+                if max_error != 0.0:
+                    raise ValueError(f"Interrupted continuation differs from uninterrupted state: {max_error}")
             if not np.isfinite(float(result[1]["train/loss"])):
                 raise ValueError("Nonfinite training loss")
             if int(result[0].step) == args.steps:
@@ -496,11 +561,15 @@ def main():
     try:
         with (
             patch.object(train, "_make_train_step", checked_factory),
+            patch.object(train, "restore_grug_state_from_checkpoint", restore_state),
             patch.object(train, "TaggedEvaluator", bounded_evaluator),
             patch.object(train, "_TRAIN_LOADER_BUFFER_SIZE", 4),
             execution_mode(args.execution),
         ):
             train._run_grug_local(config)
+        if args.stop_after_steps is not None and args.stop_after_steps < args.steps:
+            persist("prefix-complete.json", {"step": args.stop_after_steps, "full_training_run": False})
+            return
         if jax.process_index() == 0 and not (args.output / "training-endpoint.json").exists():
             raise RuntimeError("Training returned before requested endpoint")
         # The trainer has finished W&B; validate again after final evaluation

@@ -42,9 +42,10 @@ before declaring a stable improvement.
 
 Every execution initializes online W&B before updates and stores its resolved
 configuration, first-batch finite-gradient check and incremental JSON loss log.
-Each process-group restart gets fresh W&B and checkpoint paths; it starts from
-initialization and is not described as checkpoint resume. Iris preemption retry
-defaults remain enabled. No queue, task, or training wall-clock limit is set.
+Historical attempts used fresh W&B and checkpoint paths on every restart.
+New runs share a durable checkpoint directory and require complete compatible
+restoration after the initial attempt. Every process group gets a fresh W&B run
+with its restored step recorded. Iris preemption retry defaults remain enabled. No queue, task, or training wall-clock limit is set.
 
 The initial online logging check passed with zero training updates:
 https://wandb.ai/marin-community/marin/runs/logcheck-4f8e6938601f4ec8847d388ae2b53cfc
@@ -248,3 +249,53 @@ uv run python -m experiments.grug.muon_mup_tpu.train \
   --execution inkling --run-name kma-muonw-d768-b16-s0 \
   --artifact-root gs://marin-us-central2/kaiyuew/kma-d768-20261029/muonw
 ```
+
+
+## Muown and Muon-MD on Larry16K
+
+The batch128 experiment uses KMA d768, context4096, 6930 updates and seed0,
+with the existing Larry hero-bpe-v16384 tokenizer and data mixture. These are
+controlled adaptations of the matrix optimizers to KMA: the matrix mask,
+KDA write-strength LR multiplier (2), auxiliary AdamW rates, initialization,
+69-step warmup, and linear decay to 5% retain the batch128 MuonW settings.
+They do not reproduce the papers' complete model, data, or warmup-free recipes.
+
+- [Muown](https://arxiv.org/abs/2605.10797v1) uses output-row magnitudes,
+  Adam with betas (0.9, 0.95) and epsilon 1e-8, and unconstrained Muon directions.
+  Direction and magnitude share the scheduled LR. The direction multiplier is
+  `0.2 * sqrt(max(input, output))`, with the author's five simple-polynomial
+  Newton-Schulz iterations. Weight decay 0.1 acts on the fused old weight, then
+  magnitudes are resynchronized. The implementation follows
+  [kcc-lion/muown at 3bd0c054](https://github.com/kcc-lion/muown/blob/3bd0c054ea97fae7005f76d6bb83dc0e3e99cfd2/optim/muown.py).
+  KMA has separate Q/K/V matrices, so no shape-based fused-QKV split is applied.
+- [Magnitude-Direction Decoupling](https://arxiv.org/abs/2606.25971v2),
+  Algorithm 2, uses softplus row and column gains initialized to one and an
+  Frobenius sphere whose radius is the initial weight norm of each matrix.
+  Leading layer and expert axes identify independent matrices. Gains use Adam with
+  betas (0.9, 0.99), epsilon 1e-8, and scheduled peak LR 0.001. Directions use
+  quintic Muon, scaled by the initial radius divided by `sqrt(min(input, output))`.
+  The paper's `sqrt(max(input/output, output/input))` factor is recovered when
+  the radius equals `sqrt(max(input, output))`. Using the actual initial norm
+  accommodates KMA's different initialization without changing initial weights. Matrix decay is zero; auxiliary AdamW decay remains 0.1 with
+  the original exclusions. The KDA group multiplier also applies to its gains.
+  The author implementation is
+  [Megatron-LM at ecd37eda](https://github.com/haeggee/Megatron-LM/blob/ecd37eda12df3cb36a6d26df578c64e9a39c32b1/megatron/core/optimizer/master.py).
+
+Five candidate peak LRs per method are 0.00025/0.0005/0.001/0.002/0.004
+for Muown and 0.0025/0.005/0.01/0.02/0.04 for Muon-MD. Their LR units differ;
+compare their best measured endpoint losses, not equal multipliers.
+
+New runs commit a complete initial checkpoint before updates, then checkpoint
+every 250 updates and at five-minute intervals, plus the endpoint. Model,
+optimizer (including gains), schedule counters and router state are saved by
+the native checkpointer. KMA has no stochastic training layers; initialization
+and data RNG seeds are fixed in the compatibility contract, and the deterministic
+data loader starts from the restored optimizer step. An existing contract with
+no loadable checkpoint fails instead of starting over. Source/config changes
+also fail compatibility validation. Per-attempt evidence remains separate.
+
+`python -m experiments.grug.muon_mup_tpu.qualify_recovery` runs the exact H100
+configuration through four continuous updates, two updates in a fresh run, then
+a fresh process restoring those two updates and continuing to four. It compares
+all final state arrays exactly and retains batch checksums and online run
+identities. The 6930-step LR horizon remains fixed during qualification.

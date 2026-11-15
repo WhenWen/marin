@@ -13,7 +13,9 @@ from experiments.grug.fast_track.optimizer import GrugMoeMuonHConfig
 from experiments.grug.muon_mup_tpu.optimizer import (
     MuonComparisonConfig,
     MuonHSweepConfig,
+    MuonMDConfig,
     MuonWComparisonConfig,
+    MuownConfig,
     muon_step,
 )
 
@@ -122,7 +124,8 @@ def test_muonh_sweep_preserves_reference_updates_and_fixed_adam_groups(multiplie
         params = optax.apply_updates(params, updates)
 
 
-def test_muonw_decays_logical_matrices_and_keeps_stacked_vectors_undecayed():
+@pytest.mark.parametrize("config_type", [MuonWComparisonConfig, MuownConfig, MuonMDConfig])
+def test_muonw_decays_logical_matrices_and_keeps_stacked_vectors_undecayed(config_type):
     params = {
         "output_proj": jnp.ones((8, 16)),
         "token_embed": jnp.ones((16, 8)),
@@ -136,7 +139,7 @@ def test_muonw_decays_logical_matrices_and_keeps_stacked_vectors_undecayed():
             }
         },
     }
-    config = MuonWComparisonConfig(
+    config = config_type(
         learning_rate=0.01, head_lr=0.02, adam_lr=0.005, warmup=0, min_lr_ratio=1, beta1=0.9, beta2=0.99, epsilon=1e-8
     )
     tx = config.build(100)

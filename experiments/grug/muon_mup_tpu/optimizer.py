@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import jax
 import optax
 from levanter.optim.config import OptimizerConfig
+from levanter.optim.util import CoefficientType
 from levanter.utils.jax_utils import leaf_key_paths
 
 from experiments.grug.fast_track.adamh import scale_by_adamh
@@ -19,6 +20,7 @@ from experiments.grug.fast_track.optimizer import (
     _scale_by_adam_gate_router_decay,
     scale_with_grug_muonh,
 )
+from experiments.grug.muon_mup_tpu.decoupled import muon_md_step, muown_step
 
 
 def muon_step(*, learning_rate, weight_decay, momentum, nesterov, steps, eps, coefficient_type):
@@ -66,21 +68,21 @@ class MuonComparisonConfig(GrugMoeMuonHConfig):
     def query_transform(self, lr):
         return optax.chain(optax.scale_by_adam(self.beta1, self.beta2, self.epsilon), optax.scale(-lr))
 
+    def matrix_transform(self, lr):
+        return muon_step(
+            learning_rate=lr,
+            weight_decay=self.matrix_weight_decay,
+            momentum=self.momentum,
+            nesterov=self.nesterov,
+            steps=self.backend_steps,
+            eps=self.muon_epsilon,
+            coefficient_type=self.coefficient_type,
+        )
+
     def build(self, num_train_steps):
         def optimizer(learning_rate, adam_lr, head_lr):
             def matrix(lr):
-                return optax.chain(
-                    muon_step(
-                        learning_rate=lr,
-                        weight_decay=self.matrix_weight_decay,
-                        momentum=self.momentum,
-                        nesterov=self.nesterov,
-                        steps=self.backend_steps,
-                        eps=self.muon_epsilon,
-                        coefficient_type=self.coefficient_type,
-                    ),
-                    _match_named_update_sharding(),
-                )
+                return optax.chain(self.matrix_transform(lr), _match_named_update_sharding())
 
             return optax.multi_transform(
                 {
@@ -186,3 +188,67 @@ class MuonWComparisonConfig(MuonComparisonConfig):
 
     def query_transform(self, lr):
         return self.head_transform(lr)
+
+
+@OptimizerConfig.register_subclass("muown_kma")
+@dataclass(frozen=True)
+class MuownConfig(MuonWComparisonConfig):
+    """Muown hidden matrices; the reference AdamW auxiliary groups are unchanged."""
+
+    coefficient_type: CoefficientType = "simple"
+    muon_epsilon: float = 1e-7
+    gain_beta1: float = 0.9
+    gain_beta2: float = 0.95
+    gain_epsilon: float = 1e-8
+
+    def matrix_transform(self, lr):
+        return muown_step(
+            learning_rate=lr,
+            weight_decay=self.matrix_weight_decay,
+            momentum=self.momentum,
+            nesterov=self.nesterov,
+            steps=self.backend_steps,
+            coefficient_type=self.coefficient_type,
+            eps=self.muon_epsilon,
+            beta1=self.gain_beta1,
+            beta2=self.gain_beta2,
+            adam_eps=self.gain_epsilon,
+        )
+
+
+@OptimizerConfig.register_subclass("muon_md_kma")
+@dataclass(frozen=True)
+class MuonMDConfig(MuonWComparisonConfig):
+    """MD hidden matrices with scheduled gains and unchanged AdamW auxiliary groups."""
+
+    matrix_weight_decay: float = 0.0
+    auxiliary_weight_decay: float = 0.1
+    gain_lr: float = 0.001
+    muon_epsilon: float = 1e-7
+    gain_beta1: float = 0.9
+    gain_beta2: float = 0.99
+    gain_epsilon: float = 1e-8
+
+    def head_transform(self, lr):
+        return optax.adamw(
+            lr,
+            b1=self.beta1,
+            b2=self.beta2,
+            eps=self.epsilon,
+            weight_decay=self.auxiliary_weight_decay,
+            mask=logical_matrix_decay_mask,
+        )
+
+    def matrix_transform(self, lr):
+        return muon_md_step(
+            learning_rate=lr,
+            gain_learning_rate=lr * self.gain_lr / self.learning_rate,
+            momentum=self.momentum,
+            nesterov=self.nesterov,
+            steps=self.backend_steps,
+            coefficient_type=self.coefficient_type,
+            eps=self.muon_epsilon,
+            beta1=self.gain_beta1,
+            beta2=self.gain_beta2,
+            adam_eps=self.gain_epsilon,
+        )
