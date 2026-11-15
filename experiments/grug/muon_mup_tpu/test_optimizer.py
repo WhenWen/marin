@@ -16,8 +16,11 @@ from experiments.grug.muon_mup_tpu.optimizer import (
     MuonMDConfig,
     MuonWComparisonConfig,
     MuownConfig,
+    NorMuonHConfig,
+    RowNormalizedMuonHConfig,
     muon_step,
 )
+from experiments.grug.muon_mup_tpu.row_normalized import normalize_neuron_updates
 
 
 @pytest.mark.parametrize("shape", [(8, 4), (4, 8), (8, 8), (2, 8, 4), (2, 3, 4, 8)])
@@ -175,3 +178,105 @@ def test_muonw_decays_logical_matrices_and_keeps_stacked_vectors_undecayed(confi
                 if label == group:
                     np.testing.assert_allclose(a, e, rtol=2e-6, atol=1e-8)
         params = optax.apply_updates(params, actual)
+
+
+@pytest.mark.parametrize("shape", [(7, 4), (4, 7), (2, 7, 4), (2, 3, 7, 4)])
+def test_row_weight_muonh_preserves_each_neuron_radius(shape):
+    params = jax.random.normal(jax.random.PRNGKey(30), shape) * jnp.arange(1, shape[-1] + 1)
+    radii = np.linalg.norm(np.asarray(params), axis=-2)
+    config = RowNormalizedMuonHConfig()
+    tx = config.matrix_transform(0.07)
+    reference = _grug_scale_with_muon()
+    state, reference_state = tx.init(params), reference.init(params)
+    for index in range(3):
+        grads = jax.random.normal(jax.random.PRNGKey(31 + index), shape)
+        direction, reference_state = reference.update(grads, reference_state, params)
+        update, state = tx.update(grads, state, params)
+        # Independent per-neuron vector geometry, in conventional [out, in] layout.
+        p = np.swapaxes(np.asarray(params), -1, -2).reshape(-1, shape[-2])
+        u = np.swapaxes(np.asarray(direction), -1, -2).reshape(-1, shape[-2])
+        expected = []
+        for weight, delta in zip(p, u, strict=True):
+            radius = np.linalg.norm(weight)
+            vector = weight / radius - 0.07 * delta / np.linalg.norm(delta)
+            expected.append(radius * vector / np.linalg.norm(vector))
+        actual = optax.apply_updates(params, update)
+        np.testing.assert_allclose(
+            np.swapaxes(np.asarray(actual), -1, -2).reshape(p.shape), expected, atol=2e-6, rtol=2e-6
+        )
+        np.testing.assert_allclose(np.linalg.norm(np.asarray(actual), axis=-2), radii, atol=3e-6, rtol=2e-6)
+        params = actual
+
+
+def test_normuon_row_moments_match_official_matrix_reference():
+    shape = (2, 3, 7, 4)
+    tx = normalize_neuron_updates(0.95)
+    state = tx.init(jnp.zeros(shape))
+    moments = np.zeros((6, 4, 1), dtype=np.float32)
+    for index in range(3):
+        updates = jax.random.normal(jax.random.PRNGKey(50 + index), shape)
+        actual, state = tx.update(updates, state, jnp.zeros(shape))
+        # Official NorMuon normalization on a batch of [out, in] matrices.
+        matrices = np.swapaxes(np.asarray(updates), -1, -2).reshape(6, 4, 7)
+        moments = 0.95 * moments + 0.05 * (matrices**2).mean(axis=-1, keepdims=True)
+        normalized = matrices / (np.sqrt(moments) + 1e-10)
+        expected = normalized * (
+            np.linalg.norm(matrices, axis=(-2, -1), keepdims=True)
+            / (np.linalg.norm(normalized, axis=(-2, -1), keepdims=True) + 1e-10)
+        )
+        np.testing.assert_allclose(
+            np.swapaxes(np.asarray(actual), -1, -2).reshape(6, 4, 7), expected, atol=1e-6, rtol=2e-6
+        )
+
+
+@pytest.mark.parametrize("config_type", [NorMuonHConfig, RowNormalizedMuonHConfig])
+def test_neuron_variants_preserve_auxiliary_groups(config_type):
+    params = {
+        "output_proj": jnp.eye(4),
+        "token_embed": jnp.ones((8, 4)),
+        "attn_res_query_final": jnp.ones(4),
+        "layer": {"router": jnp.ones((4, 2))},
+    }
+    common = dict(learning_rate=0.02, head_lr=0.03, adam_lr=0.005, warmup=0)
+    reference, candidate = MuonHSweepConfig(**common).build(10), config_type(**common).build(10)
+    left_state, right_state = reference.init(params), candidate.init(params)
+    for _ in range(3):
+        grads = jax.tree.map(jnp.cos, params)
+        left, left_state = reference.update(grads, left_state, params)
+        right, right_state = candidate.update(grads, right_state, params)
+        for a, b in zip(jax.tree.leaves(left), jax.tree.leaves(right), strict=True):
+            np.testing.assert_array_equal(a, b)
+        params = optax.apply_updates(params, left)
+
+
+def test_neuron_variants_match_unsharded_updates_and_state():
+    run_on_cpu_devices(
+        """
+        import jax
+        import jax.numpy as jnp
+        import numpy as np
+        from jax.sharding import Mesh, AxisType, PartitionSpec as P
+        from haliax.partitioning import set_mesh
+        from experiments.grug.muon_mup_tpu.optimizer import NorMuonHConfig, RowNormalizedMuonHConfig
+        mesh = Mesh(np.array(jax.devices()).reshape(1,2,2,1),
+                    ('replica_dcn','data','expert','model'), axis_types=(AxisType.Explicit,)*4)
+        with set_mesh(mesh):
+            original = jax.random.normal(jax.random.PRNGKey(0), (2,4,8,16))
+            for spec in (P(None,'expert','model','data'), P(None,'expert','data','model')):
+                p = jax.sharding.reshard(original, spec)
+                replicated = jax.sharding.reshard(original, P())
+                for config in (NorMuonHConfig(), RowNormalizedMuonHConfig()):
+                    tx = config.matrix_transform(0.03)
+                    state, reference_state = tx.init(p), tx.init(replicated)
+                    for i in range(3):
+                        gradient = jax.random.normal(jax.random.PRNGKey(i+1), p.shape)
+                        actual, state = jax.jit(tx.update)(jax.sharding.reshard(gradient, spec), state, p)
+                        expected, reference_state = jax.jit(tx.update)(
+                            jax.sharding.reshard(gradient, P()), reference_state, replicated)
+                        assert actual.sharding == p.sharding
+                        np.testing.assert_allclose(actual, expected, atol=2e-6, rtol=2e-5)
+                        for a,b in zip(jax.tree.leaves(state), jax.tree.leaves(reference_state), strict=True):
+                            np.testing.assert_allclose(a, b, atol=2e-6, rtol=2e-5)
+        """,
+        device_count=4,
+    )

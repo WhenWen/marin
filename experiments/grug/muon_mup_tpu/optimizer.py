@@ -21,6 +21,7 @@ from experiments.grug.fast_track.optimizer import (
     scale_with_grug_muonh,
 )
 from experiments.grug.muon_mup_tpu.decoupled import muon_md_step, muown_step
+from experiments.grug.muon_mup_tpu.row_normalized import normuonh, row_weight_muonh
 
 
 def muon_step(*, learning_rate, weight_decay, momentum, nesterov, steps, eps, coefficient_type):
@@ -109,6 +110,16 @@ class MuonHSweepConfig(GrugMoeMuonHConfig):
 
     head_lr: float = 0.02242598651082779
 
+    def matrix_transform(self, lr):
+        return scale_with_grug_muonh(
+            momentum=self.momentum,
+            nesterov=self.nesterov,
+            steps=self.backend_steps,
+            muon_eps=self.muon_epsilon,
+            learning_rate=lr,
+            coefficient_type=self.coefficient_type,
+        )
+
     def build(self, num_train_steps):
         def optimizer(learning_rate, adam_lr, head_lr):
             def clipped(*transforms):
@@ -118,14 +129,7 @@ class MuonHSweepConfig(GrugMoeMuonHConfig):
 
             def matrix(lr):
                 return clipped(
-                    scale_with_grug_muonh(
-                        momentum=self.momentum,
-                        nesterov=self.nesterov,
-                        steps=self.backend_steps,
-                        muon_eps=self.muon_epsilon,
-                        learning_rate=lr,
-                        coefficient_type=self.coefficient_type,
-                    ),
+                    self.matrix_transform(lr),
                     _match_named_update_sharding(),
                 )
 
@@ -154,6 +158,41 @@ class MuonHSweepConfig(GrugMoeMuonHConfig):
             learning_rate=self.lr_scheduler(num_train_steps),
             adam_lr=self.lr_scheduler(num_train_steps, override_lr=self.adam_lr),
             head_lr=self.lr_scheduler(num_train_steps, override_lr=self.head_lr),
+        )
+
+
+@OptimizerConfig.register_subclass("normuonh_kma")
+@dataclass(frozen=True)
+class NorMuonHConfig(MuonHSweepConfig):
+    """NorMuon row moments with the reference MuonH projection and auxiliary groups."""
+
+    row_beta2: float = 0.95
+
+    def matrix_transform(self, lr):
+        return normuonh(
+            learning_rate=lr,
+            beta2=self.row_beta2,
+            momentum=self.momentum,
+            nesterov=self.nesterov,
+            steps=self.backend_steps,
+            muon_eps=self.muon_epsilon,
+            coefficient_type=self.coefficient_type,
+        )
+
+
+@OptimizerConfig.register_subclass("row_muonh_kma")
+@dataclass(frozen=True)
+class RowNormalizedMuonHConfig(MuonHSweepConfig):
+    """Reference MuonH with independent output-neuron weight spheres."""
+
+    def matrix_transform(self, lr):
+        return row_weight_muonh(
+            learning_rate=lr,
+            momentum=self.momentum,
+            nesterov=self.nesterov,
+            steps=self.backend_steps,
+            muon_eps=self.muon_epsilon,
+            coefficient_type=self.coefficient_type,
         )
 
 

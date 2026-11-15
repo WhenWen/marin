@@ -12,7 +12,7 @@ import pytest
 from levanter.checkpoint import CheckpointerConfig
 
 from experiments.grug.checkpointing import restore_grug_state_from_checkpoint
-from experiments.grug.muon_mup_tpu.optimizer import MuonMDConfig, MuownConfig
+from experiments.grug.muon_mup_tpu.optimizer import MuonMDConfig, MuownConfig, NorMuonHConfig, RowNormalizedMuonHConfig
 from experiments.grug.muon_mup_tpu.recovery import batch_fingerprint, prepare_recovery
 
 
@@ -41,7 +41,7 @@ class ContinuationState:
     rng: jax.Array
 
 
-@pytest.mark.parametrize("optimizer", [MuownConfig, MuonMDConfig])
+@pytest.mark.parametrize("optimizer", [MuownConfig, MuonMDConfig, NorMuonHConfig, RowNormalizedMuonHConfig])
 def test_checkpoint_restores_gains_momentum_schedule_rng_and_position(tmp_path, optimizer):
     mesh = jax.sharding.Mesh(np.array(jax.devices()), ("data",), axis_types=(jax.sharding.AxisType.Explicit,))
     with jax.set_mesh(mesh):

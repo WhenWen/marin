@@ -52,6 +52,8 @@ from experiments.grug.muon_mup_tpu.optimizer import (
     MuonMDConfig,
     MuonWComparisonConfig,
     MuownConfig,
+    NorMuonHConfig,
+    RowNormalizedMuonHConfig,
 )
 from experiments.grug.muon_mup_tpu.qualify import (
     QualificationComplete,
@@ -122,7 +124,10 @@ def build_config(args, run_id, checkpoint_root):
     )
     optimizer_args["learning_rate"] *= args.lr_mult
     optimizer = MuonHSweepConfig(**optimizer_args, head_lr=head_lr)
-    if args.optimizer != "muonh":
+    if args.optimizer in ("normuonh", "row_muonh"):
+        cls = NorMuonHConfig if args.optimizer == "normuonh" else RowNormalizedMuonHConfig
+        optimizer = cls(**optimizer_args, head_lr=head_lr)
+    if args.optimizer in ("muon", "muonw"):
         optimizer_args["learning_rate"] = muon_lr * args.lr_mult
         cls = MuonWComparisonConfig if args.optimizer == "muonw" else MuonComparisonConfig
         optimizer = cls(**optimizer_args, head_lr=head_lr)
@@ -269,7 +274,9 @@ class MetricsFileHandler(logging.FileHandler):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--optimizer", choices=("muonh", "muon", "muonw", "muown", "muon_md"), required=True)
+    parser.add_argument(
+        "--optimizer", choices=("muonh", "muon", "muonw", "muown", "muon_md", "normuonh", "row_muonh"), required=True
+    )
     parser.add_argument("--size", choices=("d512", "d768"), default="d512")
     parser.add_argument("--tpu", choices=("v4-8", "v4-32"), default="v4-32")
     parser.add_argument("--h100", action="store_true")
@@ -364,6 +371,7 @@ def main():
                     "train.py",
                     "optimizer.py",
                     "decoupled.py",
+                    "row_normalized.py",
                     "recovery.py",
                     "tpu_execution.py",
                     "kda_state_tpu.py",
