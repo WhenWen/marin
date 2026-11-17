@@ -42,6 +42,9 @@ def submit_one(index, spec, devices, log_dir, gpu_variant, output_prefix, name_s
         "--no-sync",
         "--job-name",
         name,
+        "-e",
+        "WANDB_X_FILE_STREAM_TRANSMIT_INTERVAL",
+        "60",
     ]
     if gpu_variant == "GB200":
         command.extend(["-e", "XLA_FLAGS", "--xla_gpu_deterministic_ops=true"])
