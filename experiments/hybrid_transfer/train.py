@@ -167,7 +167,10 @@ def main():
     run_id = uuid.uuid4().hex[:12]
     config = configuration(spec, run_id, args.data_prefix, args.output_prefix, args.devices, args.microbatch)
     if args.preflight_steps:
-        preflight_root = f"{args.output_prefix}/{GROUP}/preflight/gpu-{args.devices}-{spec.name}/{run_id}"
+        preflight_root = (
+            f"{args.output_prefix}/{GROUP}/preflight/{config.model.implementation_digest[:12]}/"
+            f"gpu-{args.devices}-mb{args.microbatch}-{spec.name}"
+        )
         config = dataclasses.replace(
             config,
             trainer=dataclasses.replace(
@@ -206,6 +209,21 @@ def main():
         print(f"ALREADY_COMPLETED {spec.name}", flush=True)
         return
     config, lineage = prepare_recovery(config, {})
+    if args.preflight_steps and lineage["expected_next_step"] >= args.preflight_steps:
+        # The preceding attempt committed the validation target before it was
+        # interrupted. No optimizer steps or restoration are needed here.
+        write_json(
+            f"{args.output_prefix}/{GROUP}/preflight/completed/{run_id}.json",
+            {
+                "spec": dataclasses.asdict(spec),
+                "devices": args.devices,
+                "checkpoint": lineage["requested_checkpoint"],
+                "steps": args.preflight_steps,
+                "validation_only": True,
+                "status": "already_complete_checkpoint_reused_without_training",
+            },
+        )
+        return
     write_json(f"{args.output_prefix}/{GROUP}/attempts/{run_id}/config.json", draccus.encode(config))
     (config.trainer.log_dir / "lineage.json").write_text(json.dumps(lineage, indent=2))
     print(f"RECOVERY_PLAN {json.dumps({k: v for k, v in lineage.items() if k != 'scientific_config'})}", flush=True)

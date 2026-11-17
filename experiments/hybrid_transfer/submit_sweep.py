@@ -61,7 +61,7 @@ def submit_one(index, spec, devices, log_dir):
             "--devices",
             str(devices),
             "--microbatch",
-            "8",
+            "4" if spec["residual"] == "full_attnres" else "8",
         ]
     )
     item = {
