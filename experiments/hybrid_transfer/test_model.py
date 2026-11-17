@@ -45,3 +45,29 @@ def test_readout_scaling_matches_fused_loss_path_and_base_depth_equivalence():
         outputs.append(direct_logits.array)
     for output in outputs[1:]:
         np.testing.assert_array_equal(output, outputs[0])
+
+
+def test_hidden_initialization_scales_with_width_while_embedding_and_readout_do_not():
+    measurements = []
+    for width in (128, 512):
+        config = TransferConfig(
+            hidden_dim=width,
+            intermediate_dim=width * 7 // 2,
+            num_heads=width // 64,
+            num_kv_heads=width // 64,
+            num_layers=2,
+            attn_backend="vanilla",
+        )
+        model = config.build(hax.Axis("vocab", 256), key=jax.random.PRNGKey(11))
+        measurements.append(
+            np.array(
+                [
+                    np.std(model.transformer.layers.stacked.mlp.gate_proj.weight.array),
+                    np.std(model.embeddings.token_embeddings.weight.array),
+                    np.std(model.lm_head.weight.array),
+                ]
+            )
+        )
+    # Four times the fan-in halves hidden std, while the outer matrices keep
+    # their scale. The 3% tolerance covers sampling error in these finite draws.
+    np.testing.assert_allclose(measurements[1] / measurements[0], [0.5, 1.0, 1.0], rtol=0.03)
