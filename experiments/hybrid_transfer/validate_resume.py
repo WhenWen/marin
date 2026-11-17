@@ -6,6 +6,7 @@
 import argparse
 import dataclasses
 import json
+import os
 import uuid
 from pathlib import Path
 
@@ -21,6 +22,7 @@ from levanter.data.dataset import ListAsyncDataset
 from levanter.data.loader import DataLoader
 from levanter.layers.attention import AttentionMask
 from levanter.trainer_state import TrainerState
+from rigging.secrets import require_secret
 
 from experiments.hybrid_transfer.model import Residual, TransferConfig
 from experiments.hybrid_transfer.optimizer import TransferOptimizer
@@ -140,6 +142,7 @@ def main():
     parser.add_argument("--output-root", required=True)
     parser.add_argument("--method", choices=[str(r) for r in Residual])
     args = parser.parse_args()
+    os.environ["WANDB_API_KEY"] = require_secret("WANDB_API_KEY")
     configure_storage()
     results = []
     for method in ([Residual(args.method)] if args.method else Residual):

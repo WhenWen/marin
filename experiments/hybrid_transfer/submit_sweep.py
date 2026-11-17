@@ -1,7 +1,7 @@
 # Copyright The Marin Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Queue independent root jobs; Iris chooses H100 peers as capacity becomes free."""
+"""Queue independent root jobs on a validated accelerator and output store."""
 
 import argparse
 import hashlib
@@ -15,9 +15,9 @@ from pathlib import Path
 from experiments.hybrid_transfer.train import GROUP, RunSpec
 
 
-def submit_one(index, spec, devices, log_dir):
+def submit_one(index, spec, devices, log_dir, gpu_variant, output_prefix, name_suffix):
     identity = hashlib.sha256(json.dumps(spec, sort_keys=True).encode()).hexdigest()[:8]
-    name = f"hybrid-transfer-{index:03d}-{identity}"
+    name = f"hybrid-transfer-{index:03d}-{identity}{name_suffix}"
     record = log_dir / f"{index:03d}.json"
     # A submission journal is a duplicate guard, including an interrupted CLI.
     if record.exists():
@@ -30,7 +30,7 @@ def submit_one(index, spec, devices, log_dir):
         "--no-wait",
         "--enable-extra-resources",
         "--gpu",
-        f"H100x{devices}",
+        f"{gpu_variant}x{devices}",
         "--cpu",
         str((8 if spec["residual"] == "full_attnres" else 1) * devices),
         "--memory",
@@ -57,7 +57,7 @@ def submit_one(index, spec, devices, log_dir):
             "--data-prefix",
             "s3://marin-us-east-02a/marin",
             "--output-prefix",
-            "s3://marin-us-east-02a/marin/experiments",
+            output_prefix,
             "--devices",
             str(devices),
             "--microbatch",
@@ -88,6 +88,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--devices", type=int, required=True)
     parser.add_argument("--journal", type=Path, required=True)
+    parser.add_argument("--gpu-variant", choices=["H100", "GB200"], required=True)
+    parser.add_argument("--output-prefix", required=True)
+    parser.add_argument("--name-suffix", default="")
+    parser.add_argument("--exclude-index", action="append", type=int, default=[])
     parser.add_argument("--exclude-residual", action="append", default=[])
     args = parser.parse_args()
     evidence = json.loads(Path(__file__).with_name("resume_evidence.json").read_text())
@@ -99,9 +103,18 @@ def main():
     with ThreadPoolExecutor(max_workers=6) as pool:
         ordered = sorted(enumerate(specs), key=lambda pair: abs(math.log2(pair[1]["lr"] / 0.02)))
         futures = [
-            pool.submit(submit_one, i, spec, args.devices, args.journal)
+            pool.submit(
+                submit_one,
+                i,
+                spec,
+                args.devices,
+                args.journal,
+                args.gpu_variant,
+                args.output_prefix,
+                args.name_suffix,
+            )
             for i, spec in ordered
-            if spec["residual"] not in args.exclude_residual
+            if spec["residual"] not in args.exclude_residual and i not in args.exclude_index
         ]
         for future in as_completed(futures):
             result = future.result()
