@@ -32,9 +32,9 @@ def submit_one(index, spec, devices, log_dir, gpu_variant, output_prefix, name_s
         "--gpu",
         f"{gpu_variant}x{devices}",
         "--cpu",
-        str((8 if spec["residual"] == "full_attnres" else 1) * devices),
+        str((8 if spec["residual"] == "full_attnres" else (4 if gpu_variant == "GB200" else 1)) * devices),
         "--memory",
-        f"{(64 if spec['residual'] == 'full_attnres' else 32) * devices}GB",
+        f"{(64 if spec['residual'] == 'full_attnres' or gpu_variant == 'GB200' else 32) * devices}GB",
         "--disk",
         "64GB",
         "--priority",
@@ -43,6 +43,8 @@ def submit_one(index, spec, devices, log_dir, gpu_variant, output_prefix, name_s
         "--job-name",
         name,
     ]
+    if gpu_variant == "GB200":
+        command.extend(["-e", "XLA_FLAGS", "--xla_gpu_deterministic_ops=true"])
     for key in ("WANDB_API_KEY", "CW_KEY_ID", "CW_KEY_SECRET"):
         command.extend(["--secret", key, f"env:{key}"])
     command.extend(
@@ -61,7 +63,11 @@ def submit_one(index, spec, devices, log_dir, gpu_variant, output_prefix, name_s
             "--devices",
             str(devices),
             "--microbatch",
-            "4" if spec["residual"] == "full_attnres" else "8",
+            str(
+                (8 if gpu_variant == "GB200" else 4)
+                if spec["residual"] == "full_attnres"
+                else (32 if gpu_variant == "GB200" else 8)
+            ),
         ]
     )
     item = {
