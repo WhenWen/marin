@@ -6,6 +6,7 @@
 import argparse
 import hashlib
 import json
+import math
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -87,6 +88,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--devices", type=int, required=True)
     parser.add_argument("--journal", type=Path, required=True)
+    parser.add_argument("--exclude-residual", action="append", default=[])
     args = parser.parse_args()
     evidence = json.loads(Path(__file__).with_name("resume_evidence.json").read_text())
     assert len({(r["method"], r["optimizer"]) for r in evidence}) == 8
@@ -95,7 +97,12 @@ def main():
     args.journal.mkdir(parents=True, exist_ok=True)
     # This is submission RPC concurrency, not a GPU/run concurrency cap.
     with ThreadPoolExecutor(max_workers=6) as pool:
-        futures = [pool.submit(submit_one, i, spec, args.devices, args.journal) for i, spec in enumerate(specs)]
+        ordered = sorted(enumerate(specs), key=lambda pair: abs(math.log2(pair[1]["lr"] / 0.02)))
+        futures = [
+            pool.submit(submit_one, i, spec, args.devices, args.journal)
+            for i, spec in ordered
+            if spec["residual"] not in args.exclude_residual
+        ]
         for future in as_completed(futures):
             result = future.result()
             print(json.dumps({key: result[key] for key in ("index", "name", "status", "job_id")}), flush=True)
