@@ -1,0 +1,19 @@
+{
+  "fineweb-edu-10B": "rebuttal/hyperball-radius-h100-20261113/data/fineweb-edu-10B",
+  "paloma/4chan": "paloma/4chan-llama3/2026.06.28",
+  "paloma/c4_100_domains": "paloma/c4_100_domains-llama3/2026.06.28",
+  "paloma/c4_en": "paloma/c4_en-llama3/2026.06.28",
+  "paloma/dolma-v1_5": "paloma/dolma-v1_5-llama3/2026.06.28",
+  "paloma/dolma_100_programing_languages": "paloma/dolma_100_programing_languages-llama3/2026.06.28",
+  "paloma/dolma_100_subreddits": "paloma/dolma_100_subreddits-llama3/2026.06.28",
+  "paloma/falcon-refinedweb": "paloma/falcon-refinedweb-llama3/2026.06.28",
+  "paloma/gab": "paloma/gab-llama3/2026.06.28",
+  "paloma/m2d2_s2orc_unsplit": "paloma/m2d2_s2orc_unsplit-llama3/2026.06.28",
+  "paloma/m2d2_wikipedia_unsplit": "paloma/m2d2_wikipedia_unsplit-llama3/2026.06.28",
+  "paloma/manosphere_meta_sep": "paloma/manosphere_meta_sep-llama3/2026.06.28",
+  "paloma/mc4": "paloma/mc4-llama3/2026.06.28",
+  "paloma/ptb": "paloma/ptb-llama3/2026.06.28",
+  "paloma/redpajama": "paloma/redpajama-llama3/2026.06.28",
+  "paloma/twitterAAE_HELM_fixed": "paloma/twitterAAE_HELM_fixed-llama3/2026.06.28",
+  "paloma/wikitext_103": "paloma/wikitext_103-llama3/2026.06.28"
+}
