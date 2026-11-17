@@ -3,9 +3,9 @@
     "method": "standard",
     "optimizer": "muonw",
     "runs": [
-      "https://wandb.ai/marin-community/Hyperball/runs/swxax83z",
-      "https://wandb.ai/marin-community/Hyperball/runs/fq2pi8bx",
-      "https://wandb.ai/marin-community/Hyperball/runs/pbzje9ke"
+      "https://wandb.ai/marin-community/Hyperball/runs/l12oi9y4",
+      "https://wandb.ai/marin-community/Hyperball/runs/daotioha",
+      "https://wandb.ai/marin-community/Hyperball/runs/fvmsnve5"
     ],
     "max_absolute_difference": 0.0,
     "status": "passed_exact_full_state_equality"
@@ -14,9 +14,9 @@
     "method": "standard",
     "optimizer": "muonh",
     "runs": [
-      "https://wandb.ai/marin-community/Hyperball/runs/bliex3vc",
-      "https://wandb.ai/marin-community/Hyperball/runs/49pmyf0l",
-      "https://wandb.ai/marin-community/Hyperball/runs/5k79l5iz"
+      "https://wandb.ai/marin-community/Hyperball/runs/m0rrd5u3",
+      "https://wandb.ai/marin-community/Hyperball/runs/sopr3var",
+      "https://wandb.ai/marin-community/Hyperball/runs/upf3d9mx"
     ],
     "max_absolute_difference": 0.0,
     "status": "passed_exact_full_state_equality"
@@ -25,9 +25,9 @@
     "method": "completep",
     "optimizer": "muonw",
     "runs": [
-      "https://wandb.ai/marin-community/Hyperball/runs/a4yeocmq",
-      "https://wandb.ai/marin-community/Hyperball/runs/phy2f04r",
-      "https://wandb.ai/marin-community/Hyperball/runs/adddmluw"
+      "https://wandb.ai/marin-community/Hyperball/runs/omjgpruk",
+      "https://wandb.ai/marin-community/Hyperball/runs/s1dtlgfb",
+      "https://wandb.ai/marin-community/Hyperball/runs/o9mkoafa"
     ],
     "max_absolute_difference": 0.0,
     "status": "passed_exact_full_state_equality"
@@ -36,9 +36,9 @@
     "method": "completep",
     "optimizer": "muonh",
     "runs": [
-      "https://wandb.ai/marin-community/Hyperball/runs/qqij17v0",
-      "https://wandb.ai/marin-community/Hyperball/runs/ysklobi8",
-      "https://wandb.ai/marin-community/Hyperball/runs/nh5qtlvf"
+      "https://wandb.ai/marin-community/Hyperball/runs/zaddua98",
+      "https://wandb.ai/marin-community/Hyperball/runs/657ab226",
+      "https://wandb.ai/marin-community/Hyperball/runs/0cwr8lfv"
     ],
     "max_absolute_difference": 0.0,
     "status": "passed_exact_full_state_equality"
@@ -47,9 +47,9 @@
     "method": "depth_mup",
     "optimizer": "muonw",
     "runs": [
-      "https://wandb.ai/marin-community/Hyperball/runs/c0dfxh7v",
-      "https://wandb.ai/marin-community/Hyperball/runs/wb5l1gra",
-      "https://wandb.ai/marin-community/Hyperball/runs/x9fvt4ae"
+      "https://wandb.ai/marin-community/Hyperball/runs/zp62sxld",
+      "https://wandb.ai/marin-community/Hyperball/runs/q2jf80t7",
+      "https://wandb.ai/marin-community/Hyperball/runs/75hmkacn"
     ],
     "max_absolute_difference": 0.0,
     "status": "passed_exact_full_state_equality"
@@ -58,9 +58,9 @@
     "method": "depth_mup",
     "optimizer": "muonh",
     "runs": [
-      "https://wandb.ai/marin-community/Hyperball/runs/zv94lfnk",
-      "https://wandb.ai/marin-community/Hyperball/runs/fjizyvq5",
-      "https://wandb.ai/marin-community/Hyperball/runs/7c7g2lbm"
+      "https://wandb.ai/marin-community/Hyperball/runs/h8hienbv",
+      "https://wandb.ai/marin-community/Hyperball/runs/rbvag7v3",
+      "https://wandb.ai/marin-community/Hyperball/runs/vdsbmkyb"
     ],
     "max_absolute_difference": 0.0,
     "status": "passed_exact_full_state_equality"
@@ -69,9 +69,9 @@
     "method": "full_attnres",
     "optimizer": "muonw",
     "runs": [
-      "https://wandb.ai/marin-community/Hyperball/runs/bjbmbmvx",
-      "https://wandb.ai/marin-community/Hyperball/runs/v20it4pk",
-      "https://wandb.ai/marin-community/Hyperball/runs/50hzagx5"
+      "https://wandb.ai/marin-community/Hyperball/runs/d1rqoww4",
+      "https://wandb.ai/marin-community/Hyperball/runs/1kczgwyn",
+      "https://wandb.ai/marin-community/Hyperball/runs/95enz5t6"
     ],
     "max_absolute_difference": 0.0,
     "status": "passed_exact_full_state_equality"
@@ -80,9 +80,9 @@
     "method": "full_attnres",
     "optimizer": "muonh",
     "runs": [
-      "https://wandb.ai/marin-community/Hyperball/runs/u0b4j4bc",
-      "https://wandb.ai/marin-community/Hyperball/runs/61h64fay",
-      "https://wandb.ai/marin-community/Hyperball/runs/lu3wldi1"
+      "https://wandb.ai/marin-community/Hyperball/runs/j4m98ino",
+      "https://wandb.ai/marin-community/Hyperball/runs/ljdi03dr",
+      "https://wandb.ai/marin-community/Hyperball/runs/1y3y60ys"
     ],
     "max_absolute_difference": 0.0,
     "status": "passed_exact_full_state_equality"
