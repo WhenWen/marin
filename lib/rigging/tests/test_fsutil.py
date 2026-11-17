@@ -520,6 +520,36 @@ class _EtagDestination:
         return found
 
 
+def test_verified_copy_accepts_unversioned_s3_head_metadata(tmp_path, monkeypatch):
+    source = tmp_path / "source"
+    destination = tmp_path / "destination"
+    source.mkdir()
+    (source / "weights.bin").write_bytes(b"abc")
+    source_fs, source_path = verified_copy_module.filesystem_for(str(source))
+    original_route = verified_copy_module.filesystem_for
+
+    class UnversionedSource(_EtagDestination):
+        def info(self, path):
+            info = super().info(path)
+            info["VersionId"] = "null"
+            return info
+
+    unversioned_source = UnversionedSource(
+        source_fs, "900150983cd24fb0d6963f7d28e17f72", fixed_upload_size=False, allow_reads=True
+    )
+
+    def route(url, *, s3_upload_policy=S3UploadPolicy.STANDARD):
+        if url == str(source):
+            return unversioned_source, source_path
+        return original_route(url, s3_upload_policy=s3_upload_policy)
+
+    monkeypatch.setattr(verified_copy_module, "filesystem_for", route)
+    result = verified_copy_prefix(str(source), str(destination), workers=1)
+    assert result.copied_files == 1
+    assert (destination / "weights.bin").read_bytes() == b"abc"
+    assert (destination / COMPLETION_MANIFEST).exists()
+
+
 @pytest.mark.parametrize(
     ("contents", "etag", "allow_reads"),
     [

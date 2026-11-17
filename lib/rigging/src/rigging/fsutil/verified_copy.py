@@ -653,6 +653,10 @@ def _source_identity(info: dict[str, Any]) -> str | None:
         "LastModified",
     ):
         value = info.get(key)
+        # Unversioned S3 HEAD responses use the literal "null" version, while
+        # listings omit it. It cannot identify content; compare the ETag instead.
+        if key in ("version_id", "VersionId") and value == "null":
+            continue
         if value is not None:
             return f"{key}={value!s}"
     return None
