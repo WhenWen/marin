@@ -117,22 +117,21 @@ class ResidualAttention(eqx.Module):
 
 class TransferTransformer(eqx.Module):
     config: TransferConfig = eqx.field(static=True)
-    layers: Stacked
+    layers: Stacked | tuple
     norm: hnn.RmsNorm
     residual_attention: tuple[ResidualAttention, ...]
 
     @staticmethod
     def init(config, *, key):
         keys = shaped_rng_split(key, config.num_layers)
-        # Keep matrix parameters stacked so Muon compiles one batched update per
-        # matrix family, including when the residual history requires a loop.
-        layers = Stacked.init(config.Layers, TransferLayer, gradient_checkpointing=config.gradient_checkpointing)(
-            config, key=keys
-        )
         if config.residual == Residual.FULL_ATTNRES:
+            layers = tuple(TransferLayer.init(config, key=k) for k in keys)
             # One read for each branch input and one final read for the LM head.
             readers = tuple(ResidualAttention.init(config) for _ in range(2 * config.num_layers + 1))
         else:
+            layers = Stacked.init(config.Layers, TransferLayer, gradient_checkpointing=config.gradient_checkpointing)(
+                config, key=keys
+            )
             readers = ()
         return TransferTransformer(config, layers, config.mk_LayerNorm(config.Embed), readers)
 
@@ -141,7 +140,7 @@ class TransferTransformer(eqx.Module):
         if self.config.residual != Residual.FULL_ATTNRES:
             return self.norm(self.layers.fold(x, mask=attn_mask, key=keys, pos_ids=pos_ids))
         history = [x]
-        for i, layer in enumerate(self.layers.unstacked()):
+        for i, layer in enumerate(self.layers):
             ka, km = maybe_rng_split(keys[i] if keys is not None else None, 2)
             x = self.residual_attention[2 * i](history)
             attn = (
