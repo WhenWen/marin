@@ -4,6 +4,7 @@ import fsspec,jax
 import jax.numpy as j
 import numpy as np
 from experiments.hybrid_transfer.storage import configure_storage
+from .count_ops import matrix_flops
 from .kernels import restore,plain,corrected
 from .run import ROOT,provenance
 configure_storage()
@@ -15,10 +16,9 @@ stats=j.ones(128256)
 bank=j.ones((8,33786496))
 rows=[]
 def append(lower,b,d,r,ratio):
-    costs=lower.lowered.cost_analysis()
-    if isinstance(costs,list):costs=costs[0]
-    assert costs['flops']>0
-    rows.append(dict(b=b,depth=d,rank=r,pool_ratio=ratio,flops=costs['flops'],transcendentals=costs.get('transcendentals',0)))
+    count=matrix_flops(lower)
+    assert count>0
+    rows.append(dict(b=b,depth=d,rank=r,pool_ratio=ratio,matmul_flops=count))
 for b in [1,2,3,4,5,6,7,8,9,10,12,15,16,17,18,24,32]:
     append(plain.lower(m,data[:b],stats),b,-1,0,0)
 for b in (4,8,16):
