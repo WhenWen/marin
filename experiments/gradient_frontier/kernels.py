@@ -30,9 +30,9 @@ def inputs(x):
 def pooled(hidden):
     return h.mean(hidden.astype(j.float32),axis='position').rearrange(('batch','embed')).array
 
-def forward(model,tokens,depth,loss,stats):
+def forward(model,tokens,depth,loss,stats,dtype=j.bfloat16):
     ids=inputs(tokens[:,:-1])
-    m=jax.tree.map(lambda a:a.astype(j.bfloat16),model)
+    m=jax.tree.map(lambda a:a.astype(dtype),model)
     x=m.embeddings.embed(ids)
     phi=None
     if depth==0:phi=pooled(x)
