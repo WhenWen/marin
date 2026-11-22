@@ -1,4 +1,5 @@
 """Fuse MuonW with two independent inverse-probability corrections, each at its actual batch size."""
+import functools
 import json
 import os
 import sys
@@ -51,11 +52,28 @@ def advance(state,data,delta,key,k,n,scale,p,r):
     return state.take_step(grad,key=key)[0]
 
 
-def main(step,B,k,n,scale):
+@functools.partial(eqx.filter_jit,donate='all-except-first')
+def donated_baseline(args,state):
+    d,key,bank,method,k,n=args
+    return update(state,d,key,bank,method,k,n)
+
+
+@functools.partial(eqx.filter_jit,donate='all-except-first')
+def donated_candidate(args,state):
+    data,delta,key,k,n,scale,p,r=args
+    return advance(state,data,delta,key,k,n,scale,p,r)
+
+
+def copy_state(state):
+    return ready(jax.tree.map(lambda x:x.copy() if eqx.is_array(x) else x,state))
+
+
+def main(step,B,k,n,scale,rep=0):
     configure_storage();fs=fsspec.filesystem('s3');state,src=recover(step,fs)
     pool_file=Path('/tmp/independent-audits.npz')
-    fs.get_file(ROOT+'/inputs/native-packed.npz',str(pool_file))
-    with np.load(pool_file) as z:pool=tuple(z[name][512:] for name in ('tokens','weights','segments'))
+    population='native-confirm3' if rep in (1,2,4) else 'native-packed'
+    fs.get_file(ROOT+'/inputs/'+population+'.npz',str(pool_file))
+    with np.load(pool_file) as z:pool=tuple(z[name][0 if rep in (1,2,4) else 512:] for name in ('tokens','weights','segments'))
     original=Attention.__call__;fused_attention.install()
     def delta(data,key):
         Attention.__call__=original
@@ -68,27 +86,52 @@ def main(step,B,k,n,scale):
         return tuple(j.asarray(a[ix]) for a in pool)
     cases=[(m,kb,nb,b) for m,kb,nb in ((61,4096,16),(61,8192,32),(61,12288,64),(62,16384,64),(7,16384,64))
            for b in (1,2,3,4,6,8,12,16,24,32)]
+    if rep in (1,2,4):
+        cases+= [(m,kb,nb,b) for m,kb,nb in ((0,0,0),(61,64,4),(61,256,8),(61,1024,16),(61,4096,64)) for b in (1,2,3,4,6,8)]
+        cases+= [(m,kb,nb,b) for m,kb,nb in ((61,4096,32),(61,8192,64),(61,12288,64)) for b in (40,48,64)]
+    largest=max(c[-1] for c in cases)
     rows=[dict(method=m,k=kb,n=nb,b=b,ms=[],pair=[]) for m,kb,nb,b in cases]
     os.environ['WANDB_API_KEY']=require_secret('WANDB_API_KEY')
-    cfg=dict(step=step,B=B,k=k,n=n,scale=scale,signed_momentum_coefficient=-scale,checkpoint=src,seed=seed,device=jax.devices()[0].device_kind)
+    cfg=dict(step=step,B=B,k=k,n=n,scale=scale,signed_momentum_coefficient=-scale,checkpoint=src,seed=seed,rep=rep,population=population,device=jax.devices()[0].device_kind)
     run=wandb.init(entity='marin-community',project='gradient-variance-frontier',group='independent-precision-and-gradient-audits',id=os.urandom(5).hex(),config=cfg)
     out=dict(**cfg,wandb=run.url,times=[],components=[],rows=rows)
     path=ROOT+f'/independent-audits/s{step}-b{B}-k{k}-n{n}-c{scale}.json'
-    pred=ready(forecast(state,scale));dummy=j.arange(1)
-    for it in range(41):
-        a,b,extra,extra2,u,v=ready(tuple(sample(s) for s in (B,B,B,B,32,32)))
+    if rep in (1,2,4):path=path.replace('/independent-audits/','/audit-replication/')
+    if rep==3:path=path.replace('/independent-audits/','/online-audits/')
+    if rep in (2,4):
+        path=path.replace('/audit-replication/','/donated-audit-replication/' if rep==2 else '/donated-h100-replication/')
+        test=copy_state(state)
+        old=max(jax.tree.leaves(state.model),key=lambda x:x.size)
+        new=max(jax.tree.leaves(test.model),key=lambda x:x.size)
+        assert old.unsafe_buffer_pointer()!=new.unsafe_buffer_pointer()
+        del test
+    if rep==3:
+        from . import online_coin
+        prevstate=state if step==4001 else recover(step-1,fs)[0]
+        history=json.loads(fs.cat_file(ROOT+'/causal-prediction/feedback.json'))
+        aux=ready(online_coin.prepare(state,prevstate,history,step))
+        pred=ready(online_coin.prediction(state,*aux))
+    else:pred=ready(forecast(state,scale))
+    dummy=j.arange(1)
+    cycles=80 if rep in (1,2,4) else 40
+    for it in range(cycles+1):
+        a,b,extra,extra2,u,v=ready(tuple(sample(s) for s in (B,B,B,B,largest,largest)))
         left,right=ready(tuple({bs:tuple(x[:bs] for x in d) for _,_,_,bs in cases} for d in (u,v)))
         ka,kb,kc,kd=jax.random.split(jax.random.key(seed+it),4)
         times=[0.]*4
-        def one(ix):
+        def one(ix,working):
             if ix>=0:
                 m,kv,nv,bs=cases[ix]
-                return update(state,left[bs],ka,dummy,m,kv,nv)
+                return donated_baseline((left[bs],ka,dummy,m,kv,nv),working) if rep in (2,4) else update(working,left[bs],ka,dummy,m,kv,nv)
             tag=-ix-1
             corr=delta(extra,kc) if tag&2 else None
-            return advance(state,a if tag&1 else None,corr,ka,k,n,scale,.125,.015625)
+            args=(a if tag&1 else None,corr,ka,k,n,scale,.2 if rep else .125,.002 if rep else .015625)
+            if rep==3:
+                return online_coin.step(working,*args[:5],*args[6:],*aux)
+            return donated_candidate(args,working) if rep in (2,4) else advance(working,*args)
         for ix in rng.permutation(np.arange(-4,len(cases))):
-            start=time.perf_counter();ready(one(ix));elapsed=1000*(time.perf_counter()-start)
+            working=copy_state(state) if rep in (2,4) else state
+            start=time.perf_counter();ready(one(ix,working));elapsed=1000*(time.perf_counter()-start)
             if it:
                 if ix<0:times[-ix-1]=elapsed
                 else:rows[ix]['ms'].append(elapsed)
@@ -99,7 +142,7 @@ def main(step,B,k,n,scale):
         for row,(m,kv,nv,bs) in zip(rows,cases):
             row['pair'].append(float(pair(state,left[bs],right[bs],ka,dummy,m,kv,nv)))
         if it%5==0:fs.pipe(path,json.dumps(out).encode())
-    run.log({'cycles':40});run.finish()
+    run.log({'cycles':cycles});run.finish()
 
 
 if __name__=='__main__':

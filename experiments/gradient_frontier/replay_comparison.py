@@ -17,7 +17,7 @@ def run(method="native",width=128,depth=4):
         return json.loads(fs.cat_file(path))
     a=read(prefix+'/completed/4003.json')
     b=read(prefix+'/verification/4003.json')
-    for key in ('data_sha256','next_step','train_loss','validation','lr','adam_lr','loss'):
+    for key in ('data_sha256','next_step','train_loss','validation','lr','adam_lr','loss','primary_draw','precision_draw'):
         if key in a or key in b: assert a[key]==b[key],key
     assert a['run_id']!=b['run_id']
     ac,bc=[r['checkpoint'] for r in (a,b)]

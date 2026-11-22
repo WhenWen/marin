@@ -65,7 +65,14 @@ def main(mode,method="native",width=128,depth=4):
     fs.get_file(ROOT+'/inputs/windows-confirm.npz',str(folder/'holdout.npz'))
     with np.load(folder/'holdout.npz') as f:val=j.asarray(f['tokens'][:4])
     validation=eqx.filter_jit(lambda m:objective(m,val,j.zeros(1,j.int32),4,'full',1.))
-    if method!='native':
+    roulette=method.startswith('roulette-')
+    if roulette:
+        from .roulette_training import with_audits
+        from levanter.layers.attention import Attention
+        native_attention=Attention.__call__
+        _,numer,denom,corrden,scale=method.split('-')
+        prob=float(numer)/float(denom);audit_prob=1./float(corrden);scale=int(scale)
+    if method!='native' and not roulette:
         from .native_eval import objective as packed_objective
         from .multifidelity import shortlist
         freq,n,variant=map(int,method.split('-'))
@@ -136,7 +143,10 @@ def main(mode,method="native",width=128,depth=4):
             # A data fingerprint makes a new-process replay verifiable independently of loss equality.
             data_hash=hashlib.sha256(np.asarray(batch.tokens.array).tobytes()).hexdigest()
             tick=time.perf_counter()
-            info=trainer.train_step(state,batch);state=info.state
+            extra={}
+            if roulette:info,extra=with_audits(state,batch,prob,audit_prob,scale,native_attention)
+            else:info=trainer.train_step(state,batch)
+            state=info.state
             jax.block_until_ready(state);update_ms=(time.perf_counter()-tick)*1000
             n=int(state.step)
             assert n==step+1 and int(state.opt_state.count)==n
@@ -148,7 +158,7 @@ def main(mode,method="native",width=128,depth=4):
             assert read(cp[len('s3://'):]+'/metadata.json')['next_step']==n
             entry=dict(meta,checkpoint=cp,loss=float(info.loss),validation=valid,training_wall_ms=update_ms,
                        lr=float(state.opt_state.hyperparams['learning_rate']),adam_lr=float(state.opt_state.hyperparams['adam_lr']),
-                       wandb=track['wandb'])
+                       wandb=track['wandb'],**extra)
             with (folder/(run_id+'-loss.jsonl')).open('a') as log:log.write(json.dumps(entry)+'\n')
             tracker_key='completed' if mode in ('main','check') else 'verification'
             publish(prefix+'/'+tracker_key+f'/{n}.json',entry)
