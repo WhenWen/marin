@@ -40,7 +40,8 @@ def main(step,trial,Bcandidate=16,method=113,size=4096,count=64):
         elif method<240:from .lexical_control import fit,levels
         elif method<250:from .routed_groups import fit,levels
         elif method<260:from .proposal_chain import fit,levels
-        else:from .reciprocal_control import fit,levels
+        elif method<270:from .reciprocal_control import fit,levels
+        else:from .histogram_adjoint import fit,levels
     else:from .group_regression import fit,levels
     pop='native-packed' if screening else 'native-confirm4'
     if trial==60:pop='native-confirm2'
