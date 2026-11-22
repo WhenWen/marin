@@ -57,23 +57,39 @@ def prepare(model,panels,k,keys):
 
 
 @eqx.filter_jit
+def prepare_fast(model,panels,k,keys,fast):
+    R,M,b,t=panels[0].shape
+    def one(panel,key):
+        def get(d,ke):
+            g=anchor(model,d,k,ke)
+            return jax.tree.map(lambda a:j.empty((0,),j.float32) if a.size>2_000_000 else a.astype(j.bfloat16).astype(j.float32),g)
+        gs=jax.vmap(get)(panel,jax.random.split(key,M))
+        return jax.tree.map(lambda v:(v[1:].sum(0)-(M-1)*v[0])/M,gs)
+    # Small frozen calibration moments can be acquired in parallel; all ten disjoint slots are charged.
+    return jax.lax.map(lambda v:one(*v),(panels,keys),batch_size=2 if fast==2 else None)
+
+
+@eqx.filter_jit
 def timed(state,d,delta,key,gamma):
     g=gold(state.model,d,key)
-    grad=jax.tree.map(lambda a,b:a+gamma*b,g,delta)
+    grad=jax.tree.map(lambda a,b:a if b.size==0 else a+gamma*b,g,delta)
     return state.take_step(grad,key=key)[0]
 
 
 @eqx.filter_jit
-def stats(state,start,a,b,key,k):
+def stats(state,start,a,b,key,k,fast):
     ka,kb,kc,kd=jax.random.split(key,4)
     ga,gb=gold(state.model,a,ka),gold(state.model,b,kb)
     ha,hb=anchor(start.model,a,k,kc),anchor(start.model,b,k,kd)
     def val(x,y,u,v):
-        g=x-y;h=u-v;return .5*j.stack((j.vdot(g,g),j.vdot(h,h),j.vdot(g,h)))
+        g=x-y
+        if fast and u.size>2_000_000:return .5*j.stack((j.vdot(g,g),j.array(0.),j.array(0.)))
+        h=u.astype(j.bfloat16).astype(j.float32)-v.astype(j.bfloat16).astype(j.float32) if fast else u-v
+        return .5*j.stack((j.vdot(g,g),j.vdot(h,h),j.vdot(g,h)))
     return sum(val(*row) for row in zip(*map(jax.tree.leaves,(ga,gb,ha,hb))))
 
 
-def main(step,b,M,k):
+def main(step,b,M,k,fast=0):
     configure_storage();fs=fsspec.filesystem('s3');install();state,src=recover(step,fs)
     start=state if step==4001 else recover(4001,fs)[0]
     tmp=Path('/tmp/panel-hold.npz');fs.get_file(ROOT+'/inputs/native-packed.npz',str(tmp))
@@ -83,18 +99,18 @@ def main(step,b,M,k):
         ix=gen.integers(len(pool[0]),size=shape)
         return tuple(j.asarray(v[ix]) for v in pool)
     os.environ['WANDB_API_KEY']=require_secret('WANDB_API_KEY')
-    cfg=dict(step=step,b=b,M=M,k=k,checkpoint=src,seed=seed)
+    cfg=dict(step=step,b=b,M=M,k=k,fast=fast,checkpoint=src,seed=seed)
     run=wandb.init(entity='marin-community',project='gradient-variance-frontier',group='ten-independent-frozen-panels',id=os.urandom(5).hex(),config=cfg)
     cases=[(m,B) for m in (61,62,7) for B in (b//2,b,2*b,3*b,4*b,6*b)]
     rows=[dict(method=m,b=B,ms=[],pair=[]) for m,B in cases]
     out=dict(**cfg,wandb=run.url,device=jax.devices()[0].device_kind,rows=rows,components=[],ms=[],prep=[])
-    dest=ROOT+f'/frozen-panel/s{step}-b{b}-ratio{M}-k{k}.json'
+    dest=ROOT+f'/frozen-panel/s{step}-b{b}-ratio{M}-k{k}'+(f'-fast{fast}' if fast else '')+'.json'
     dummy=j.arange(1)
     for it in range(49):
         key=jax.random.key(seed+it)
         if it%8==0:
             panels=ready(draw((10,M,b)));keys=jax.random.split(key,10)
-            t=time.perf_counter();all_delta=ready(prepare(start.model,panels,k,keys));elapsed=1000*(time.perf_counter()-t)
+            t=time.perf_counter();all_delta=ready(prepare_fast(start.model,panels,k,keys,fast) if fast else prepare(start.model,panels,k,keys));elapsed=1000*(time.perf_counter()-t)
             if it:out['prep'].append(elapsed)
         slot=it%8
         # Stage cache access outside the clock once, then charge its real cost in the candidate operation below.
@@ -112,7 +128,7 @@ def main(step,b,M,k):
                 if ix==-1:out['ms'].append(ms)
                 else:rows[ix]['ms'].append(ms)
         if not it:continue
-        out['components'].append(np.asarray(stats(state,start,l[b],r[b],key,k)).tolist())
+        out['components'].append(np.asarray(stats(state,start,l[b],r[b],key,k,fast)).tolist())
         for row,(m,B) in zip(rows,cases):
             row['pair'].append(float(pair(state,l[B],r[B],key,dummy,m,12288 if m==61 else 16384,64)))
         if it%8==0:fs.pipe(dest,json.dumps(out).encode())
