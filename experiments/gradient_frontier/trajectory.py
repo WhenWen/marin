@@ -65,7 +65,7 @@ def main(mode,method="native",width=128,depth=4):
     fs.get_file(ROOT+'/inputs/windows-confirm.npz',str(folder/'holdout.npz'))
     with np.load(folder/'holdout.npz') as f:val=j.asarray(f['tokens'][:4])
     validation=eqx.filter_jit(lambda m:objective(m,val,j.zeros(1,j.int32),4,'full',1.))
-    roulette=method.startswith('roulette-')
+    roulette=method.startswith(('roulette-','learnedroulette-'))
     if roulette:
         from .roulette_training import with_audits
         from levanter.layers.attention import Attention
@@ -137,6 +137,10 @@ def main(mode,method="native",width=128,depth=4):
         publish(prefix+'/attempts/'+run_id+'/lineage.json',track)
         trainer.tracker.log_hyperparameters(track)
         print('VERIFIED FULL MUONW RESTORE',track,flush=True)
+        aux=None
+        if method.startswith('learnedroulette-'):
+            from .roulette_training import initial_forecast,restore_forecast,save_forecast
+            aux=initial_forecast(state) if expected==4001 else restore_forecast(fs,src,state)
         loader=iter(loader)
         for step in range(expected,end):
             batch=next(loader)
@@ -144,7 +148,7 @@ def main(mode,method="native",width=128,depth=4):
             data_hash=hashlib.sha256(np.asarray(batch.tokens.array).tobytes()).hexdigest()
             tick=time.perf_counter()
             extra={}
-            if roulette:info,extra=with_audits(state,batch,prob,audit_prob,scale,native_attention)
+            if roulette:info,extra,aux=with_audits(state,batch,prob,audit_prob,scale,native_attention,aux)
             else:info=trainer.train_step(state,batch)
             state=info.state
             jax.block_until_ready(state);update_ms=(time.perf_counter()-tick)*1000
@@ -156,6 +160,7 @@ def main(mode,method="native",width=128,depth=4):
                       data_sha256=data_hash,optimizer='muonw',trainer_fingerprint=lineage['fingerprint'])
             save_checkpoint(state.saveable_state,step,cp,is_temporary=False,metadata=meta)
             assert read(cp[len('s3://'):]+'/metadata.json')['next_step']==n
+            if aux is not None:extra['forecast_sha256']=save_forecast(fs,cp,aux)
             entry=dict(meta,checkpoint=cp,loss=float(info.loss),validation=valid,training_wall_ms=update_ms,
                        lr=float(state.opt_state.hyperparams['learning_rate']),adam_lr=float(state.opt_state.hyperparams['adam_lr']),
                        wandb=track['wandb'],**extra)

@@ -102,7 +102,7 @@ def main(st,B,k,n,scale):
             if ix>=0:
                 m,kv,nv,bs=cases[ix];ready(update(state,left[bs],ka,dummy,m,kv,nv))
             else:
-                tag=-ix-1;part=tag%3
+                tag=-int(ix)-1;part=tag%3
                 corr=delta(c,kc) if tag>=3 else None
                 ready(step(state,a if part else None,corr,ka,k,n,part,scale,.2 if part==1 else .05,.002))
             elapsed=1000*(time.perf_counter()-tick)

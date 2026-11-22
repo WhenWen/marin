@@ -44,7 +44,7 @@ def prediction(state,previous,gram,cross):
 
 
 @eqx.filter_jit
-def step(state,data,delta,key,k,n,p,r,previous,gram,cross):
+def step(state,data,delta,key,k,n,p,r,previous,gram,cross,next_key=None):
     pred,xs=inspect(state,previous,gram,cross)
     g=pred
     if data is not None:
@@ -54,4 +54,4 @@ def step(state,data,delta,key,k,n,p,r,previous,gram,cross):
     # Both statistics are available from the step just taken and enter only the next forecast.
     aa=.72*gram+j.stack([x@x.T for x in xs])
     bb=.72*cross+j.stack([x@v.reshape(-1) if x.size else j.zeros(2) for x,v in zip(xs,jax.tree.leaves(g))])
-    return state.take_step(g,key=key)[0],aa,bb
+    return state.take_step(g,key=key if next_key is None else next_key)[0],aa,bb
