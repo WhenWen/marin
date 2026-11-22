@@ -48,7 +48,7 @@ def main(step,trial,Bcandidate=16,method=113,size=4096,count=64):
     else:from .group_regression import fit,levels
     pop='native-packed' if screening else 'native-confirm4'
     if trial==60:pop='native-confirm2'
-    if trial==61:pop='native-confirm3'
+    if trial in (61,62):pop='native-confirm3'
     tmp=Path('/tmp/contest-data.npz');fs.get_file(ROOT+'/inputs/'+pop+'.npz',str(tmp))
     meta=json.loads(fs.cat_file(ROOT+'/inputs/'+pop+'.json'))
     assert hashlib.sha256(tmp.read_bytes()).hexdigest()==meta['sha256']
@@ -76,7 +76,7 @@ def main(step,trial,Bcandidate=16,method=113,size=4096,count=64):
     if trial>=90:
         bs=sorted({max(1,Bcandidate//4),max(2,Bcandidate//2),max(3,3*Bcandidate//4),Bcandidate,5*Bcandidate//4,3*Bcandidate//2,2*Bcandidate})
         cases=cases[:1]+[(m,k,n,b) for m,k,n in ((7,16384,64),(61,12288,64),(62,16384,64),(61,8192,32)) for b in bs]
-    if trial in (60,61):
+    if trial in (60,61,62):
         sizes=(8,16,24,32,40,48,64,80)
         configurations=((3,16384,0),(3,32768,0),(4,4096,0),(201,4096,0),(202,8192,0),(206,1024,0),
                         (61,4096,32),(61,4096,128),(61,4096,256),(61,8192,64),(61,12288,64),
@@ -88,25 +88,26 @@ def main(step,trial,Bcandidate=16,method=113,size=4096,count=64):
     run=wandb.init(entity='marin-community',project='gradient-variance-frontier',group='matched-sampled-softmax-crossover',id=os.urandom(5).hex(),config=dict(step=step,trial=trial,seed=seed,source=source,holdout=meta,device=device))
     dst=(ROOT+f'/screen-contest/{device.split()[1]}-s{step}-v{method}-k{size}-n{count}-b{Bcandidate}-r{trial}.json' if screening else ROOT+f'/matched-contest/{device.split()[1]}-s{step}-r{trial}.json')
     if trial==60:dst=ROOT+f'/replicated-grid/{device.split()[1]}-s{step}-v{method}-b{Bcandidate}-k{size}-n{count}.json'
-    if trial==61:dst=ROOT+f'/donated-crossfit/{device.split()[1]}-s{step}-v{method}-b{Bcandidate}-k{size}-n{count}.json'
+    if trial in (61,62):dst=ROOT+f'/donated-crossfit/{device.split()[1]}-s{step}-v{method}-b{Bcandidate}-k{size}-n{count}.json'
+    if trial==62:dst=dst.replace('/donated-crossfit/', '/native-donated-crossfit/')
     rows={key:dict(method=key[0],k=key[1],n=key[2],b=key[3],pair=[],ms=[]) for key in cases}
     dummy=j.arange(1);banks={k:bank if k==cases[0] else dummy for k in cases}
     def save(stage):
         record=dict(step=step,trial=trial,device=device,source=source,holdout=meta,wandb=run.url,prep=prep,stage=stage,rows=list(rows.values()))
-        if trial==61:
+        if trial in (61,62):
             from .diagnostic_artifacts import publish
             publish(fs,dst,record)
         else:fs.pipe(dst,json.dumps(record).encode())
     def batches():
         ix=gen.integers(len(hold[0]),size=max(b for _,_,_,b in cases))
         return {b:tuple(j.asarray(a[ix[:b]]) for a in hold) for b in {case[3] for case in cases}}
-    if trial==61:
+    if trial in (61,62):
         from .independent_audits import donated_baseline,copy_state
     def elapsed(case,data,key):
         m,k,n,B=case
-        if trial==61:work=copy_state(state)
+        if trial in (61,62):work=copy_state(state)
         tick=time.perf_counter()
-        if trial==61:ready(donated_baseline((data,key,banks[case],m,k,n),work))
+        if trial in (61,62):ready(donated_baseline((data,key,banks[case],m,k,n),work))
         else:ready(update(state,data,key,banks[case],m,k,n))
         return 1000*(time.perf_counter()-tick)
     # Compile before creating any timed observation. Execute all methods in randomized order each cycle.
@@ -121,8 +122,8 @@ def main(step,trial,Bcandidate=16,method=113,size=4096,count=64):
             case=cases[idx];m,k,n,B=case
             rows[case]['pair'].append(float(pair(state,a[B],b[B],key,banks[case],m,k,n)))
         for idx in gen.permutation(len(cases)):
-            case=cases[idx];m,k,n,B=case;t=time.perf_counter()
-            elapsed(case,a[B],key);rows[case]['ms'].append(1000*(time.perf_counter()-t))
+            case=cases[idx];m,k,n,B=case
+            rows[case]['ms'].append(elapsed(case,a[B],key))
         if (it+1)%12==0:save('partial')
     save('complete')
     run.log({'variance/learned':np.mean(rows[cases[0]]['pair'])});run.finish()
