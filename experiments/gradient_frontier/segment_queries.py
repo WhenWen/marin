@@ -15,7 +15,7 @@ B=32
 PHASES=16
 
 
-def plan(segments,cut,batch,rng):
+def plan(segments,cut,batch,rng,balanced=False):
     """All segment descriptors fit into fixed-width groups, including a final zero-padded group."""
     groups=[[],[]]
     for i,s in enumerate(segments):
@@ -29,7 +29,16 @@ def plan(segments,cut,batch,rng):
             continue
         count=(len(rows)+batch-1)//batch
         padded=np.zeros((count*batch,3),np.int32)
-        padded[:len(rows)]=rng.permutation(np.asarray(rows,np.int32))
+        shuffled=rng.permutation(np.asarray(rows,np.int32))
+        if balanced:
+            # Every row appears exactly once. Spread long segments over groups before querying one group.
+            by_length=shuffled[np.argsort(-shuffled[:,2],kind='stable')]
+            striped=np.zeros((batch,count,3),np.int32)
+            striped.reshape(-1,3)[:len(rows)]=by_length
+            striped[1::2]=striped[1::2,::-1].copy()
+            padded=striped.transpose(1,0,2).reshape(-1,3)
+        else:
+            padded[:len(rows)]=shuffled
         offsets=rng.integers(PHASES,size=(count,batch,length//PHASES),dtype=np.int32)
         assignments.append((j.asarray(padded.reshape(count,batch,3)),j.asarray(offsets),int(rng.integers(count))))
     return assignments
