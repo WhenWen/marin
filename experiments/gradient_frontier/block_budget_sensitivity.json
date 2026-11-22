@@ -1,0 +1,31 @@
+{
+  "registered_utc": "2026-11-22T03:50:02.899994+00:00",
+  "primary": "Unchanged: match the actual candidate mean cost within measured convex hull support; no ratio outside support.",
+  "purpose": "secondary Pareto dominance with a common maximum budget and unused compute allowed, including cases in which the candidate is cheaper than the baseline floor",
+  "primary_data_status": "no completed 50-step main crossover observed at registration; independent raw-variance tasks underway, first two engineering replay clocks on unrepaired 401 observed",
+  "fixed_caps": [
+    [
+      61,
+      12288,
+      64,
+      4,
+      0
+    ],
+    [
+      62,
+      16384,
+      64,
+      8,
+      0
+    ]
+  ],
+  "candidate": [
+    402,
+    12288,
+    64,
+    32,
+    500
+  ],
+  "rule": "At each cap evaluate all measured controls on the same board-panel using the lower convex envelope with free disposal. Report a ratio only if the candidate is feasible at that cap. Price every successful 50-step clock at its arithmetic mean including prescribed preparation and audited steps. Use paired block bootstrap with infeasible bootstrap replicates assigned zero for a lower bound. Report both fixed caps; do not select the better cap for the preregistered primary test.",
+  "panel_scope": "The B4 cap appears on panels 4 and 5; B8 cap appears on 4 and 5; panel-specific values are independently paired with their full controls."
+}
