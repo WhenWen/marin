@@ -1,0 +1,103 @@
+{
+  "utc": "2026-11-22T03:16:28.497195+00:00",
+  "source": "a8672138a",
+  "candidate": [
+    401,
+    12288,
+    64,
+    32,
+    500
+  ],
+  "probabilities": {
+    "trunk": 0.3,
+    "readout": 0.075,
+    "audit": 0.002
+  },
+  "predictor": "forecast(state,10)",
+  "target": "raw gradient trace of native batch-32 CE on iid packed 1024-token sequences at original MuonW states 4001..4050; equal sequence weight; ideal arithmetic, numerical identity measured separately",
+  "pool": "native-confirm5",
+  "sha256": "ca82bc8efa7b269eceb61c323d7134d32f14bbd0628df13a777862e9b35420c9",
+  "excluded": "source blocks overlapping [128*(4001-2),128*(4051+2)); fixed before reading measurements",
+  "replicates": [
+    0,
+    1
+  ],
+  "pairs_per_step_per_replicate": 16,
+  "seeds": [
+    851203,
+    851204,
+    851205,
+    851206
+  ],
+  "seed_strata": [
+    [
+      [
+        856100,
+        0
+      ],
+      [
+        856101,
+        0
+      ],
+      [
+        856103,
+        0
+      ],
+      [
+        856104,
+        0
+      ]
+    ],
+    [
+      [
+        856102,
+        1
+      ],
+      [
+        856109,
+        1
+      ],
+      [
+        856129,
+        1
+      ],
+      [
+        856133,
+        1
+      ]
+    ],
+    [
+      [
+        856105,
+        2
+      ],
+      [
+        856273,
+        2
+      ],
+      [
+        856326,
+        2
+      ],
+      [
+        856473,
+        2
+      ]
+    ]
+  ],
+  "strata_weights": [
+    0.9047468180040357,
+    0.09065599378797953,
+    0.004597188207984798
+  ],
+  "panels": [
+    2,
+    3
+  ],
+  "primary_hardware": "GB200",
+  "cost": "50 actual synchronized original MuonW updates from independent forks of same start, randomized same physical board per panel; charge schedule preparation/50. Stratified clocks including every rare event at exact binomial stratum weights. Report unconditioned windows separately. No timing outlier trimming.",
+  "variance": "unconditional trace over random examples, phases and audits; 32 paired draws/state integrated over allocation and precision coins, paired baseline draws; equal weights for 50 native states",
+  "frontier": "stronger of both comparator families measured on respective same-board panel; no extrapolation; convexify only by randomizing between unbiased configurations at the same target. Report conservative discrete envelope as sensitivity and note floating point target of comparators.",
+  "decision": "independent paired bootstrap, block length 5 over states, joint sample-pair indices and resample 50-step physical-board windows within timing strata; both panel lower 95% bounds >=2. If no overlap, no confirmed ratio. Retire these data for tuning.",
+  "identity": "exhaust two assignments of 2 independent data panels, all 16 cyclic phases and 6 gate outcomes on each of 6 panel pairs at states 4001,4013,4026,4038,4050"
+}
