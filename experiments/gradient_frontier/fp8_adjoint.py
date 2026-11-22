@@ -53,7 +53,7 @@ def fit(model,data,k,kind):
     return ids,packed,s,coef.astype(j.bfloat16)
 
 
-def objective(x,w,y,weight,key,config,bank,forced=None):
+def objective(x,w,y,weight,key,config,bank,forced=None,return_prob=False):
     method,k=divmod(config[0],100000);n=config[1]
     B,T,D=x.shape
     stop=jax.lax.stop_gradient
@@ -91,4 +91,5 @@ def objective(x,w,y,weight,key,config,bank,forced=None):
     hx=j.take_along_axis(x,index[:,:,None],axis=1)
     scores=(hx@w.T).astype(j.float32)
     exact=jax.nn.logsumexp(scores,axis=-1)-j.take_along_axis(scores,sel(y)[:,:,None],-1)[:,:,0]
-    return ((weight*cheap).sum()+(sel(weight)*(exact-sel(cheap))*inv).sum())/weight.sum()
+    value=((weight*cheap).sum()+(sel(weight)*(exact-sel(cheap))*inv).sum())/weight.sum()
+    return (value,p) if return_prob else value
