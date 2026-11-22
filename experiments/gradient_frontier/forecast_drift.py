@@ -33,7 +33,8 @@ def main(step,trajectory):
     initial,_=recover(4001,fs);fused_attention.install()
     if trajectory and step>4001:
         origin=ROOT+'/fifty-crossover-v1/GB200-p6-s856102/main/commits/'+str(step)+'.json'
-        receipt=json.loads(fs.cat_file(origin));src=receipt['checkpoints']['402-12288-64-32-500']
+        receipt=json.loads(fs.cat_file(origin));name={1:'402-12288-64-32-500',2:'62-16384-64-8-0'}[trajectory]
+        src=receipt['checkpoints'][name]
         template=eqx.filter_eval_shape(lambda:initial)
         state=load_checkpoint(template,src,allow_partial=False,axis_mapping={},mesh=jax.sharding.Mesh(np.asarray(jax.devices()).reshape((-1,1)),('data','model')))
         assert int(state.step)==step
