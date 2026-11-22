@@ -37,6 +37,7 @@ END=4051
 
 def configurations(panel):
     # Independent curves on each physical board. Each batch uses the same ordered original training stream.
+    if panel==10:return configurations(6)
     if panel==8:
         return [(406,12288,64,32,500),(61,1024,16,1,0),(62,16384,64,2,0),(61,12288,64,4,0),(62,16384,64,8,0),(61,12288,64,12,0)]
     if panel==7:
@@ -132,7 +133,7 @@ def train(mode,seed,panel):
     stage='replay' if mode in ('check','verify') else 'main';prefix=root+'/'+stage
     from . import fifty_blocks,fifty_blocks_strict,block_rate_grid,prepared_blocks
     initial,src=recover(START,fs);fused_attention.install()
-    block_panel=panel in (2,3,4,5,6,7,8)
+    block_panel=panel in (2,3,4,5,6,7,8,10)
     block_impl=fifty_blocks_strict if panel>=4 else fifty_blocks
     manifest=read(ROOT+'/fifty-stream/manifest.json');assert len(manifest['files'])==50
     files={v['step']:v for v in manifest['files']}
