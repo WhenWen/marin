@@ -64,8 +64,7 @@ def moments(state,low,hi,part):
     return j.stack(rows)
 
 
-@functools.partial(eqx.filter_jit,donate='all-except-first')
-def advance(inputs,state):
+def estimate(inputs,state):
     low,hi,part,coef,delta=inputs
     pred=forecast(state,10)
     if part:
@@ -78,7 +77,15 @@ def advance(inputs,state):
             return prior+adj/q if b is None else prior+adj/q+(b.astype(j.float32)-prior-adj)/p
         pred=jax.tree_util.tree_map_with_path(apply,pred)
     if delta is not None:pred=jax.tree.map(lambda x,d:x+d/.002,pred,delta)
-    return state.take_step(pred,key=jax.random.split(state.training_key)[1])[0]
+    return pred
+
+
+emitted=eqx.filter_jit(estimate)
+
+
+@functools.partial(eqx.filter_jit,donate='all-except-first')
+def advance(inputs,state):
+    return state.take_step(estimate(inputs,state),key=jax.random.split(state.training_key)[1])[0]
 
 
 def main(step,length,k):
