@@ -32,8 +32,12 @@ def fit(model,data,K):
     leaves,td=jax.tree.flatten(dynamic)
     def one(probe):
         keys=jax.random.split(jax.random.fold_in(jax.random.key(5392),probe),len(leaves))
-        tangent=jax.tree.unflatten(td,[jax.random.rademacher(key,a.shape,dtype=a.dtype)*.03125 if a.size<2_000_000 else j.zeros_like(a) for a,key in zip(leaves,keys)])
-        _,projection=jax.jvp(fn,(dynamic,),(tangent,))
+        # Symmetric perturbations work with the production attention kernel's reverse-mode rule.
+        directions=[jax.random.rademacher(key,a.shape,dtype=a.dtype)*.0015 if a.size<2_000_000 else None
+                    for a,key in zip(leaves,keys)]
+        def evaluate(sign):
+            return fn(jax.tree.unflatten(td,[a if d is None else a+sign*d for a,d in zip(leaves,directions)]))
+        projection=(evaluate(1)-evaluate(-1))/.003
         centered=projection-projection.mean(0)
         return centered.T@centered
     cov=jax.lax.fori_loop(0,4,lambda i,s:s+one(i),j.zeros((K,K)))
