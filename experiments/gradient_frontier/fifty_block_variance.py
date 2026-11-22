@@ -47,7 +47,7 @@ def discrepancy(state, data, key):
 
 
 def main(block, rep, strict=0):
-    from . import fifty_blocks_strict as fixed
+    from . import fifty_blocks_strict as fixed,samplewise_blocks as single
     configure_storage()
     fs = fsspec.filesystem('s3')
     pool, provenance = population(fs,strict)
@@ -56,11 +56,11 @@ def main(block, rep, strict=0):
     sizes = sorted({c[3] for c in cases} | {fifty_blocks.B})
     gpu = jax.devices()[0].device_kind
     board = subprocess.check_output(['nvidia-smi','--query-gpu=uuid','--format=csv,noheader'],text=True).strip()
-    cfg = dict(**provenance,device=gpu, board=board, block=block, rep=rep, dataset='native-confirm6' if strict else 'native-confirm5', method=402 if strict else 401, paired_seed=653927)
+    cfg = dict(**provenance,device=gpu, board=board, block=block, rep=rep, dataset='native-confirm6' if strict else 'native-confirm5', method=408 if strict==2 else 402 if strict else 401, paired_seed=653927)
     os.environ['WANDB_API_KEY'] = require_secret('WANDB_API_KEY')
     run = wandb.init(entity='marin-community',project='gradient-variance-frontier',group='fifty-block-confirmation',id=os.urandom(6).hex(),mode='online',config=cfg)
     dummy = jnp.arange(1)
-    folder='fifty-block-strict-variance-v1' if strict else 'fifty-block-variance-v1'
+    folder='fifty-samplewise-block-variance-v1' if strict==2 else 'fifty-block-strict-variance-v1' if strict else 'fifty-block-variance-v1'
     for step in range(4001+5*block,4006+5*block):
         dst = ROOT+f'/{folder}/{gpu.split()[1]}-s{step}-r{rep}.json'
         if fs.exists(dst) and json.loads(fs.cat_file(dst)).get('complete'):
@@ -90,7 +90,7 @@ def main(block, rep, strict=0):
                     g1=block_audits.grad(state,left[B],key_a,K,N,part)
                     g2=block_audits.grad(state,right[B],key_b,K,N,part)
                     values.append(np.asarray(block_audits.component(g1,g2,pred,part)))
-            repair=fixed.discrepancy if strict else discrepancy
+            repair=single.discrepancy if strict==2 else fixed.discrepancy if strict else discrepancy
             values.append(np.asarray(norm_moments(repair(state,batch(2,B),key_c),repair(state,batch(3,B),key_d))))
             out['components'].append(np.concatenate(values).tolist())
             for idx in rng.permutation(len(cases)):
