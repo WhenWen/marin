@@ -62,7 +62,7 @@ def advance(inputs,state):
     return state.take_step(prediction(state,raw,part,delta),key=nextkey)[0]
 
 
-def update(state,data,gate,seed):
+def update(state,data,gate,seed,repair=discrepancy):
     part,hit,indices=gate
     stepkey,nextkey=jax.random.split(state.training_key)
     gkey,phasekey,dkey=jax.random.split(jax.random.fold_in(stepkey,seed),3)
@@ -71,7 +71,7 @@ def update(state,data,gate,seed):
         batch=tuple(v[indices[:B]] for v in data)
         phase=jax.random.randint(phasekey,(),0,batch[0].shape[1]//N,dtype=jnp.int32)
         value=raw_block(state,batch,gkey,part,phase)
-    delta=discrepancy(state,tuple(v[indices[B:]] for v in data),dkey) if hit else None
+    delta=repair(state,tuple(v[indices[B:]] for v in data),dkey) if hit else None
     return advance((value,part,delta,nextkey),state),hit
 
 

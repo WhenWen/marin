@@ -38,6 +38,7 @@ END=4051
 def configurations(panel):
     # Independent curves on each physical board. Each batch uses the same ordered original training stream.
     if panel==10:return configurations(6)
+    if panel==12:return [(408,12288,64,32,500),*configurations(6)[1:]]
     if panel==8:
         return [(406,12288,64,32,500),(61,1024,16,1,0),(62,16384,64,2,0),(61,12288,64,4,0),(62,16384,64,8,0),(61,12288,64,12,0)]
     if panel==7:
@@ -131,9 +132,9 @@ def train(mode,seed,panel):
     assert fs.exists(root+'/logging.json')
     if mode=='main':assert read(root+'/verified.json')['bitwise_match']
     stage='replay' if mode in ('check','verify') else 'main';prefix=root+'/'+stage
-    from . import fifty_blocks,fifty_blocks_strict,block_rate_grid,prepared_blocks
+    from . import fifty_blocks,fifty_blocks_strict,block_rate_grid,prepared_blocks,samplewise_blocks
     initial,src=recover(START,fs);fused_attention.install()
-    block_panel=panel in (2,3,4,5,6,7,8,10)
+    block_panel=panel in (2,3,4,5,6,7,8,10,12)
     block_impl=fifty_blocks_strict if panel>=4 else fifty_blocks
     manifest=read(ROOT+'/fifty-stream/manifest.json');assert len(manifest['files'])==50
     files={v['step']:v for v in manifest['files']}
@@ -165,7 +166,7 @@ def train(mode,seed,panel):
         schedule,sched_ms=fifty_blocks.schedule(seed)
         sha=hashlib.sha256(b''.join(bytes([tag,hit])+np.asarray(idx).tobytes() for tag,hit,idx in schedule)).hexdigest()
         bank=None;bank_meta=dict(sha256=sha,origin=src,prep_ms=sched_ms,cold_prep_ms=sched_ms)
-        schedules={402:schedule,401:schedule}
+        schedules={402:schedule,401:schedule,408:schedule}
         if panel==8:
             slots,phases,prep_ms=prepared_blocks.prepare(seed)
             host=[np.stack([np.asarray(plan[k]) for plan in slots]) for k in range(5)]
@@ -214,6 +215,7 @@ def train(mode,seed,panel):
         r=wandb.init(entity='marin-community',project='gradient-variance-frontier',group='fifty-actual-crossover-'+mode,id=uuid.uuid4().hex[:12],
                      mode='online',reinit='create_new',name=f'{device.split()[1]}-{name(c)}-s{seed}-{mode}',config=cfg);runs[c]=r
     def block_update(c,state,data,gate):
+        if c[0]==408:return fifty_blocks_strict.update(state,data,gate,seed,samplewise_blocks.discrepancy)
         if c[0]==406:
             part,hit,slot=gate
             return prepared_blocks.update(state,data,slot,phases,part,hit)
@@ -224,7 +226,7 @@ def train(mode,seed,panel):
             m,k,n,_,_=c
             return prepared_blocks.baseline((data,j.asarray(seed,j.uint32),m,k,n),state),False
         return update(state,data,bank,c,seed,forced)
-    def is_block(c):return c[0] in (401,406) or c[0] in block_rate_grid.RATES
+    def is_block(c):return c[0] in (401,406,408) or c[0] in block_rate_grid.RATES
     inputs=load_data(start)
     for c in (() if mode=="verify" else cfgs):
         data=tuple(v[:c[3]] for v in inputs);tic=time.perf_counter()
