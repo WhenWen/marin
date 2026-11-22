@@ -40,6 +40,15 @@ def objective(model,data,ids,key,config):
     x=m.transformer.norm(x).rearrange(('batch','position','embed')).array
     w=m.get_lm_head().rearrange(('vocab','embed')).array
     y=j.roll(tokens,-1,axis=1)
+    if code//100000 in range(220,228):
+        from .vocab_coreset import objective as coreset
+        return coreset(x,w,y,weight,key,config,ids)
+    if code//100000 in range(210,218):
+        from .batched_tree import objective as batch_tree
+        return batch_tree(x,w,y,weight,key,config,ids)
+    if code//100000 in range(190,198):
+        from .local_tilt import objective as tilted
+        return tilted(x,w,y,weight,key,config,ids)
     if code//100000 in range(180,188):
         from .antithetic_vocab import objective as antithetic
         return antithetic(x,w,y,weight,key,config,ids)
