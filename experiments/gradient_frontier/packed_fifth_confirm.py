@@ -10,14 +10,14 @@ async def build(cfg, version=5):
     ds=cfg.data.train_set(cfg.model.max_Pos,cfg.trainer.batch_schedule,key=jax.random.PRNGKey(cfg.data_seed))
     fs=fsspec.filesystem('s3')
     sources=['native-packed','native-confirm','native-confirm2','native-confirm3','native-confirm4']
-    if version==6:sources.append('native-confirm5')
+    if version>=6:sources.extend(f'native-confirm{i}' for i in range(5,version))
     old=[]
     for name in sources:
         with fs.open(ROOT+'/inputs/'+name+'.npz','rb') as fd, np.load(fd) as archive:
             old.extend(archive['starts'].tolist())
     forbidden=np.asarray(old)[:,None]//128+np.arange(-2,3)[None,:]
-    valid=np.setdiff1d(np.arange(4054 if version==6 else 4032,7600,2),forbidden.ravel())
-    rng=np.random.default_rng(48169317 if version==6 else 837368557)
+    valid=np.setdiff1d(np.arange(4054 if version>=6 else 4032,7600,2),forbidden.ravel())
+    rng=np.random.default_rng({5:837368557,6:48169317,7:77562913}[version])
     starts=128*rng.choice(valid,64,replace=False)
     assert np.min(abs(starts[:,None]-np.asarray(old)[None,:]))>256
     batches=[]
@@ -34,7 +34,7 @@ def main(version=5):
     cfg=configuration(RunSpec(128,4,'standard','muonw',.02,0),'diagnostic','s3://marin-us-east-02a/marin','s3://marin-us-east-04a/marin/experiments',1,8)
     (tokens,weights,segments),starts=asyncio.run(build(cfg,version))
     out=Path(f'/tmp/native-confirm{version}.npz');np.savez(out,tokens=tokens,weights=weights,segments=segments,starts=starts)
-    meta=dict(source='native shuffled dataset, seed 42',shape=list(tokens.shape),distinct_blocks=len(starts),start_offsets=starts.tolist(),selection_seed=48169317 if version==6 else 837368557,
+    meta=dict(source='native shuffled dataset, seed 42',shape=list(tokens.shape),distinct_blocks=len(starts),start_offsets=starts.tolist(),selection_seed={5:837368557,6:48169317,7:77562913}[version],
               nonzero_counts=np.unique((weights!=0).sum(-1)).tolist(),sha256=hashlib.sha256(out.read_bytes()).hexdigest())
     fs.put_file(str(out),ROOT+f'/inputs/native-confirm{version}.npz')
     fs.pipe(ROOT+f'/inputs/native-confirm{version}.json',json.dumps(meta).encode())
