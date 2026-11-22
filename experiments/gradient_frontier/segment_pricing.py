@@ -36,7 +36,7 @@ def main(step,cut,batch,k,balanced=0,prefix=0,joint=0):
     cases=[(m,kv,n,b,0) for m,kv,n in ((61,4096,32),(61,12288,64),(62,16384,64))
            for b in (1,2,4,8,12,16,24,32)]
     out=dict(**cfg,wandb=run.url,parts=[],prices=[],rows=[dict(config=c,ms=[],pairs=[]) for c in cases])
-    folder='joint-segment-prefix-pricing' if joint and prefix else 'joint-segment-pricing' if joint else 'segment-prefix-pricing' if prefix else 'balanced-segment-pricing' if balanced else 'segment-pricing'
+    folder='joint-static-segment-prefix-pricing' if joint and prefix else 'joint-static-segment-pricing' if joint else 'segment-prefix-pricing' if prefix else 'balanced-segment-pricing' if balanced else 'segment-pricing'
     path=ROOT+f'/{folder}/s{step}-l{cut}-b{batch}-k{k}.json'
     for i in range(25):
         rng=np.random.default_rng(np.random.SeedSequence([820153,step,i]))

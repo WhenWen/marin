@@ -26,7 +26,8 @@ def plan(s,cut,batch,rng,balanced,prefix):
         else:
             g,o,_=entry;groups.append(g);base.append(o);counts.append(len(g))
     period=math.lcm(*counts)
-    return tuple(groups),tuple(base),period,int(rng.integers(period))
+    tables=tuple(tuple((g[i],o[i]) for i in range(len(g))) for g,o in zip(groups,base))
+    return tables,tuple(j.asarray(n,j.float32) for n in counts),period,int(rng.integers(period))
 
 
 def pack(data,group,off,phase,length,skip):
@@ -41,12 +42,11 @@ def pack(data,group,off,phase,length,skip):
     return toks.reshape(-1,1024),targets.reshape(-1,1024),wt.reshape(-1,1024),identity.reshape(-1,1024),((off+phase)%16).reshape(-1,64)
 
 
-def loss(model,data,groups,offsets,index,phase,cut,k,prefix):
+def loss(model,data,chosen,counts,phase,cut,k,prefix):
     pieces=[]
-    for length,g,o in zip((cut,1024),groups,offsets):
-        chosen=index%len(g)
-        x,y,weight,segid,off=pack(data,g[chosen],o[chosen],phase,length,cut if prefix and length==1024 else 0)
-        pieces.append((x,y,weight*len(g),segid,off))
+    for length,(g,o),n in zip((cut,1024),chosen,counts):
+        x,y,weight,segid,off=pack(data,g,o,phase,length,cut if prefix and length==1024 else 0)
+        pieces.append((x,y,weight*n,segid,off))
     x,y,wt,ids,offset=(j.concatenate(values,0) for values in zip(*pieces))
     total=wt.sum();safe=wt.at[0,0].add((total==0).astype(wt.dtype))
     m=jax.tree.map(lambda a:a.astype(j.bfloat16),model)
@@ -59,8 +59,8 @@ raw=eqx.filter_jit(eqx.filter_grad(loss))
 
 
 def draw(model,data,layout,cut,k,phases,prefix):
-    groups,offsets,_,which=layout
-    return raw(model,data,groups,offsets,j.asarray(which,j.int32),phases[0],cut,k,prefix)
+    tables,counts,_,which=layout
+    return raw(model,data,tuple(t[which%len(t)] for t in tables),counts,phases[0],cut,k,prefix)
 
 
 @eqx.filter_jit
@@ -68,11 +68,11 @@ def repair(g,s,n):return jax.tree.map(lambda a,b:a-b/n,g,s)
 
 
 def correction(model,data,layout,cut,k,phases,prefix):
-    groups,offsets,period,_=layout
+    tables,counts,period,_=layout
     gold=native_call(native_audit,model,data,32);s=None
     for idx in range(period):
-        ix=j.asarray(idx,j.int32)
+        selected=tuple(t[idx%len(t)] for t in tables)
         for phase in phases:
-            v=raw(model,data,groups,offsets,ix,phase,cut,k,prefix)
+            v=raw(model,data,selected,counts,phase,cut,k,prefix)
             s=v if s is None else seg.plus(s,v)
     return repair(gold,s,16*period)
