@@ -52,7 +52,7 @@ def _backward(saved,cts):
 teacher_loss.defvjp(_teacher,_backward)
 
 
-def objective(x,w,y,wt,key,config,bank):
+def objective(x,w,y,wt,key,config,bank,forced=None,return_prob=False):
     code,n=config;kind,k=divmod(code,100000)
     b,t,d=x.shape;width=t//n;stop=jax.lax.stop_gradient
     cheap,mass,py=proxy(x,w,y,bank)
@@ -60,7 +60,7 @@ def objective(x,w,y,wt,key,config,bank):
     def fold(a):return j.moveaxis(a.reshape(b,n//2,2,width,*a.shape[2:]),2,0).reshape(2,-1,width,*a.shape[2:])
     p=stop(fold(score));p=p/p.sum(-1,keepdims=True)
     u=jax.random.uniform(key,(*p.shape[:-1],1))
-    at=j.minimum((u>=j.cumsum(p,-1)).sum(-1),width-1)
+    at=j.minimum((u>=j.cumsum(p,-1)).sum(-1),width-1) if forced is None else forced
     iw=1/j.take_along_axis(p,at[:,:,None],axis=2)[:,:,0]
     grid=fold(j.arange(b*t).reshape(b,t))
     selected=j.take_along_axis(grid,at[:,:,None],2)[:,:,0]
@@ -84,4 +84,5 @@ def objective(x,w,y,wt,key,config,bank):
     chosen_loss=j.take_along_axis(all_cheap,at[:,:,None],2)[:,:,0]
     chosen_weight=j.take_along_axis(weight,at[:,:,None],2)[:,:,0]
     delta=(full.reshape(2,-1)-chosen_loss)*chosen_weight*iw
-    return ((weight*all_cheap).sum()+delta.sum())/wt.sum()
+    total=((weight*all_cheap).sum()+delta.sum())/wt.sum()
+    return (total,p) if return_prob else total
