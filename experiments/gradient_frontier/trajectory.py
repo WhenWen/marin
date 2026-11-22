@@ -56,10 +56,12 @@ def main(mode,method="native"):
         from .native_eval import objective as packed_objective
         from .multifidelity import shortlist
         freq,n,variant=map(int,method.split('-'))
-        if variant in range(110,118):
+        learned_bank=variant in range(110,118) or variant in range(170,178)
+        if learned_bank:
             from .fused_attention import install
             from .native_eval import recover
-            from .group_regression import fit,levels
+            if variant in range(170,178):from .online_adjoint import fit,levels
+            else:from .group_regression import fit,levels
             install()
             path=prefix+'/group-bank';dest=folder/'learned.npz'
             if fs.exists(path+'.json'):
@@ -91,7 +93,7 @@ def main(mode,method="native"):
             fs.get_file(ROOT+'/inputs/native-packed.npz',str(folder/'packed.npz'))
             with np.load(folder/'packed.npz') as packed:
                 ids=shortlist(j.asarray(packed['tokens'][:512]),freq,128256)
-        if variant not in range(110,118):
+        if not learned_bank:
             raw=np.asarray(ids).astype(np.int32).tobytes()
             dictionary=prefix+'/dictionary.bin'
             if fs.exists(dictionary):assert fs.cat_file(dictionary)==raw
