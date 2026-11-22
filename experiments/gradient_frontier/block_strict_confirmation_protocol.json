@@ -16,7 +16,7 @@
   "predictor": "forecast(state,10)",
   "target": "raw gradient trace of native batch-32 CE on iid packed 1024-token sequences at original MuonW states 4001..4050; equal sequence weight; ideal arithmetic, numerical identity measured separately",
   "pool": "native-confirm6",
-  "sha256": null,
+  "sha256": "a1bfe353fa9e8766457d0058c3499cdc52990e9013584e5f1fd734727a1c69d0",
   "excluded": "source blocks overlapping [128*(4001-2),128*(4051+2)); fixed before reading measurements",
   "replicates": [
     0,
