@@ -1,5 +1,5 @@
 """A ten-update read-only fork of the original MuonW training trajectory."""
-import dataclasses,hashlib,json,os,sys,uuid,time
+import dataclasses,hashlib,io,json,os,sys,uuid,time
 from pathlib import Path
 import draccus,equinox as eqx,fsspec,haliax as h,jax,jax.numpy as j,numpy as np
 from experiments.hybrid_transfer.storage import configure_storage
@@ -35,7 +35,7 @@ def main(mode,method="native",width=128,depth=4):
         origin='s3://'+matches[0].removesuffix('/metadata.json')
     def read(p):return json.loads(fs.cat_file(p))
     def publish(p,x):fs.pipe(p,json.dumps(x,allow_nan=False).encode())
-    tracker=WandbConfig(entity='marin-community',project='gradient-variance-frontier',group='MuonW-10-'+method+f'-w{width}-d{depth}',
+    tracker=WandbConfig(entity='marin-community',project='gradient-variance-frontier',group=('MuonW-50-' if mode=='main50' else 'MuonW-10-')+method+f'-w{width}-d{depth}',
         name=f'{mode}-{run_id}',id=run_id,mode='online',resume='never',background=False,save_code=False)
     if mode=='logging':
         tr=tracker.init(run_id);tr.log_hyperparameters({'phase':'non-training logging check','origin':origin})
@@ -53,7 +53,9 @@ def main(mode,method="native",width=128,depth=4):
         if records:
             last=read(records[-1]);src=last['checkpoint'];expected=last['next_step']
         else:src=origin;expected=4001
-        end=TARGET
+        end=4051 if mode=="main50" else TARGET
+        if mode=="main50":
+            assert records and read(prefix+"/replay-comparison.json")["bitwise_match"],"50-step continuation requires a validated replay"
     if mode=='check':end=4003
     if expected>=end:return
     assert read(src[len('s3://'):]+'/metadata.json')['step']==expected-1
@@ -132,7 +134,7 @@ def main(mode,method="native",width=128,depth=4):
         assert int(state.opt_state.hyperparams_states['learning_rate'].count)==expected
         assert int(state.opt_state.hyperparams_states['adam_lr'].count)==expected
         track=dict(parent=src,restored_next_step=expected,optimizer='muonw',gradient_estimator=method,schedule_steps=cfg.trainer.num_train_steps,width=width,depth=depth,
-                   data_example_offset=expected*128,run_id=run_id,mode=mode,
+                   data_example_offset=expected*128,seed=cfg.trainer.seed,run_id=run_id,mode=mode,
                    wandb=f'https://wandb.ai/marin-community/gradient-variance-frontier/runs/{run_id}')
         publish(prefix+'/attempts/'+run_id+'/lineage.json',track)
         trainer.tracker.log_hyperparameters(track)
@@ -146,6 +148,11 @@ def main(mode,method="native",width=128,depth=4):
             batch=next(loader)
             # A data fingerprint makes a new-process replay verifiable independently of loss equality.
             data_hash=hashlib.sha256(np.asarray(batch.tokens.array).tobytes()).hexdigest()
+            if method=='native' and width==128 and depth==4 and mode in ('main50','export50'):
+                buf=io.BytesIO()
+                batch_arrays=[np.asarray(v.rearrange(('batch','position')).array) for v in (batch.tokens,batch.loss_weight,batch.attn_mask.segment_ids[0])]
+                np.savez_compressed(buf,tokens=batch_arrays[0],weights=batch_arrays[1],segments=batch_arrays[2])
+                fs.pipe(ROOT+f'/fifty-inputs/step-{step}.npz',buf.getvalue())
             tick=time.perf_counter()
             extra={}
             if roulette:info,extra,aux=with_audits(state,batch,prob,audit_prob,scale,native_attention,aux)
@@ -165,7 +172,7 @@ def main(mode,method="native",width=128,depth=4):
                        lr=float(state.opt_state.hyperparams['learning_rate']),adam_lr=float(state.opt_state.hyperparams['adam_lr']),
                        wandb=track['wandb'],**extra)
             with (folder/(run_id+'-loss.jsonl')).open('a') as log:log.write(json.dumps(entry)+'\n')
-            tracker_key='completed' if mode in ('main','check') else 'verification'
+            tracker_key='completed' if mode in ('main','main50','check') else 'verification'
             publish(prefix+'/'+tracker_key+f'/{n}.json',entry)
             trainer.tracker.log({'trajectory/train_loss':float(info.loss),'trajectory/validation_loss':valid},step=step)
             print('MUONW STATE',n,float(info.loss),valid,flush=True)
