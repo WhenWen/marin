@@ -198,7 +198,7 @@ def train(mode,seed,panel):
         return block_rate_grid.update(state,data,gate,seed,c[0])
     def is_block(c):return c[0]==401 or c[0] in block_rate_grid.RATES
     inputs=load_data(start)
-    for c in cfgs:
+    for c in (() if mode=="verify" else cfgs):
         data=tuple(v[:c[3]] for v in inputs);tic=time.perf_counter()
         if is_block(c):
             for tag in range(3):
