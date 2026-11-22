@@ -32,7 +32,8 @@ def main(step,trial,Bcandidate=16,method=113,size=4096,count=64):
         elif method<150:from .cross_calibration import fit,levels
         elif method<160:from .sobolev_control import fit,levels
         elif method<170:from .compact_group import fit,levels
-        else:from .online_adjoint import fit,levels
+        elif method<180:from .online_adjoint import fit,levels
+        else:from .antithetic_vocab import fit,levels
     else:from .group_regression import fit,levels
     pop='native-packed' if screening else 'native-confirm4'
     tmp=Path('/tmp/contest-data.npz');fs.get_file(ROOT+'/inputs/'+pop+'.npz',str(tmp))
@@ -59,6 +60,9 @@ def main(step,trial,Bcandidate=16,method=113,size=4096,count=64):
     if trial>=80:
         bs=sorted({max(4,Bcandidate//4),max(4,Bcandidate//2),max(4,3*Bcandidate//4),Bcandidate,5*Bcandidate//4})
         cases=cases[:1]+[(m,k,n,b) for m,k,n in ((3,32768,0),(201,4096,0),(202,8192,0),(206,1024,0),(61,12288,64)) for b in bs]
+    if trial>=90:
+        bs=sorted({max(1,Bcandidate//4),max(2,Bcandidate//2),max(3,3*Bcandidate//4),Bcandidate,5*Bcandidate//4,3*Bcandidate//2,2*Bcandidate})
+        cases=cases[:1]+[(m,k,n,b) for m,k,n in ((7,16384,64),(61,12288,64),(62,16384,64),(61,8192,32)) for b in bs]
     device=jax.devices()[0].device_kind
     seed=59348+step*113+trial;gen=np.random.default_rng(seed)
     os.environ['WANDB_API_KEY']=require_secret('WANDB_API_KEY')
