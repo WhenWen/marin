@@ -15,13 +15,18 @@ B=32
 PHASES=16
 
 
-def plan(segments,cut,batch,rng,balanced=False):
+def plan(segments,cut,batch,rng,balanced=False,prefix=False):
     """All segment descriptors fit into fixed-width groups, including a final zero-padded group."""
     groups=[[],[]]
     for i,s in enumerate(segments):
         ends=np.r_[0,np.flatnonzero(s[:-1]!=s[1:])+1,len(s)]
         for a,b in zip(ends[:-1],ends[1:]):
-            groups[int(b-a>cut)].append((i,a,b-a))
+            length=int(b-a)
+            if prefix:
+                groups[0].append((i,a,min(cut,length)))
+                if length>cut:groups[1].append((i,a,length))
+            else:
+                groups[int(length>cut)].append((i,a,length))
     assignments=[]
     for rows,length in zip(groups,(cut,1024)):
         if not rows:
@@ -44,7 +49,7 @@ def plan(segments,cut,batch,rng,balanced=False):
     return assignments
 
 
-def piece(model,data,group,offset,phase,length,k):
+def piece(model,data,group,offset,phase,length,k,skip=0):
     ids,begin,size=group.T
     col=j.arange(length)
     at=j.minimum(begin[:,None]+col,1023)
@@ -52,7 +57,7 @@ def piece(model,data,group,offset,phase,length,k):
     tokens,weights,_=data
     selected=tokens[sid,at]
     labels=tokens[sid,(at+1)%1024]
-    valid=col[None,:]<size[:,None]
+    valid=(col[None,:]<size[:,None])&(col[None,:]>=skip)
     wt=j.where(valid,weights[sid,at],0.)
     # One isolated segment starts at position zero. Padding occurs only after all valid causal targets.
     m=jax.tree.map(lambda x:x.astype(j.bfloat16),model)
@@ -67,8 +72,8 @@ def piece(model,data,group,offset,phase,length,k):
 
 
 @eqx.filter_jit
-def raw(model,data,group,offset,phase,length,k):
-    return eqx.filter_grad(piece)(model,data,group,offset,phase,length,k)
+def raw(model,data,group,offset,phase,length,k,skip=0):
+    return eqx.filter_grad(piece)(model,data,group,offset,phase,length,k,skip)
 
 
 @eqx.filter_jit
@@ -84,16 +89,16 @@ def correct(native,s):
     return jax.tree.map(lambda a,b:a-b/PHASES,native,s)
 
 
-def draw(model,data,layout,cut,k,phases):
+def draw(model,data,layout,cut,k,phases,prefix=False):
     results=[]
     for length,entry,phase in zip((cut,1024),layout,phases):
         if entry is None:continue
         table,offset,which=entry
-        results.append(scale(raw(model,data,table[which],offset[which],phase,length,k),len(table)))
+        results.append(scale(raw(model,data,table[which],offset[which],phase,length,k,cut if prefix and length==1024 else 0),len(table)))
     return results[0] if len(results)==1 else plus(*results)
 
 
-def correction(model,data,layout,cut,k,phases):
+def correction(model,data,layout,cut,k,phases,prefix=False):
     gold=native_call(native_audit,model,data,B)
     acc=None
     for length,entry in zip((cut,1024),layout):
@@ -101,7 +106,7 @@ def correction(model,data,layout,cut,k,phases):
         table,offsets,_=entry
         for group,offset in zip(table,offsets):
             for phase in phases:
-                v=raw(model,data,group,offset,phase,length,k)
+                v=raw(model,data,group,offset,phase,length,k,cut if prefix and length==1024 else 0)
                 acc=v if acc is None else plus(acc,v)
     return correct(gold,acc)
 
