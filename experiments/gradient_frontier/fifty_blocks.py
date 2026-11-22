@@ -15,11 +15,11 @@ B,K,N=32,12288,64
 PT,PR,R=.30,.075,.002
 
 
-def schedule(seed):
+def schedule(seed,pt=PT,pr=PR):
     """The scheduled coins are used only at their own step, independently of model and data."""
     tic=time.perf_counter()
     rng=np.random.default_rng(np.random.SeedSequence([seed,518319]))
-    u=rng.random(50);parts=np.where(u<PT,1,np.where(u<PT+PR,2,0));audit=rng.random(50)<R
+    u=rng.random(50);parts=np.where(u<pt,1,np.where(u<pt+pr,2,0));audit=rng.random(50)<R
     indices=ready(tuple(j.asarray(rng.permutation(128)[:2*B],j.int32) for _ in range(50)))
     return tuple((int(a),bool(b),c) for a,b,c in zip(parts,audit,indices)),(time.perf_counter()-tic)*1000
 

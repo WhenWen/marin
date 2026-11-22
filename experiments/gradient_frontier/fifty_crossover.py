@@ -37,6 +37,8 @@ END=4051
 
 def configurations(panel):
     # Independent curves on each physical board. Each batch uses the same ordered original training stream.
+    if panel==7:
+        return [(m,12288,64,32,500) for m in (411,412,402,413,414)]+[(61,1024,16,1,0),(62,16384,64,1,0),(62,16384,64,2,0),(61,12288,64,4,0),(7,16384,64,6,0),(62,16384,64,8,0),(61,12288,64,12,0)]
     if panel==6:
         # Secondary timing pilot; the primary panels retain the full preregistered envelope.
         return [(402,12288,64,32,500),(61,1024,16,1,0),(62,16384,64,2,0),(61,12288,64,4,0),(62,16384,64,8,0)]
@@ -126,9 +128,9 @@ def train(mode,seed,panel):
     assert fs.exists(root+'/logging.json')
     if mode=='main':assert read(root+'/verified.json')['bitwise_match']
     stage='replay' if mode in ('check','verify') else 'main';prefix=root+'/'+stage
-    from . import fifty_blocks,fifty_blocks_strict
+    from . import fifty_blocks,fifty_blocks_strict,block_rate_grid
     initial,src=recover(START,fs);fused_attention.install()
-    block_panel=panel in (2,3,4,5,6)
+    block_panel=panel in (2,3,4,5,6,7)
     block_impl=fifty_blocks_strict if panel>=4 else fifty_blocks
     manifest=read(ROOT+'/fifty-stream/manifest.json');assert len(manifest['files'])==50
     files={v['step']:v for v in manifest['files']}
@@ -160,6 +162,16 @@ def train(mode,seed,panel):
         schedule,sched_ms=fifty_blocks.schedule(seed)
         sha=hashlib.sha256(b''.join(bytes([tag,hit])+np.asarray(idx).tobytes() for tag,hit,idx in schedule)).hexdigest()
         bank=None;bank_meta=dict(sha256=sha,origin=src,prep_ms=sched_ms,cold_prep_ms=sched_ms)
+        schedules={402:schedule,401:schedule}
+        if panel==7:
+            hashes={402:sha};costs={402:sched_ms}
+            for method,rates in block_rate_grid.RATES.items():
+                if method==402:continue
+                ss,ms=fifty_blocks.schedule(seed,*rates)
+                schedules[method]=ss;costs[method]=ms
+                hashes[method]=hashlib.sha256(b''.join(bytes([tag,hit])+np.asarray(idx).tobytes() for tag,hit,idx in ss)).hexdigest()
+            sha=hashlib.sha256(json.dumps(hashes,sort_keys=True).encode()).hexdigest()
+            bank_meta.update(sha256=sha,prep_by_method=costs,hashes=hashes)
         if fs.exists(bank_path):
             saved=read(bank_path);assert saved['sha256']==sha;bank_meta=saved
         else:write(bank_path,bank_meta)
@@ -181,13 +193,17 @@ def train(mode,seed,panel):
         cfg=dict(config=c,seed=seed,phase=mode,origin=src,previous_commit=None if not last else last['checkpoints'][name(c)],restored_next_step=start,trainer='MuonW',board=gpu_id,device=device,calibration=bank_meta,planned_steps=50)
         r=wandb.init(entity='marin-community',project='gradient-variance-frontier',group='fifty-actual-crossover-'+mode,id=uuid.uuid4().hex[:12],
                      mode='online',reinit='create_new',name=f'{device.split()[1]}-{name(c)}-s{seed}-{mode}',config=cfg);runs[c]=r
+    def block_update(c,state,data,gate):
+        if c[0] in (401,402):return block_impl.update(state,data,gate,seed)
+        return block_rate_grid.update(state,data,gate,seed,c[0])
+    def is_block(c):return c[0]==401 or c[0] in block_rate_grid.RATES
     inputs=load_data(start)
     for c in cfgs:
         data=tuple(v[:c[3]] for v in inputs);tic=time.perf_counter()
-        if c[0] in (401,402):
+        if is_block(c):
             for tag in range(3):
                 for hit in (False,True):
-                    tmp,_=block_impl.update(copy_state(states[c]),inputs,(tag,hit,schedule[0][2]),seed);ready(tmp);del tmp
+                    tmp,_=block_update(c,copy_state(states[c]),inputs,(tag,hit,schedules[c[0]][0][2]));ready(tmp);del tmp
         else:
             for hit in ((False,True) if c[0]==172 else (False,)):
                 work=copy_state(states[c]);tmp,_=update(work,data,bank,c,seed,hit);ready(tmp);del tmp
@@ -204,10 +220,10 @@ def train(mode,seed,panel):
             train_ce=float(native_call(eval_ce,state.model,batch))
             training_metric_ms=1000*(time.perf_counter()-ce_start)
             tag=0;tic=time.perf_counter()
-            if c[0] in (401,402):
-                gate=schedule[step-START]
+            if is_block(c):
+                gate=schedules[c[0]][step-START]
                 if mode in ('check','verify') and step==4002:gate=(2,True,gate[2])
-                tag=gate[0];nxt,hit=block_impl.update(state,data,gate,seed)
+                tag=gate[0];nxt,hit=block_update(c,state,data,gate)
             else:nxt,hit=update(state,batch,bank,c,seed)
             ready(nxt);ms=1000*(time.perf_counter()-tic)
             assert int(nxt.step)==int(nxt.opt_state.count)==step+1
