@@ -40,6 +40,9 @@ def objective(model,data,ids,key,config):
     x=m.transformer.norm(x).rearrange(('batch','position','embed')).array
     w=m.get_lm_head().rearrange(('vocab','embed')).array
     y=j.roll(tokens,-1,axis=1)
+    if code//100000 in range(290,298):
+        from .fp8_adjoint import objective as fp8
+        return fp8(x,w,y,weight,key,config,ids)
     if code//100000 in range(280,288):
         from .poisson_softmax import objective as poisson
         return poisson(x,w,y,weight,key,config,ids)
