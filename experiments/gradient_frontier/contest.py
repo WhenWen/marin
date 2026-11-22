@@ -42,6 +42,7 @@ def main(step,trial,Bcandidate=16,method=113,size=4096,count=64):
         else:from .proposal_chain import fit,levels
     else:from .group_regression import fit,levels
     pop='native-packed' if screening else 'native-confirm4'
+    if trial==60:pop='native-confirm2'
     tmp=Path('/tmp/contest-data.npz');fs.get_file(ROOT+'/inputs/'+pop+'.npz',str(tmp))
     meta=json.loads(fs.cat_file(ROOT+'/inputs/'+pop+'.json'))
     assert hashlib.sha256(tmp.read_bytes()).hexdigest()==meta['sha256']
@@ -69,11 +70,18 @@ def main(step,trial,Bcandidate=16,method=113,size=4096,count=64):
     if trial>=90:
         bs=sorted({max(1,Bcandidate//4),max(2,Bcandidate//2),max(3,3*Bcandidate//4),Bcandidate,5*Bcandidate//4,3*Bcandidate//2,2*Bcandidate})
         cases=cases[:1]+[(m,k,n,b) for m,k,n in ((7,16384,64),(61,12288,64),(62,16384,64),(61,8192,32)) for b in bs]
+    if trial==60:
+        sizes=(8,16,24,32,40,48,64,80)
+        configurations=((3,16384,0),(3,32768,0),(4,4096,0),(201,4096,0),(202,8192,0),(206,1024,0),
+                        (61,4096,32),(61,4096,128),(61,4096,256),(61,8192,64),(61,12288,64),
+                        (61,16384,128),(62,16384,64),(7,16384,64))
+        cases=cases[:1]+[(m,k,n,b) for m,k,n in configurations for b in sizes]
     device=jax.devices()[0].device_kind
     seed=59348+step*113+trial;gen=np.random.default_rng(seed)
     os.environ['WANDB_API_KEY']=require_secret('WANDB_API_KEY')
     run=wandb.init(entity='marin-community',project='gradient-variance-frontier',group='matched-sampled-softmax-crossover',id=os.urandom(5).hex(),config=dict(step=step,trial=trial,seed=seed,source=source,holdout=meta,device=device))
     dst=(ROOT+f'/screen-contest/{device.split()[1]}-s{step}-v{method}-k{size}-n{count}-b{Bcandidate}-r{trial}.json' if screening else ROOT+f'/matched-contest/{device.split()[1]}-s{step}-r{trial}.json')
+    if trial==60:dst=ROOT+f'/replicated-grid/{device.split()[1]}-s{step}-v{method}-b{Bcandidate}-k{size}-n{count}.json'
     rows={key:dict(method=key[0],k=key[1],n=key[2],b=key[3],pair=[],ms=[]) for key in cases}
     dummy=j.arange(1);banks={k:bank if k==cases[0] else dummy for k in cases}
     def save(stage):
