@@ -12,7 +12,7 @@ import numpy as np
 import wandb
 from experiments.hybrid_transfer.storage import configure_storage
 from rigging.secrets import require_secret
-from . import prepared_blocks as prep,segment_queries as seg,fused_attention
+from . import prepared_blocks as prep,segment_queries as separate,fused_attention
 from .contest import pair
 from .diagnostic_artifacts import publish
 from .fifty_block_variance import population
@@ -23,18 +23,20 @@ from .nested_forecast import norm_moments
 from .run import ROOT,ready
 
 
-def main(step,cut,batch,k,balanced=0,prefix=0):
+def main(step,cut,batch,k,balanced=0,prefix=0,joint=0):
+    from . import joint_segment_queries
+    seg=joint_segment_queries if joint else separate
     configure_storage();fs=fsspec.filesystem('s3');pool,meta=population(fs)
     state,src=recover(step,fs);fused_attention.install()
     board=subprocess.check_output(['nvidia-smi','--query-gpu=uuid','--format=csv,noheader'],text=True).strip()
-    cfg=dict(**meta,step=step,cut=cut,batch=batch,k=k,length_balanced=bool(balanced),split_prefix=bool(prefix),device=jax.devices()[0].device_kind,board=board,source=src)
+    cfg=dict(**meta,step=step,cut=cut,batch=batch,k=k,length_balanced=bool(balanced),split_prefix=bool(prefix),joint=bool(joint),device=jax.devices()[0].device_kind,board=board,source=src)
     os.environ['WANDB_API_KEY']=require_secret('WANDB_API_KEY')
     run=wandb.init(entity='marin-community',project='gradient-variance-frontier',group='attention-segment-sampling',id=os.urandom(6).hex(),mode='online',config=cfg)
     phases=tuple(j.asarray(i,j.int32) for i in range(16))
     cases=[(m,kv,n,b,0) for m,kv,n in ((61,4096,32),(61,12288,64),(62,16384,64))
            for b in (1,2,4,8,12,16,24,32)]
     out=dict(**cfg,wandb=run.url,parts=[],prices=[],rows=[dict(config=c,ms=[],pairs=[]) for c in cases])
-    folder='segment-prefix-pricing' if prefix else 'balanced-segment-pricing' if balanced else 'segment-pricing'
+    folder='joint-segment-prefix-pricing' if joint and prefix else 'joint-segment-pricing' if joint else 'segment-prefix-pricing' if prefix else 'balanced-segment-pricing' if balanced else 'segment-pricing'
     path=ROOT+f'/{folder}/s{step}-l{cut}-b{batch}-k{k}.json'
     for i in range(25):
         rng=np.random.default_rng(np.random.SeedSequence([820153,step,i]))
