@@ -40,6 +40,9 @@ def objective(model,data,ids,key,config):
     x=m.transformer.norm(x).rearrange(('batch','position','embed')).array
     w=m.get_lm_head().rearrange(('vocab','embed')).array
     y=j.roll(tokens,-1,axis=1)
+    if code//100000 in range(320,328):
+        from .bregman_head import objective as bregman
+        return bregman(x,w,y,weight,key,config,ids)
     if code//100000 in range(310,318):
         from .nested_blocks import objective as nested_blocks
         return nested_blocks(x,w,y,weight,key,config,ids)[0]

@@ -45,7 +45,8 @@ def main(step,trial,Bcandidate=16,method=113,size=4096,count=64):
         elif method<290:from .poisson_softmax import fit,levels
         elif method<300:from .fp8_adjoint import fit,levels
         elif method<310:from .ordered_residual import fit,levels
-        else:from .nested_blocks import fit,levels
+        elif method<320:from .nested_blocks import fit,levels
+        else:from .bregman_head import fit,levels
     else:from .group_regression import fit,levels
     pop='native-packed' if screening else 'native-confirm4'
     if trial==60:pop='native-confirm2'
@@ -95,20 +96,20 @@ def main(step,trial,Bcandidate=16,method=113,size=4096,count=64):
     dummy=j.arange(1);banks={k:bank if k==cases[0] else dummy for k in cases}
     def save(stage):
         record=dict(step=step,trial=trial,device=device,source=source,holdout=meta,wandb=run.url,prep=prep,stage=stage,rows=list(rows.values()))
-        if trial in (61,62):
+        if trial in (61,62) or trial>=103:
             from .diagnostic_artifacts import publish
             publish(fs,dst,record)
         else:fs.pipe(dst,json.dumps(record).encode())
     def batches():
         ix=gen.integers(len(hold[0]),size=max(b for _,_,_,b in cases))
         return {b:tuple(j.asarray(a[ix[:b]]) for a in hold) for b in {case[3] for case in cases}}
-    if trial in (61,62):
+    if trial in (61,62) or trial>=103:
         from .independent_audits import donated_baseline,copy_state
     def elapsed(case,data,key):
         m,k,n,B=case
-        if trial in (61,62):work=copy_state(state)
+        if trial in (61,62) or trial>=103:work=copy_state(state)
         tick=time.perf_counter()
-        if trial in (61,62):ready(donated_baseline((data,key,banks[case],m,k,n),work))
+        if trial in (61,62) or trial>=103:ready(donated_baseline((data,key,banks[case],m,k,n),work))
         else:ready(update(state,data,key,banks[case],m,k,n))
         return 1000*(time.perf_counter()-tick)
     # Compile before creating any timed observation. Execute all methods in randomized order each cycle.
