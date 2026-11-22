@@ -52,13 +52,14 @@ def _backward(saved,cts):
 teacher_loss.defvjp(_teacher,_backward)
 
 
-def objective(x,w,y,wt,key,config,bank,forced=None,return_prob=False):
+def objective(x,w,y,wt,key,config,bank,forced=None,return_prob=False,uniform=False):
     code,n=config;kind,k=divmod(code,100000)
     b,t,d=x.shape;width=t//n;stop=jax.lax.stop_gradient
     cheap,mass,py=proxy(x,w,y,bank)
     score=.06+j.sqrt(mass)+.10*(1-j.minimum(py,1.))
     def fold(a):return j.moveaxis(a.reshape(b,n//2,2,width,*a.shape[2:]),2,0).reshape(2,-1,width,*a.shape[2:])
     p=stop(fold(score));p=p/p.sum(-1,keepdims=True)
+    if uniform:p=j.full_like(p,1./width)
     u=jax.random.uniform(key,(*p.shape[:-1],1))
     at=j.minimum((u>=j.cumsum(p,-1)).sum(-1),width-1) if forced is None else forced
     iw=1/j.take_along_axis(p,at[:,:,None],axis=2)[:,:,0]
