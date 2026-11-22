@@ -1,5 +1,6 @@
 """Spend separate gradient queries on the vocabulary readout and remaining parameters."""
 import json
+import functools
 import os
 import sys
 import time
@@ -18,7 +19,7 @@ from .diagnostic_artifacts import publish
 from . import debias,fused_attention
 from .contest import pair
 from .head_to_head import update
-from .independent_audits import forecast
+from .independent_audits import forecast,copy_state,donated_baseline
 from .native_eval import recover
 from .nested_forecast import norm_moments
 from .subspace_forecast import native_audit
@@ -72,7 +73,12 @@ def component(x,y,base,part):
     return j.stack((variance,risk))
 
 
-def main(st,B,k,n,scale):
+@functools.partial(eqx.filter_jit,donate='all-except-first')
+def donated(args,state):
+    return step(state,*args)
+
+
+def main(st,B,k,n,scale,rep=0):
     configure_storage();fs=fsspec.filesystem('s3');state,src=recover(st,fs)
     assert any(readout(path) for path,_ in jax.tree_util.tree_leaves_with_path(state.model))
     original=Attention.__call__;fused_attention.install()
@@ -81,31 +87,41 @@ def main(st,B,k,n,scale):
         try:g=native_audit(state.model,d,B)
         finally:fused_attention.install()
         return strict(state,d,key,k,n,g)
-    f=Path('/tmp/block-audits.npz');fs.get_file(ROOT+'/inputs/native-packed.npz',str(f))
-    with np.load(f) as z:pool=tuple(z[a][512:] for a in ('tokens','weights','segments'))
+    f=Path('/tmp/block-audits.npz');pop='native-confirm3' if rep else 'native-packed'
+    fs.get_file(ROOT+'/inputs/'+pop+'.npz',str(f))
+    with np.load(f) as z:pool=tuple(z[a][0 if rep else 512:] for a in ('tokens','weights','segments'))
     rng=np.random.default_rng(48291+st+B+k)
     def data(size):
         ids=rng.integers(len(pool[0]),size=size);return tuple(j.asarray(v[ids]) for v in pool)
     cases=[(m,kv,nv,b) for m,kv,nv in ((61,256,8),(61,4096,32),(61,8192,32),(61,12288,64),(62,16384,64),(7,16384,64))
            for b in (1,2,3,4,6,8,12,16,24,32)]
+    if rep:
+        cases.extend((m,kv,nv,b) for m,kv,nv in ((0,0,0),(61,64,4),(61,1024,16),(61,4096,64)) for b in (1,2,4,8))
+        cases.extend((61,kv,nv,b) for kv,nv in ((4096,32),(8192,64),(12288,64)) for b in (40,48,64))
+    largest=max(q[-1] for q in cases)
     rows=[dict(method=m,k=kv,n=nv,b=b,ms=[],pair=[]) for m,kv,nv,b in cases]
-    cfg=dict(step=st,B=B,k=k,n=n,scale=scale,checkpoint=src,device=jax.devices()[0].device_kind)
+    cfg=dict(step=st,B=B,k=k,n=n,scale=scale,checkpoint=src,device=jax.devices()[0].device_kind,rep=rep,population=pop)
     os.environ['WANDB_API_KEY']=require_secret('WANDB_API_KEY')
     run=wandb.init(entity='marin-community',project='gradient-variance-frontier',group='readout-and-backbone-query-allocation',id=os.urandom(5).hex(),config=cfg)
     out=dict(**cfg,wandb=run.url,rows=rows,times=[],components=[])
     dest=ROOT+f'/block-audits/s{st}-B{B}-k{k}-n{n}-c{scale}.json';dummy=j.arange(1);base=ready(forecast(state,scale))
-    for i in range(33):
-        a,b,c,d,U,V=ready(tuple(data(nq) for nq in (B,B,B,B,32,32)))
+    if rep:dest=ROOT+f'/donated-block-audits/{jax.devices()[0].device_kind.split()[1]}-s{st}-B{B}-c{scale}.json'
+    cycles=64 if rep else 32
+    for i in range(cycles+1):
+        a,b,c,d,U,V=ready(tuple(data(nq) for nq in (B,B,B,B,largest,largest)))
         left,right=ready(tuple({bs:tuple(v[:bs] for v in x) for _,_,_,bs in cases} for x in (U,V)))
         ka,kb,kc,kd=jax.random.split(jax.random.key(735+i),4);ts=[0.]*6
         for ix in rng.permutation(np.arange(-6,len(cases))):
+            work=copy_state(state) if rep else state
             tick=time.perf_counter()
             if ix>=0:
-                m,kv,nv,bs=cases[ix];ready(update(state,left[bs],ka,dummy,m,kv,nv))
+                m,kv,nv,bs=cases[ix]
+                ready(donated_baseline((left[bs],ka,dummy,m,kv,nv),work) if rep else update(work,left[bs],ka,dummy,m,kv,nv))
             else:
                 tag=-int(ix)-1;part=tag%3
                 corr=delta(c,kc) if tag>=3 else None
-                ready(step(state,a if part else None,corr,ka,k,n,part,scale,.2 if part==1 else .05,.002))
+                args=(a if part else None,corr,ka,k,n,part,scale,(.3 if part==1 else .075) if rep else (.2 if part==1 else .05),.002)
+                ready(donated(args,work) if rep else step(work,*args))
             elapsed=1000*(time.perf_counter()-tick)
             if i:
                 if ix<0:ts[-ix-1]=elapsed
@@ -116,7 +132,7 @@ def main(st,B,k,n,scale):
         out['components'].append(np.asarray(j.concatenate(moments)).tolist());out['times'].append(ts)
         for row,(m,kv,nv,bs) in zip(rows,cases):row['pair'].append(float(pair(state,left[bs],right[bs],ka,dummy,m,kv,nv)))
         if i%4==0:publish(fs,dest,out)
-    run.log({'cycles':32});run.finish()
+    run.log({'cycles':cycles});run.finish()
 
 
 if __name__=='__main__':
