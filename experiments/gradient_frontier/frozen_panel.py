@@ -66,7 +66,11 @@ def prepare_fast(model,panels,k,keys,fast):
         gs=jax.vmap(get)(panel,jax.random.split(key,M))
         return jax.tree.map(lambda v:(v[1:].sum(0)-(M-1)*v[0])/M,gs)
     # Small frozen calibration moments can be acquired in parallel; all ten disjoint slots are charged.
-    return jax.lax.map(lambda v:one(*v),(panels,keys),batch_size=2 if fast==2 else None)
+    if fast==2:
+        grouped=jax.tree.map(lambda x:x.reshape(R//2,2,*x.shape[1:]),(panels,keys))
+        result=jax.lax.map(lambda v:jax.vmap(one)(*v),grouped)
+        return jax.tree.map(lambda x:x.reshape(R,*x.shape[2:]),result)
+    return jax.lax.map(lambda v:one(*v),(panels,keys))
 
 
 @eqx.filter_jit

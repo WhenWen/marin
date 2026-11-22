@@ -40,6 +40,9 @@ def objective(model,data,ids,key,config):
     x=m.transformer.norm(x).rearrange(('batch','position','embed')).array
     w=m.get_lm_head().rearrange(('vocab','embed')).array
     y=j.roll(tokens,-1,axis=1)
+    if code//100000 in range(240,248):
+        from .routed_groups import objective as routed
+        return routed(x,w,y,weight,key,config,ids)
     if code//100000 in range(230,238):
         from .lexical_control import objective as lexical
         return lexical(x,w,tokens,y,weight,key,config,ids)

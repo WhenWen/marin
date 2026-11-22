@@ -37,7 +37,8 @@ def main(step,trial,Bcandidate=16,method=113,size=4096,count=64):
         elif method<200:from .local_tilt import fit,levels
         elif method<220:from .batched_tree import fit,levels
         elif method<230:from .vocab_coreset import fit,levels
-        else:from .lexical_control import fit,levels
+        elif method<240:from .lexical_control import fit,levels
+        else:from .routed_groups import fit,levels
     else:from .group_regression import fit,levels
     pop='native-packed' if screening else 'native-confirm4'
     tmp=Path('/tmp/contest-data.npz');fs.get_file(ROOT+'/inputs/'+pop+'.npz',str(tmp))
