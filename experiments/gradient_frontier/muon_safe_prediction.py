@@ -1,4 +1,6 @@
 """Constrain calibrated momentum forecasts to preserve the direction of the Muon Nesterov input."""
+from functools import partial
+
 import equinox as eqx
 import jax
 import jax.numpy as j
@@ -50,3 +52,31 @@ def agreement(state,reference,zero,test):
         ref=a-old;no=b-old;new=c-old
         out=out+j.stack([j.vdot(ref,ref),j.vdot(no,no),j.vdot(new,new),j.vdot(ref,new),j.vdot(no,new),j.vdot(ref,no)])
     return out
+
+
+def emitted(state,raw,part,delta,coef,scale):
+    g=predict(state,coef,scale)
+    if part:
+        vals=iter(raw);p=.3 if part==1 else .075
+        g=jax.tree_util.tree_map_with_path(lambda path,x:x+(next(vals)-x)/p if block_audits.readout(path)==(part==2) else x,g)
+    if delta is not None:g=jax.tree.map(lambda x,d:x+d/.002,g,delta)
+    return g
+
+
+@partial(eqx.filter_jit,donate='all-except-first')
+def advance(args,state):
+    raw,part,delta,coef,scale,key=args
+    return state.take_step(emitted(state,raw,part,delta,coef,scale),key=key)[0]
+
+
+def update(state,data,gate,seed,coef,scale):
+    part,hit,ids=gate
+    old,nxt=jax.random.split(state.training_key)
+    key,pkey,dkey=jax.random.split(jax.random.fold_in(old,seed),3)
+    value=None
+    if part:
+        batch=tuple(x[ids[:32]] for x in data)
+        phase=jax.random.randint(pkey,(),0,16,dtype=j.int32)
+        value=fixed.raw_block(state,batch,key,part,phase)
+    delta=fixed.discrepancy(state,tuple(x[ids[32:]] for x in data),dkey) if hit else None
+    return advance((value,part,delta,coef,scale,nxt),state),hit
