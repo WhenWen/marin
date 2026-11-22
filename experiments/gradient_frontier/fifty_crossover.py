@@ -37,6 +37,8 @@ END=4051
 
 def configurations(panel):
     # Independent curves on each physical board. Each batch uses the same ordered original training stream.
+    if panel==8:
+        return [(406,12288,64,32,500),(61,1024,16,1,0),(62,16384,64,2,0),(61,12288,64,4,0),(62,16384,64,8,0),(61,12288,64,12,0)]
     if panel==7:
         return [(m,12288,64,32,500) for m in (411,412,402,413,414)]+[(61,1024,16,1,0),(62,16384,64,1,0),(62,16384,64,2,0),(61,12288,64,4,0),(7,16384,64,6,0),(62,16384,64,8,0),(61,12288,64,12,0)]
     if panel==6:
@@ -128,9 +130,9 @@ def train(mode,seed,panel):
     assert fs.exists(root+'/logging.json')
     if mode=='main':assert read(root+'/verified.json')['bitwise_match']
     stage='replay' if mode in ('check','verify') else 'main';prefix=root+'/'+stage
-    from . import fifty_blocks,fifty_blocks_strict,block_rate_grid
+    from . import fifty_blocks,fifty_blocks_strict,block_rate_grid,prepared_blocks
     initial,src=recover(START,fs);fused_attention.install()
-    block_panel=panel in (2,3,4,5,6,7)
+    block_panel=panel in (2,3,4,5,6,7,8)
     block_impl=fifty_blocks_strict if panel>=4 else fifty_blocks
     manifest=read(ROOT+'/fifty-stream/manifest.json');assert len(manifest['files'])==50
     files={v['step']:v for v in manifest['files']}
@@ -163,6 +165,23 @@ def train(mode,seed,panel):
         sha=hashlib.sha256(b''.join(bytes([tag,hit])+np.asarray(idx).tobytes() for tag,hit,idx in schedule)).hexdigest()
         bank=None;bank_meta=dict(sha256=sha,origin=src,prep_ms=sched_ms,cold_prep_ms=sched_ms)
         schedules={402:schedule,401:schedule}
+        if panel==8:
+            slots,phases,prep_ms=prepared_blocks.prepare(seed)
+            host=[np.stack([np.asarray(plan[k]) for plan in slots]) for k in range(5)]
+            prep_sha=hashlib.sha256(b''.join(v.tobytes() for v in host)).hexdigest()
+            sha=hashlib.sha256((sha+prep_sha).encode()).hexdigest()
+            target=root+'/banks/'+prep_sha+'.npz'
+            if fs.exists(bank_path):
+                saved=read(bank_path)
+                assert saved['sha256']==sha and saved['slot_path']==target
+                with np.load(io.BytesIO(fs.cat_file(target))) as restored:
+                    assert all(np.array_equal(a,restored[f'a{k}']) for k,a in enumerate(host))
+            else:
+                buffer=io.BytesIO()
+                np.savez(buffer,**{f'a{k}':a for k,a in enumerate(host)})
+                fs.pipe(target,buffer.getvalue())
+            bank_meta.update(sha256=sha,slot_path=target,prep_ms=prep_ms+sched_ms,cold_prep_ms=prep_ms+sched_ms)
+            schedules[406]=[(tag,hit,slot) for (tag,hit,_),slot in zip(schedule,slots)]
         if panel==7:
             hashes={402:sha};costs={402:sched_ms}
             for method,rates in block_rate_grid.RATES.items():
@@ -194,9 +213,17 @@ def train(mode,seed,panel):
         r=wandb.init(entity='marin-community',project='gradient-variance-frontier',group='fifty-actual-crossover-'+mode,id=uuid.uuid4().hex[:12],
                      mode='online',reinit='create_new',name=f'{device.split()[1]}-{name(c)}-s{seed}-{mode}',config=cfg);runs[c]=r
     def block_update(c,state,data,gate):
+        if c[0]==406:
+            part,hit,slot=gate
+            return prepared_blocks.update(state,data,slot,phases,part,hit)
         if c[0] in (401,402):return block_impl.update(state,data,gate,seed)
         return block_rate_grid.update(state,data,gate,seed,c[0])
-    def is_block(c):return c[0]==401 or c[0] in block_rate_grid.RATES
+    def control_update(state,data,c,forced=None):
+        if panel==8:
+            m,k,n,_,_=c
+            return prepared_blocks.baseline((data,j.asarray(seed,j.uint32),m,k,n),state),False
+        return update(state,data,bank,c,seed,forced)
+    def is_block(c):return c[0] in (401,406) or c[0] in block_rate_grid.RATES
     inputs=load_data(start)
     for c in (() if mode=="verify" else cfgs):
         data=tuple(v[:c[3]] for v in inputs);tic=time.perf_counter()
@@ -206,7 +233,7 @@ def train(mode,seed,panel):
                     tmp,_=block_update(c,copy_state(states[c]),inputs,(tag,hit,schedules[c[0]][0][2]));ready(tmp);del tmp
         else:
             for hit in ((False,True) if c[0]==172 else (False,)):
-                work=copy_state(states[c]);tmp,_=update(work,data,bank,c,seed,hit);ready(tmp);del tmp
+                work=copy_state(states[c]);tmp,_=control_update(work,data,c,hit);ready(tmp);del tmp
         times[name(c)]=1000*(time.perf_counter()-tic)
     write(prefix+'/attempts/'+uid+'/lineage.json',dict(mode=mode,start=start,board=gpu_id,origin=src,restore=None if not last else last['checkpoints'],compile_warmup_ms=times,wandb={name(c):r.url for c,r in runs.items()}))
     for step in range(start,end):
@@ -224,7 +251,7 @@ def train(mode,seed,panel):
                 gate=schedules[c[0]][step-START]
                 if mode in ('check','verify') and step==4002:gate=(2,True,gate[2])
                 tag=gate[0];nxt,hit=block_update(c,state,data,gate)
-            else:nxt,hit=update(state,batch,bank,c,seed)
+            else:nxt,hit=control_update(state,batch,c)
             ready(nxt);ms=1000*(time.perf_counter()-tic)
             assert int(nxt.step)==int(nxt.opt_state.count)==step+1
             val_start=time.perf_counter()
@@ -252,7 +279,9 @@ def train(mode,seed,panel):
                 prior=read(prefix+'/commits/4003.json');assert cp!=prior['checkpoints'] and digests==prior['digests']
                 extract=lambda rr:{tuple(v['config']):(v['data_sha256'],v['precision_audit'],v.get('block_draw',0),v['train_ce'],v['validation_ce'],v['lr'],v['adam_lr']) for v in rr['rows'] if v['step']==4002}
                 assert extract(receipt)==extract(prior)
-                write(root+'/verified.json',dict(bitwise_match=True,original=prior['attempt'],replay=uid,digests=digests,restored_from=last['checkpoints']))
+                proof=dict(bitwise_match=True,original=prior['attempt'],replay=uid,digests=digests,restored_from=last['checkpoints'])
+                write(prefix+'/attempts/'+uid+'/verified.json',proof)
+                write(root+'/verified.json',proof)
             else:write(prefix+f'/commits/{step+1}.json',receipt)
             history=[]
         print('CROSSOVER STEP',mode,step,'arms',len(batch_rows),flush=True)
