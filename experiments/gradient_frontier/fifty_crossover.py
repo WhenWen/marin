@@ -37,6 +37,15 @@ END=4051
 
 def configurations(panel):
     # Independent curves on each physical board. Each batch uses the same ordered original training stream.
+    if panel in (2,3):
+        primary=(401,12288,64,32,500)
+        if panel==2:
+            candidates=((61,12288,64),(62,16384,64),(7,16384,64))
+            extra=((61,1024,16,1,0),(61,4096,32,1,0),(61,8192,32,2,0),(61,4096,64,2,0))
+        else:
+            candidates=((61,256,8),(61,4096,32),(61,8192,32))
+            extra=((61,64,4,1,0),(61,1024,16,2,0),(61,12288,64,4,0),(62,16384,64,8,0))
+        return [primary]+[(m,k,n,b,0) for m,k,n in candidates for b in (1,2,3,4,6,8,12)]+list(extra)
     if panel==0:base=((61,4096,32),(61,8192,64),(61,12288,64))
     elif panel==1:base=((7,16384,64),(62,16384,64),(61,8192,32))
     else:raise ValueError(panel)
@@ -114,7 +123,9 @@ def train(mode,seed,panel):
     assert fs.exists(root+'/logging.json')
     if mode=='main':assert read(root+'/verified.json')['bitwise_match']
     stage='replay' if mode in ('check','verify') else 'main';prefix=root+'/'+stage
+    from . import fifty_blocks
     initial,src=recover(START,fs);fused_attention.install()
+    block_panel=panel in (2,3)
     manifest=read(ROOT+'/fifty-stream/manifest.json');assert len(manifest['files'])==50
     files={v['step']:v for v in manifest['files']}
     def load_data(step):
@@ -141,7 +152,14 @@ def train(mode,seed,panel):
     states={c:restore(c) for c in cfgs}
     if mode=='verify' and last is None:raise AssertionError('Missing required checkpoint')
     bank_path=root+'/bank.json'
-    if fs.exists(bank_path):
+    if block_panel:
+        schedule,sched_ms=fifty_blocks.schedule(seed)
+        sha=hashlib.sha256(b''.join(bytes([tag,hit])+np.asarray(idx).tobytes() for tag,hit,idx in schedule)).hexdigest()
+        bank=None;bank_meta=dict(sha256=sha,origin=src,prep_ms=sched_ms,cold_prep_ms=sched_ms)
+        if fs.exists(bank_path):
+            saved=read(bank_path);assert saved['sha256']==sha;bank_meta=saved
+        else:write(bank_path,bank_meta)
+    elif fs.exists(bank_path):
         bank_meta=read(bank_path);raw=fs.cat_file(bank_meta['path']);assert hashlib.sha256(raw).hexdigest()==bank_meta['sha256']
         with np.load(io.BytesIO(raw)) as z:
             bank=tuple(jax.lax.bitcast_convert_type(j.asarray(z[f'a{i}']),j.bfloat16) if i>=3 else j.asarray(z[f'a{i}']) for i in range(5))
@@ -162,8 +180,13 @@ def train(mode,seed,panel):
     inputs=load_data(start)
     for c in cfgs:
         data=tuple(v[:c[3]] for v in inputs);tic=time.perf_counter()
-        for hit in ((False,True) if c[0]==172 else (False,)):
-            work=copy_state(states[c]);tmp,_=update(work,data,bank,c,seed,hit);ready(tmp);del tmp
+        if c[0]==401:
+            for tag in range(3):
+                for hit in (False,True):
+                    tmp,_=fifty_blocks.update(copy_state(states[c]),inputs,(tag,hit,schedule[0][2]),seed);ready(tmp);del tmp
+        else:
+            for hit in ((False,True) if c[0]==172 else (False,)):
+                work=copy_state(states[c]);tmp,_=update(work,data,bank,c,seed,hit);ready(tmp);del tmp
         times[name(c)]=1000*(time.perf_counter()-tic)
     write(prefix+'/attempts/'+uid+'/lineage.json',dict(mode=mode,start=start,board=gpu_id,origin=src,restore=None if not last else last['checkpoints'],compile_warmup_ms=times,wandb={name(c):r.url for c,r in runs.items()}))
     for step in range(start,end):
@@ -172,10 +195,16 @@ def train(mode,seed,panel):
         for index in order:
             c=cfgs[int(index)];batch=by_b[c[3]];state=states[c]
             train_ce=float(native_call(eval_ce,state.model,batch))
-            tic=time.perf_counter();nxt,hit=update(state,batch,bank,c,seed);ready(nxt);ms=1000*(time.perf_counter()-tic)
+            tag=0;tic=time.perf_counter()
+            if c[0]==401:
+                gate=schedule[step-START]
+                if mode in ('check','verify') and step==4002:gate=(2,True,gate[2])
+                tag=gate[0];nxt,hit=fifty_blocks.update(state,data,gate,seed)
+            else:nxt,hit=update(state,batch,bank,c,seed)
+            ready(nxt);ms=1000*(time.perf_counter()-tic)
             assert int(nxt.step)==int(nxt.opt_state.count)==step+1
             val=float(native_call(eval_ce,nxt.model,valid));states[c]=nxt
-            row=dict(config=c,step=step,ms=ms,precision_audit=hit,train_ce=train_ce,validation_ce=val,lr=float(nxt.opt_state.hyperparams['learning_rate']),
+            row=dict(config=c,step=step,ms=ms,precision_audit=hit,block_draw=tag,train_ce=train_ce,validation_ce=val,lr=float(nxt.opt_state.hyperparams['learning_rate']),
                      adam_lr=float(nxt.opt_state.hyperparams['adam_lr']),data_sha256=files[step]['data_sha256'],board=gpu_id,order=int(np.where(order==index)[0][0]),wandb=runs[c].url)
             runs[c].log({'training/ce':train_ce,'validation/ce':val,'time/update_ms':ms,'precision_audit':int(hit)},step=step)
             batch_rows.append(row)
@@ -195,7 +224,7 @@ def train(mode,seed,panel):
             receipt=dict(next_step=step+1,checkpoints=cp,digests=digests,bank=bank_meta['sha256'],attempt=uid,board=gpu_id,rows=history)
             if mode=='verify':
                 prior=read(prefix+'/commits/4003.json');assert cp!=prior['checkpoints'] and digests==prior['digests']
-                extract=lambda rr:{tuple(v['config']):(v['data_sha256'],v['precision_audit'],v['train_ce'],v['validation_ce'],v['lr'],v['adam_lr']) for v in rr['rows'] if v['step']==4002}
+                extract=lambda rr:{tuple(v['config']):(v['data_sha256'],v['precision_audit'],v.get('block_draw',0),v['train_ce'],v['validation_ce'],v['lr'],v['adam_lr']) for v in rr['rows'] if v['step']==4002}
                 assert extract(receipt)==extract(prior)
                 write(root+'/verified.json',dict(bitwise_match=True,original=prior['attempt'],replay=uid,digests=digests,restored_from=last['checkpoints']))
             else:write(prefix+f'/commits/{step+1}.json',receipt)
