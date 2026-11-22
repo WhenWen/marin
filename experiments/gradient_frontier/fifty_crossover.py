@@ -191,11 +191,15 @@ def train(mode,seed,panel):
         times[name(c)]=1000*(time.perf_counter()-tic)
     write(prefix+'/attempts/'+uid+'/lineage.json',dict(mode=mode,start=start,board=gpu_id,origin=src,restore=None if not last else last['checkpoints'],compile_warmup_ms=times,wandb={name(c):r.url for c,r in runs.items()}))
     for step in range(start,end):
+        staging_start=time.perf_counter()
         data=load_data(step);by_b=ready({b:tuple(v[:b] for v in data) for b in {c[3] for c in cfgs}})
+        shared_staging_ms=1000*(time.perf_counter()-staging_start)
         order=np.random.default_rng(np.random.SeedSequence([seed,step])).permutation(len(cfgs));batch_rows=[]
         for index in order:
             c=cfgs[int(index)];batch=by_b[c[3]];state=states[c]
+            ce_start=time.perf_counter()
             train_ce=float(native_call(eval_ce,state.model,batch))
+            training_metric_ms=1000*(time.perf_counter()-ce_start)
             tag=0;tic=time.perf_counter()
             if c[0] in (401,402):
                 gate=schedule[step-START]
@@ -204,8 +208,10 @@ def train(mode,seed,panel):
             else:nxt,hit=update(state,batch,bank,c,seed)
             ready(nxt);ms=1000*(time.perf_counter()-tic)
             assert int(nxt.step)==int(nxt.opt_state.count)==step+1
+            val_start=time.perf_counter()
             val=float(native_call(eval_ce,nxt.model,valid));states[c]=nxt
-            row=dict(config=c,step=step,ms=ms,precision_audit=hit,block_draw=tag,train_ce=train_ce,validation_ce=val,lr=float(nxt.opt_state.hyperparams['learning_rate']),
+            validation_metric_ms=1000*(time.perf_counter()-val_start)
+            row=dict(config=c,step=step,ms=ms,shared_staging_ms=shared_staging_ms,training_metric_ms=training_metric_ms,validation_metric_ms=validation_metric_ms,precision_audit=hit,block_draw=tag,train_ce=train_ce,validation_ce=val,lr=float(nxt.opt_state.hyperparams['learning_rate']),
                      adam_lr=float(nxt.opt_state.hyperparams['adam_lr']),data_sha256=files[step]['data_sha256'],board=gpu_id,order=int(np.where(order==index)[0][0]),wandb=runs[c].url)
             runs[c].log({'training/ce':train_ce,'validation/ce':val,'time/update_ms':ms,'precision_audit':int(hit)},step=step)
             batch_rows.append(row)
