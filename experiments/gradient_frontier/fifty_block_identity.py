@@ -36,7 +36,7 @@ def main(step,strict=0):
     from . import fifty_blocks_strict as fixed
     configure_storage()
     fs=fsspec.filesystem('s3')
-    pool, meta=population(fs)
+    pool, meta=population(fs,strict>=2)
     state, src=recover(step,fs)
     fused_attention.install()
     os.environ['WANDB_API_KEY']=require_secret('WANDB_API_KEY')
@@ -68,7 +68,7 @@ def main(step,strict=0):
         relative=float(np.sqrt(sum(np.dot(a,a) for a in err)/sum(np.dot(v.ravel(),v.ravel()) for v in refs)))
         mx=float(max(np.max(np.abs(a)) for a in err))
         out['rows'].append(dict(panel=i,relative_l2=relative,maximum_coordinate=mx,sample_ids=ids.tolist()))
-        folder='fifty-block-strict-identity-v1' if strict else 'fifty-block-identity-v1'
+        folder={0:'fifty-block-identity-v1',1:'fifty-block-strict-identity-v1',2:'fifty-block-strict-sealed-identity-v1'}[strict]
         publish(fs,ROOT+f'/{folder}/s{step}.json',out)
         run.log(dict(relative_l2=relative,maximum_coordinate=mx))
     run.finish()
