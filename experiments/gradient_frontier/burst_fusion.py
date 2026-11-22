@@ -13,6 +13,7 @@ import numpy as np
 import wandb
 from rigging.secrets import require_secret
 from experiments.hybrid_transfer.storage import configure_storage
+from .diagnostic_artifacts import publish
 from . import fused_attention,online_coin
 from .causal_feedback import slim
 from .independent_audits import copy_state,forecast
@@ -31,9 +32,15 @@ def one(state,aux,learn):
 
 @functools.partial(eqx.filter_jit,donate='all-except-first')
 def burst(settings,work):
-    length,learn=settings
+    length,learn,barrier=settings
     state,aux=work
-    for _ in range(length):state,aux=one(state,aux,learn)
+    for i in range(length):
+        state,aux=one(state,aux,learn)
+        if barrier and i+1<length:
+            def protect(x):
+                if not eqx.is_array(x) or (barrier==1 and x.size>=2_000_000):return x
+                return jax.lax.optimization_barrier(x)
+            state,aux=jax.tree.map(protect,(state,aux))
     return state,aux
 
 
@@ -53,7 +60,7 @@ def error(left,right):
     return j.stack(vals)
 
 
-def main(step,learn):
+def main(step,learn,barrier=0):
     configure_storage();fs=fsspec.filesystem('s3');state,src=recover(step,fs);fused_attention.install()
     if learn:
         previous=state if step==4001 else recover(step-1,fs)[0]
@@ -62,16 +69,16 @@ def main(step,learn):
     else:aux=None
     dev=jax.devices()[0].device_kind;seed=45709+step+learn
     gen=np.random.default_rng(seed);lengths=(1,2,3,4,6,8,10)
-    cfg=dict(step=step,learn=learn,source=src,device=dev,seed=seed)
+    cfg=dict(step=step,learn=learn,barrier=barrier,source=src,device=dev,seed=seed)
     os.environ['WANDB_API_KEY']=require_secret('WANDB_API_KEY')
     run=wandb.init(entity='marin-community',project='gradient-variance-frontier',group='fused-consecutive-native-updates',id=os.urandom(5).hex(),config=cfg)
-    dst=ROOT+'/burst-fusion/'+f'{dev.split()[1]}-s{step}-learn{learn}.json'
+    dst=ROOT+'/burst-fusion/'+f'{dev.split()[1]}-s{step}-learn{learn}'+(f'-bar{barrier}' if barrier else '')+'.json'
     rows=[dict(length=L,mode=mode,ms=[]) for L in lengths for mode in ('separate','fused')]
     out=dict(**cfg,wandb=run.url,rows=rows,checks={},cold=[])
     def start():return copy_state((state,aux))
     def execute(L,mode,work):
-        if mode=='fused':return ready(burst((L,bool(learn)),work))
-        for _ in range(L):work=ready(burst((1,bool(learn)),work))
+        if mode=='fused':return ready(burst((L,bool(learn),barrier),work))
+        for _ in range(L):work=ready(burst((1,bool(learn),barrier),work))
         return work
     for L in lengths:
         lhs=execute(L,'separate',start())
@@ -79,14 +86,18 @@ def main(step,learn):
         check=np.asarray(error(lhs,rhs));assert np.isfinite(check).all()
         out['checks'][L]=dict(different=int(check[:,0].sum()),max_abs=float(check[:,1].max()),
                               relative_l2=float(np.sqrt(check[:,2].sum()/max(1.,check[:,3].sum()))))
+        if L==10:
+            names=[jax.tree_util.keystr(p) for p,a in jax.tree_util.tree_leaves_with_path(lhs) if eqx.is_array(a) and a.size]
+            assert len(names)==len(check)
+            out['leaf_checks']=[dict(path=name,different=int(q[0]),max_abs=float(q[1])) for name,q in zip(names,check)]
         assert int(rhs[0].step)==step+L
         del lhs,rhs
-        fs.pipe(dst,json.dumps(out).encode())
+        publish(fs,dst,out)
     for i in range(48):
         for ix in gen.permutation(len(rows)):
             q=rows[ix];work=start();tic=time.perf_counter();execute(q['length'],q['mode'],work)
             q['ms'].append(1000*(time.perf_counter()-tic))
-        if (i+1)%6==0:fs.pipe(dst,json.dumps(out).encode())
+        if (i+1)%6==0:publish(fs,dst,out)
     run.log({'cycles':48});run.finish()
 
 

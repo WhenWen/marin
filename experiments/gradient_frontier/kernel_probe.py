@@ -11,6 +11,7 @@ from scipy.linalg import eigh
 import wandb
 from rigging.secrets import require_secret
 from experiments.hybrid_transfer.storage import configure_storage
+from .diagnostic_artifacts import publish
 from .run import ROOT
 
 
@@ -82,7 +83,7 @@ def main(step,source_step):
                                     holdout_r2=1.-err/base,prediction_mse=err,intercept_mse=base,
                                     cal_docs=len(train),test_docs=len(test),validation_mse=min(options)[0]))
     run.log({'validation/mean_heldout_r2':float(np.mean([z['holdout_r2'] for z in result['folds']]))})
-    fs.pipe(ROOT+f'/kernel-probe/s{step}-from{source_step}.json',json.dumps(result).encode());run.finish()
+    publish(fs,ROOT+f'/kernel-probe/s{step}-from{source_step}.json',result);run.finish()
 
 
 if __name__=='__main__':main(*map(int,sys.argv[1:]))

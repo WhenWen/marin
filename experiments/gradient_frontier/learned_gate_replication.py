@@ -14,6 +14,7 @@ import wandb
 from levanter.layers.attention import Attention
 from rigging.secrets import require_secret
 from experiments.hybrid_transfer.storage import configure_storage
+from .diagnostic_artifacts import publish
 from . import fused_attention,online_coin
 from .contest import pair
 from .independent_audits import regular,residual,copy_state,donated_baseline,forecast
@@ -111,7 +112,7 @@ def main(step,rep):
         out['components'].append(np.asarray(j.concatenate((vz,vl[1:],prec))).tolist())
         for row,(m,kv,nv,sz) in zip(rows,cases):
             row['pair'].append(float(pair(state,left[sz],right[sz],ka,dummy,m,kv,nv)))
-        if i%6==0:fs.pipe(dest,json.dumps(out).encode())
+        if i%6==0:publish(fs,dest,out)
     run.log({'cycles':72});run.finish()
 
 

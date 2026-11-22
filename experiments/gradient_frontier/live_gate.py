@@ -14,6 +14,7 @@ import wandb
 from levanter.layers.attention import Attention
 from rigging.secrets import require_secret
 from experiments.hybrid_transfer.storage import configure_storage
+from .diagnostic_artifacts import publish
 from . import fused_attention
 from .independent_audits import copy_state,donated_baseline,residual
 from .roulette_training import update
@@ -82,7 +83,7 @@ def main(step,host):
         out['branches'].append(times)
         for row,(m,k,n,bs) in zip(rows,cases):
             row['pair'].append(float(pair(state,L[bs],R[bs],jax.random.key(77631+i),dummy,m,k,n)))
-        if i%8==0:fs.pipe(dst,json.dumps(out).encode())
+        if i%8==0:publish(fs,dst,out)
     run.log({'cycles':64});run.finish()
 
 

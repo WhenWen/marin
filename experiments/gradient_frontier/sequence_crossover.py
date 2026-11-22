@@ -15,6 +15,7 @@ import wandb
 from levanter.layers.attention import Attention
 from rigging.secrets import require_secret
 from experiments.hybrid_transfer.storage import configure_storage
+from .diagnostic_artifacts import publish
 from . import debias,fused_attention,online_coin
 from .causal_feedback import slim
 from .head_to_head import gradient
@@ -112,7 +113,7 @@ def main(step,band,run_seed):
             else:out['cold'].append(dict(index=int(ix),ms=ms))
             del final
         if i%8==0:
-            out['native_step_verified']=True;fs.pipe(dest,json.dumps(out).encode())
+            out['native_step_verified']=True;publish(fs,dest,out)
     run.log({'cycles':96});run.finish()
 
 

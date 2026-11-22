@@ -14,6 +14,7 @@ import wandb
 from levanter.layers.attention import Attention
 from rigging.secrets import require_secret
 from experiments.hybrid_transfer.storage import configure_storage
+from .diagnostic_artifacts import publish
 from . import debias,fused_attention
 from .contest import pair
 from .head_to_head import update
@@ -114,7 +115,7 @@ def main(st,B,k,n,scale):
         moments.append(norm_moments(delta(c,kc),delta(d,kd)))
         out['components'].append(np.asarray(j.concatenate(moments)).tolist());out['times'].append(ts)
         for row,(m,kv,nv,bs) in zip(rows,cases):row['pair'].append(float(pair(state,left[bs],right[bs],ka,dummy,m,kv,nv)))
-        if i%4==0:fs.pipe(dest,json.dumps(out).encode())
+        if i%4==0:publish(fs,dest,out)
     run.log({'cycles':32});run.finish()
 
 
