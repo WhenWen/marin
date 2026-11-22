@@ -44,8 +44,12 @@ def error(left,right):
         if not eqx.is_array(a):continue
         if a.size==0:continue
         if jax.dtypes.issubdtype(a.dtype,jax.dtypes.prng_key):a,b=jax.random.key_data(a),jax.random.key_data(b)
+        floating=j.issubdtype(a.dtype,j.inexact)
+        word={2:j.uint16,4:j.uint32,8:j.uint64}.get(a.dtype.itemsize,j.uint8)
+        aa,bb=(jax.lax.bitcast_convert_type(a,word),jax.lax.bitcast_convert_type(b,word)) if floating else (a,b)
         delta=a.astype(j.float32)-b.astype(j.float32)
-        vals.append(j.stack([j.count_nonzero(a!=b).astype(j.float32),j.max(j.abs(delta)),j.sum(delta*delta),j.sum(a.astype(j.float32)**2)]))
+        vals.append(j.stack([j.count_nonzero(aa!=bb).astype(j.float32),j.max(j.abs(delta)),
+                             j.sum(delta*delta) if floating else 0.,j.sum(a.astype(j.float32)**2) if floating else 0.]))
     return j.stack(vals)
 
 
