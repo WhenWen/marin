@@ -49,7 +49,7 @@ def main(step,nested=0):
         for idx in rng.permutation(np.arange(-6,len(cases))):
             work=copy_state(state);tic=time.perf_counter()
             if idx<0:
-                tag=-1-idx
+                tag=int(-1-idx)
                 ans=impl.update(work,data,(tag%3,tag>=3,indices),75391+i)
             else:
                 c=cases[idx]
