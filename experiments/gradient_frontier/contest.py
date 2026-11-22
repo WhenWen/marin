@@ -56,6 +56,9 @@ def main(step,trial,Bcandidate=16,method=113,size=4096,count=64):
     if screening:
         bs=sorted({max(1,Bcandidate//2),max(1,3*Bcandidate//4),Bcandidate,5*Bcandidate//4,3*Bcandidate//2,2*Bcandidate})
         cases=cases[:1]+[(m,k,n,b) for m,k,n in ((3,32768,0),(61,12288,64)) for b in bs]
+    if trial>=80:
+        bs=sorted({max(4,Bcandidate//4),max(4,Bcandidate//2),max(4,3*Bcandidate//4),Bcandidate,5*Bcandidate//4})
+        cases=cases[:1]+[(m,k,n,b) for m,k,n in ((3,32768,0),(201,4096,0),(202,8192,0),(206,1024,0),(61,12288,64)) for b in bs]
     device=jax.devices()[0].device_kind
     seed=59348+step*113+trial;gen=np.random.default_rng(seed)
     os.environ['WANDB_API_KEY']=require_secret('WANDB_API_KEY')
