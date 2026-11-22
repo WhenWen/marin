@@ -8,10 +8,11 @@ from experiments.hybrid_transfer.storage import configure_storage
 from levanter.tensorstore_serialization import build_kvstore_spec
 from .run import ROOT
 
-def run(method="native"):
+def run(method="native",width=128,depth=4):
     configure_storage()
     fs=fsspec.filesystem('s3')
-    prefix=ROOT+('/native-muonw' if method=='native' else '/muonw-'+method)
+    from .trajectory import trajectory_prefix
+    prefix=trajectory_prefix(method,int(width),int(depth))
     def read(path):
         return json.loads(fs.cat_file(path))
     a=read(prefix+'/completed/4003.json')

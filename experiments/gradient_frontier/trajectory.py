@@ -16,21 +16,34 @@ from .multifidelity import objective
 ORIGIN='s3://marin-us-east-04a/marin/experiments/hybrid-transfer-h100-20261116/state/standard-muonw-w128-d4-lr0.02-s0/checkpoints/fcf97d48183c/step-4000'
 TARGET=4011
 
-def main(mode,method="native"):
+def trajectory_prefix(method,width=128,depth=4):
+    base=ROOT+('/native-muonw' if method=='native' else '/muonw-'+method)
+    return base if (width,depth)==(128,4) else base+f'-w{width}-d{depth}'
+
+
+def main(mode,method="native",width=128,depth=4):
     configure_storage();fs=fsspec.filesystem('s3');run_id=uuid.uuid4().hex[:12]
     os.environ['WANDB_API_KEY']=require_secret('WANDB_API_KEY')
-    prefix=ROOT+('/native-muonw' if method=='native' else '/muonw-'+method)
+    width,depth=int(width),int(depth)
+    prefix=trajectory_prefix(method,width,depth)
+    origin=ORIGIN
+    if (width,depth)!=(128,4):
+        assert method=='native'
+        parent=ORIGIN.split('/state/')[0]+'/state/'+f'standard-muonw-w{width}-d{depth}-lr0.02-s0/checkpoints'
+        matches=sorted(fs.glob(parent.removeprefix('s3://')+'/*/step-4000/metadata.json'))
+        assert len(matches)==1, 'Midpoint checkpoint must be unique'
+        origin='s3://'+matches[0].removesuffix('/metadata.json')
     def read(p):return json.loads(fs.cat_file(p))
     def publish(p,x):fs.pipe(p,json.dumps(x,allow_nan=False).encode())
-    tracker=WandbConfig(entity='marin-community',project='gradient-variance-frontier',group='MuonW-10-'+method,
+    tracker=WandbConfig(entity='marin-community',project='gradient-variance-frontier',group='MuonW-10-'+method+f'-w{width}-d{depth}',
         name=f'{mode}-{run_id}',id=run_id,mode='online',resume='never',background=False,save_code=False)
     if mode=='logging':
-        tr=tracker.init(run_id);tr.log_hyperparameters({'phase':'non-training logging check','origin':ORIGIN})
+        tr=tracker.init(run_id);tr.log_hyperparameters({'phase':'non-training logging check','origin':origin})
         tr.log({'preflight/logging':1},step=0);tr.finish()
         publish(prefix+'/logging/'+run_id+'.json',{'id':run_id,'status':'passed'});return
     assert fs.glob(prefix+'/logging/*.json')
-    lineage=read(ORIGIN[len('s3://'):].rsplit('/',1)[0]+'/identity.json')
-    spec=RunSpec(128,4,'standard','muonw',.02,0)
+    lineage=read(origin[len('s3://'):].rsplit('/',1)[0]+'/identity.json')
+    spec=RunSpec(width,depth,'standard','muonw',.02,0)
     cfg=configuration(spec,run_id,'s3://marin-us-east-02a/marin','s3://marin-us-east-04a/marin/experiments',1,8)
     assert scientific_identity(draccus.encode(cfg))==lineage['scientific_config']
     if mode=='verify':
@@ -39,7 +52,7 @@ def main(mode,method="native"):
         records=sorted(fs.glob(prefix+'/completed/*.json'))
         if records:
             last=read(records[-1]);src=last['checkpoint'];expected=last['next_step']
-        else:src=ORIGIN;expected=4001
+        else:src=origin;expected=4001
         end=TARGET
     if mode=='check':end=4003
     if expected>=end:return
@@ -66,7 +79,7 @@ def main(mode,method="native"):
             path=prefix+'/group-bank';dest=folder/'learned.npz'
             if fs.exists(path+'.json'):
                 manifest=read(path+'.json')
-                assert manifest['source']==ORIGIN and manifest['method']==method
+                assert manifest['source']==origin and manifest['method']==method
                 fs.get_file(manifest['bytes'],str(dest))
                 assert hashlib.sha256(dest.read_bytes()).hexdigest()==manifest['sha256']
                 def recover_leaf(arr,i):
@@ -84,7 +97,7 @@ def main(mode,method="native"):
                 np.savez(dest,**{f'v{i}':np.asarray(x) for i,x in enumerate(ids)})
                 sha=hashlib.sha256(dest.read_bytes()).hexdigest();blob=path+'-'+sha+'.npz'
                 fs.put_file(str(dest),blob)
-                publish(path+'.json',dict(method=method,source=ORIGIN,bytes=blob,sha256=sha,arrays=len(ids)))
+                publish(path+'.json',dict(method=method,source=origin,bytes=blob,sha256=sha,arrays=len(ids)))
         elif variant in (5,6,7) or variant in range(60,66):
             from .fused_attention import install
             install()
@@ -111,7 +124,7 @@ def main(mode,method="native"):
         assert int(state.step)==int(state.opt_state.count)==expected
         assert int(state.opt_state.hyperparams_states['learning_rate'].count)==expected
         assert int(state.opt_state.hyperparams_states['adam_lr'].count)==expected
-        track=dict(parent=src,restored_next_step=expected,optimizer='muonw',gradient_estimator=method,schedule_steps=7630,
+        track=dict(parent=src,restored_next_step=expected,optimizer='muonw',gradient_estimator=method,schedule_steps=cfg.trainer.num_train_steps,width=width,depth=depth,
                    data_example_offset=expected*128,run_id=run_id,mode=mode,
                    wandb=f'https://wandb.ai/marin-community/gradient-variance-frontier/runs/{run_id}')
         publish(prefix+'/attempts/'+run_id+'/lineage.json',track)
@@ -129,7 +142,7 @@ def main(mode,method="native"):
             assert n==step+1 and int(state.opt_state.count)==n
             cp=f's3://{prefix}/states/{run_id}/step-{step}'
             valid=float(validation(state.model))
-            meta=dict(next_step=n,data_seed=42,next_example=n*128,origin=ORIGIN,run_id=run_id,
+            meta=dict(next_step=n,data_seed=42,next_example=n*128,origin=origin,run_id=run_id,
                       data_sha256=data_hash,optimizer='muonw',trainer_fingerprint=lineage['fingerprint'])
             save_checkpoint(state.saveable_state,step,cp,is_temporary=False,metadata=meta)
             assert read(cp[len('s3://'):]+'/metadata.json')['next_step']==n
