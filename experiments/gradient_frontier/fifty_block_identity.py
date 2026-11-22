@@ -32,7 +32,8 @@ def emitted(state, data, key, part, phase, delta):
     return pred
 
 
-def main(step):
+def main(step,strict=0):
+    from . import fifty_blocks_strict as fixed
     configure_storage()
     fs=fsspec.filesystem('s3')
     pool, meta=population(fs)
@@ -40,7 +41,7 @@ def main(step):
     fused_attention.install()
     os.environ['WANDB_API_KEY']=require_secret('WANDB_API_KEY')
     run=wandb.init(entity='marin-community',project='gradient-variance-frontier',group='enumerate-block-estimator',id=os.urandom(6).hex(),mode='online',config=dict(**meta,step=step,origin=src))
-    out=dict(**meta,step=step,source=src,wandb=run.url,rows=[],outcomes_per_pair=192,host_accumulator='float64',device=jax.devices()[0].device_kind)
+    out=dict(**meta,algorithm=402 if strict else 401,step=step,source=src,wandb=run.url,rows=[],outcomes_per_pair=192,host_accumulator='float64',device=jax.devices()[0].device_kind)
     gen=np.random.default_rng(np.random.SeedSequence([239265,step]))
     B,K,N=fifty_blocks.B,fifty_blocks.K,fifty_blocks.N
     pt,pr,r=fifty_blocks.PT,fifty_blocks.PR,fifty_blocks.R
@@ -49,7 +50,7 @@ def main(step):
         batches=[tuple(jnp.asarray(v[ix]) for v in pool) for ix in ids]
         keys=jax.random.split(jax.random.key(9321+step*10+i))
         gold=[ready(native_call(native_audit,state.model,d,B)) for d in batches]
-        corr=[ready(block_audits.strict(state,d,k,K,N,g)) for d,k,g in zip(batches,keys,gold)]
+        corr=[ready(fixed.discrepancy(state,d,k) if strict else block_audits.strict(state,d,k,K,N,g)) for d,k,g in zip(batches,keys,gold)]
         refs=[.5*(np.asarray(x,np.float64)+np.asarray(y,np.float64)) for x,y in zip(*map(jax.tree.leaves,gold))]
         acc=[np.zeros_like(a) for a in refs]
         for side in range(2):
@@ -57,8 +58,9 @@ def main(step):
                 # A skipped raw query is identical on all sixteen phases.
                 phases=16 if part else 1
                 for phase in range(phases):
+                    value=fixed.raw_block(state,batches[side],keys[side],part,jnp.asarray(phase,jnp.int32)) if strict and part else None
                     for hit,w in ((False,1-r),(True,r)):
-                        raw=emitted(state,batches[side],keys[side],part,jnp.asarray(phase),corr[1-side] if hit else None)
+                        raw=fixed.emitted(state,value,part,corr[1-side] if hit else None) if strict else emitted(state,batches[side],keys[side],part,jnp.asarray(phase),corr[1-side] if hit else None)
                         weight=.5*p*w/phases
                         for a,b in zip(acc,jax.tree.leaves(raw)):
                             a+=np.asarray(b,dtype=np.float64)*weight
@@ -66,11 +68,12 @@ def main(step):
         relative=float(np.sqrt(sum(np.dot(a,a) for a in err)/sum(np.dot(v.ravel(),v.ravel()) for v in refs)))
         mx=float(max(np.max(np.abs(a)) for a in err))
         out['rows'].append(dict(panel=i,relative_l2=relative,maximum_coordinate=mx,sample_ids=ids.tolist()))
-        publish(fs,ROOT+f'/fifty-block-identity-v1/s{step}.json',out)
+        folder='fifty-block-strict-identity-v1' if strict else 'fifty-block-identity-v1'
+        publish(fs,ROOT+f'/{folder}/s{step}.json',out)
         run.log(dict(relative_l2=relative,maximum_coordinate=mx))
     run.finish()
 
 
 if __name__=='__main__':
     with jax.set_mesh(jax.sharding.Mesh(np.asarray(jax.devices()).reshape((-1,1)),('data','model'))),h.axis_mapping({}):
-        main(int(sys.argv[1]))
+        main(*map(int,sys.argv[1:]))

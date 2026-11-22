@@ -37,9 +37,9 @@ END=4051
 
 def configurations(panel):
     # Independent curves on each physical board. Each batch uses the same ordered original training stream.
-    if panel in (2,3):
-        primary=(401,12288,64,32,500)
-        if panel==2:
+    if panel in (2,3,4,5):
+        primary=(402 if panel>=4 else 401,12288,64,32,500)
+        if panel in (2,4):
             candidates=((61,12288,64),(62,16384,64),(7,16384,64))
             extra=((61,1024,16,1,0),(61,4096,32,1,0),(61,8192,32,2,0),(61,4096,64,2,0))
         else:
@@ -123,9 +123,10 @@ def train(mode,seed,panel):
     assert fs.exists(root+'/logging.json')
     if mode=='main':assert read(root+'/verified.json')['bitwise_match']
     stage='replay' if mode in ('check','verify') else 'main';prefix=root+'/'+stage
-    from . import fifty_blocks
+    from . import fifty_blocks,fifty_blocks_strict
     initial,src=recover(START,fs);fused_attention.install()
-    block_panel=panel in (2,3)
+    block_panel=panel in (2,3,4,5)
+    block_impl=fifty_blocks_strict if panel>=4 else fifty_blocks
     manifest=read(ROOT+'/fifty-stream/manifest.json');assert len(manifest['files'])==50
     files={v['step']:v for v in manifest['files']}
     def load_data(step):
@@ -180,10 +181,10 @@ def train(mode,seed,panel):
     inputs=load_data(start)
     for c in cfgs:
         data=tuple(v[:c[3]] for v in inputs);tic=time.perf_counter()
-        if c[0]==401:
+        if c[0] in (401,402):
             for tag in range(3):
                 for hit in (False,True):
-                    tmp,_=fifty_blocks.update(copy_state(states[c]),inputs,(tag,hit,schedule[0][2]),seed);ready(tmp);del tmp
+                    tmp,_=block_impl.update(copy_state(states[c]),inputs,(tag,hit,schedule[0][2]),seed);ready(tmp);del tmp
         else:
             for hit in ((False,True) if c[0]==172 else (False,)):
                 work=copy_state(states[c]);tmp,_=update(work,data,bank,c,seed,hit);ready(tmp);del tmp
@@ -196,10 +197,10 @@ def train(mode,seed,panel):
             c=cfgs[int(index)];batch=by_b[c[3]];state=states[c]
             train_ce=float(native_call(eval_ce,state.model,batch))
             tag=0;tic=time.perf_counter()
-            if c[0]==401:
+            if c[0] in (401,402):
                 gate=schedule[step-START]
                 if mode in ('check','verify') and step==4002:gate=(2,True,gate[2])
-                tag=gate[0];nxt,hit=fifty_blocks.update(state,data,gate,seed)
+                tag=gate[0];nxt,hit=block_impl.update(state,data,gate,seed)
             else:nxt,hit=update(state,batch,bank,c,seed)
             ready(nxt);ms=1000*(time.perf_counter()-tic)
             assert int(nxt.step)==int(nxt.opt_state.count)==step+1
