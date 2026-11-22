@@ -63,13 +63,18 @@ def metrics(h,g,d,e):
     return j.stack((diff(h,g),(prod(d,d)+prod(e,e))/2,prod(d,e)))
 
 
-def main(step,B,k,n):
-    configure_storage();fs=fsspec.filesystem('s3');state,src=recover(step,fs);original=Attention.__call__;fused_attention.install()
+def main(step,B,k,n,width=128,depth=4):
+    configure_storage();fs=fsspec.filesystem('s3')
+    def checkpoint(index):
+        if width==128 and depth==4:return recover(index,fs)
+        from .scale_probe import recover_scale
+        return recover_scale(width,depth,fs,index)[:2]
+    state,src=checkpoint(step);original=Attention.__call__;fused_attention.install()
     file=Path('/tmp/strict-crossfit.npz');fs.get_file(ROOT+'/inputs/native-packed.npz',str(file))
     with np.load(file) as z:
         pool=tuple(z[key][512:] for key in ('tokens','weights','segments'))
         cal=tuple(j.asarray(z[key][:4]) for key in ('tokens','weights','segments'))
-    origin=state if step==4001 else recover(4001,fs)[0]
+    origin=state if step==4001 else checkpoint(4001)[0]
     bank=ready(fit(origin.model,cal,k,113));prep=[]
     for _ in range(8):
         tick=time.perf_counter();bank=ready(fit(origin.model,cal,k,113));prep.append(1000*(time.perf_counter()-tick))
@@ -85,12 +90,13 @@ def main(step,B,k,n):
         return subtract_mean(gold,summed,L)
     cases=[(m,kk,nn,b) for m,kk,nn in ((3,32768,0),(4,4096,0),(201,4096,0),(202,8192,0),(206,1024,0),(61,4096,32),(61,8192,32),(61,12288,64),(62,16384,64),(7,16384,64))
            for b in sorted({max(2,B//4),B//2,3*B//4,B,5*B//4,2*B})]
-    cfg=dict(step=step,B=B,k=k,n=n,checkpoint=src,seed=seed,device=jax.devices()[0].device_kind)
+    cfg=dict(step=step,B=B,k=k,n=n,width=width,depth=depth,checkpoint=src,seed=seed,device=jax.devices()[0].device_kind)
     os.environ['WANDB_API_KEY']=require_secret('WANDB_API_KEY')
     run=wandb.init(entity='marin-community',project='gradient-variance-frontier',group='precision-repaired-crossfit',id=os.urandom(5).hex(),config=cfg)
     rows=[dict(method=m,k=kk,n=nn,b=b,ms=[],pair=[]) for m,kk,nn,b in cases]
     out=dict(**cfg,wandb=run.url,rows=rows,prep=prep,components=[],times=[])
     dst=ROOT+f'/strict-crossfit/{cfg["device"].split()[1]}-s{step}-b{B}-k{k}-n{n}.json'
+    if width!=128 or depth!=4:dst=dst.replace('/strict-crossfit/',f'/strict-crossfit-scale/w{width}-d{depth}-')
     sizes={q[-1] for q in cases};dummy=j.arange(1)
     def sample():
         ix=gen.integers(len(pool[0]),size=max(sizes));return {b:tuple(j.asarray(a[ix[:b]]) for a in pool) for b in sizes}

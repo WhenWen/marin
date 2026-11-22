@@ -28,7 +28,7 @@ from .temporal import momentum
 from .run import ROOT,ready
 
 
-def recover_scale(width,depth,fs):
+def recover_scale(width,depth,fs,step=4001):
     spec=RunSpec(width,depth,'standard','muonw',.02,0)
     cfg=configuration(spec,'diagnostic','s3://marin-us-east-02a/marin','s3://marin-us-east-04a/marin/experiments',1,8)
     root=f'marin-us-east-04a/marin/experiments/hybrid-transfer-h100-20261116/state/standard-muonw-w{width}-d{depth}-lr0.02-s0/checkpoints'
@@ -41,9 +41,14 @@ def recover_scale(width,depth,fs):
     def initialize():
         model=cfg.model.build(h.Axis('vocab',128256),key=jax.random.key(0))
         return TrainerState.init(opt,model,key=jax.random.PRNGKey(0),mp=cfg.trainer.mp)
-    state=load_checkpoint(eqx.filter_eval_shape(initialize),'s3://'+ck,allow_partial=False,mesh=jax.sharding.Mesh(np.asarray(jax.devices()).reshape(-1,1),('data','model')),axis_mapping={})
-    assert int(state.step)==int(state.opt_state.count)==4001
-    return state,'s3://'+ck,cfg
+    src='s3://'+ck
+    if step!=4001:
+        receipt=json.loads(fs.cat_file(ROOT+f'/native-muonw-w{width}-d{depth}/completed/{step}.json'))
+        assert receipt['next_step']==step and receipt['origin']==src
+        src=receipt['checkpoint']
+    state=load_checkpoint(eqx.filter_eval_shape(initialize),src,allow_partial=False,mesh=jax.sharding.Mesh(np.asarray(jax.devices()).reshape(-1,1),('data','model')),axis_mapping={})
+    assert int(state.step)==int(state.opt_state.count)==step
+    return state,src,cfg
 
 
 @eqx.filter_jit
