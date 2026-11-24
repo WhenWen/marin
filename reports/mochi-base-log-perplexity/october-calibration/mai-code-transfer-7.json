@@ -1,0 +1,32 @@
+{
+  "models": [
+    "ds4",
+    "kimi",
+    "ds32",
+    "gemma",
+    "ds4post",
+    "mimo",
+    "k3"
+  ],
+  "public_code_bpb": 0.2869645895194288,
+  "predicted_mai_code_bpb": 0.24305002162674844,
+  "equal_family_weighted_holdout_rmse": {
+    "Constant": 0.01076491742756174,
+    "Straight line": 0.007841367957555525,
+    "Quadratic": 0.023039068870303516
+  },
+  "r_squared": 0.7026104323906215,
+  "slope": 0.2592422464362882,
+  "intercept": 0.1686566767920644,
+  "mai2_code_reference": {
+    "ds4": 0.237,
+    "kimi": 0.2438,
+    "ds32": 0.24650000000000002,
+    "gemma": 0.25540000000000007,
+    "ds4post": 0.2361,
+    "mimo": 0.2446,
+    "k3": 0.2264
+  },
+  "predicted_openai_chart_coordinate": 0.8867910644477103,
+  "chart_rmse": 0.023367276513515545
+}
