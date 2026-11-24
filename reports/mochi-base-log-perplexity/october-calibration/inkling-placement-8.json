@@ -1,0 +1,34 @@
+{
+  "calibration_models": 8,
+  "estimates": {
+    "inksmall": {
+      "public_bpb": 0.22816969657952335,
+      "mai_bpb": 0.22848747832372313,
+      "chart": 0.8433946854046949,
+      "rmse": 0.02032242707481723,
+      "interpolated": false
+    },
+    "inkmini": {
+      "public_bpb": 0.2788851527268219,
+      "mai_bpb": 0.24129225106156876,
+      "chart": 0.8815529081634749,
+      "rmse": 0.02032242707481723,
+      "interpolated": true
+    },
+    "mochi": {
+      "public_bpb": 0.2869645895194288,
+      "mai_bpb": 0.24333216866930246,
+      "chart": 0.8876318626345213,
+      "rmse": 0.02032242707481723,
+      "interpolated": true
+    }
+  },
+  "elie_small_chart": 0.8140154152163106,
+  "elie_small_published_range": [
+    0.7776752859273995,
+    0.8323943311785185
+  ],
+  "tml_small_posttrained_on_reconstructed_elie_line": 0.8229902651808498,
+  "small_minus_elie_original": 0.029379270188384266,
+  "small_minus_matched_posttrained": 0.020404420223845032
+}
