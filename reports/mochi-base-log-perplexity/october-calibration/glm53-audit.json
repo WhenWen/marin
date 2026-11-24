@@ -1,0 +1,195 @@
+{
+  "hardware_checks": {
+    "glm53": {
+      "weights": [
+        "zai-org/GLM-5.3",
+        "ba32f8c19c8738e2c57c71798c601d477a7bf844"
+      ],
+      "per_language": {
+        "github_cpp": 0.8515738866170304,
+        "github_python": 0.5319219121354946
+      },
+      "mean_bpb": 0.6917478993762625,
+      "macro_delta_vs_baseline": 0.0,
+      "paired_95pct_macro_delta": [
+        0.0,
+        0.0
+      ]
+    },
+    "glm53tp8": {
+      "weights": [
+        "zai-org/GLM-5.3",
+        "ba32f8c19c8738e2c57c71798c601d477a7bf844"
+      ],
+      "per_language": {
+        "github_cpp": 1.123949151367673,
+        "github_python": 0.5721354189456725
+      },
+      "mean_bpb": 0.8480422851566727,
+      "macro_delta_vs_baseline": 0.15629438578041022,
+      "paired_95pct_macro_delta": [
+        0.12814155882138828,
+        0.18703344909197278
+      ]
+    },
+    "glm53bf16": {
+      "weights": [
+        "zai-org/GLM-5.3-BF16",
+        "abf42e6c0e53bc29a875511301e7b7fcd220315b"
+      ],
+      "per_language": {
+        "github_cpp": 1.0637283074434187,
+        "github_python": 0.5710050179607201
+      },
+      "mean_bpb": 0.8173666627020695,
+      "macro_delta_vs_baseline": 0.12561876332580701,
+      "paired_95pct_macro_delta": [
+        0.09850428575889161,
+        0.1536347471308625
+      ]
+    }
+  },
+  "template_sha256": "0e2b6268ac54f04d2bc1157e8cfb896cb66f25c0b5e319ea12e56014c3914f24",
+  "prefix_conditions": {
+    "raw": {
+      "prefix": {
+        "github_cpp": "<|endoftext|>",
+        "github_python": "<|endoftext|>"
+      },
+      "per_language": {
+        "github_cpp": 0.8265059027674202,
+        "github_python": 0.5159556977945225
+      },
+      "mean_bpb": 0.6712308002809714,
+      "macro_delta_vs_baseline": 0.0,
+      "paired_95pct_macro_delta": [
+        0.0,
+        0.0
+      ]
+    },
+    "native_start": {
+      "prefix": {
+        "github_cpp": "[gMASK]<sop>",
+        "github_python": "[gMASK]<sop>"
+      },
+      "per_language": {
+        "github_cpp": 0.22056163488054378,
+        "github_python": 0.32634558561825866
+      },
+      "mean_bpb": 0.27345361024940124,
+      "macro_delta_vs_baseline": -0.39777719003157014,
+      "paired_95pct_macro_delta": [
+        -0.44490113666105024,
+        -0.3548712686024175
+      ]
+    },
+    "system_only": {
+      "prefix": {
+        "github_cpp": "[gMASK]<sop><|system|>Reasoning Effort: Max",
+        "github_python": "[gMASK]<sop><|system|>Reasoning Effort: Max"
+      },
+      "per_language": {
+        "github_cpp": 0.48424161743148203,
+        "github_python": 0.44332445971762646
+      },
+      "mean_bpb": 0.4637830385745543,
+      "macro_delta_vs_baseline": -0.2074477617064171,
+      "paired_95pct_macro_delta": [
+        -0.25442285997475383,
+        -0.16446384147732715
+      ]
+    },
+    "chat_thinking": {
+      "prefix": {
+        "github_cpp": "[gMASK]<sop><|system|>Reasoning Effort: Max<|user|>Write a C++ source file.<|assistant|><think>",
+        "github_python": "[gMASK]<sop><|system|>Reasoning Effort: Max<|user|>Write a Python source file.<|assistant|><think>"
+      },
+      "per_language": {
+        "github_cpp": 0.24117322817445971,
+        "github_python": 0.3397461064281254
+      },
+      "mean_bpb": 0.2904596673012926,
+      "macro_delta_vs_baseline": -0.3807711329796788,
+      "paired_95pct_macro_delta": [
+        -0.42779817992166647,
+        -0.33745946393541654
+      ]
+    },
+    "chat_answer": {
+      "prefix": {
+        "github_cpp": "[gMASK]<sop><|system|>Reasoning Effort: Max<|user|>Write a C++ source file.<|assistant|><think></think>",
+        "github_python": "[gMASK]<sop><|system|>Reasoning Effort: Max<|user|>Write a Python source file.<|assistant|><think></think>"
+      },
+      "per_language": {
+        "github_cpp": 0.41896343726289803,
+        "github_python": 0.4108323949634466
+      },
+      "mean_bpb": 0.4148979161131723,
+      "macro_delta_vs_baseline": -0.2563328841677991,
+      "paired_95pct_macro_delta": [
+        -0.3042224967858488,
+        -0.21198534041866018
+      ]
+    }
+  },
+  "native_start_files_improved": {
+    "github_cpp": {
+      "improved": 469,
+      "total": 470
+    },
+    "github_python": {
+      "improved": 348,
+      "total": 490
+    }
+  },
+  "same_runtime_raw_repeat": {
+    "per_language": {
+      "github_cpp": 0.8265059027674202,
+      "github_python": 0.5159556977945225
+    },
+    "mean_bpb": 0.6712308002809714,
+    "macro_delta_vs_baseline": -0.02051709909529109,
+    "paired_95pct_macro_delta": [
+      -0.04469451791002516,
+      0.004354545861956555
+    ]
+  },
+  "files": 960,
+  "october_sha256": "47ff262d78bc33cccb0066e5553546cccf7bb73257c3d4bfdb8e0f1292e48aca",
+  "measured_anchor_range": [
+    0.22856568487505027,
+    0.31571333389711104
+  ],
+  "native_start_chart_estimate": 0.8774662248617369,
+  "native_start_relative_reduction": 0.5926086673392581,
+  "repeatability": {
+    "glm53": {
+      "repeated_file_4174": {
+        "min_bpb": 1.9145445489358586,
+        "max_bpb": 5.260303227294907,
+        "median_token_logprob_spread": 6.81419050693512,
+        "fraction_token_spread_over_one_nat": 0.9316888045540797
+      },
+      "maximum_mean_absolute_duplicate_logprob_difference_nats": 8.823902184293772
+    },
+    "glm53bf16": {
+      "repeated_file_4174": {
+        "min_bpb": 5.264548695252338,
+        "max_bpb": 5.293343922354675,
+        "median_token_logprob_spread": 0.42224884033203125,
+        "fraction_token_spread_over_one_nat": 0.009487666034155597
+      },
+      "maximum_mean_absolute_duplicate_logprob_difference_nats": 7.642439793743506
+    },
+    "glm53-native": {
+      "repeated_file_4174": {
+        "min_bpb": 0.22135269392119153,
+        "max_bpb": 0.22634525133996916,
+        "median_token_logprob_spread": 1.9311337382532656e-05,
+        "fraction_token_spread_over_one_nat": 0.022770398481973434
+      },
+      "maximum_mean_absolute_duplicate_logprob_difference_nats": 0.07850961784255484
+    }
+  },
+  "include_primary_chart": false
+}

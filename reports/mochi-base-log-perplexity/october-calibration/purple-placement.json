@@ -1,0 +1,131 @@
+{
+  "anchor_models": [
+    "ds4",
+    "kimi",
+    "ds32",
+    "gemma",
+    "ds4post",
+    "mimo",
+    "qwen",
+    "k3"
+  ],
+  "anchor_range": [
+    0.22856568487505027,
+    0.3157133338971111
+  ],
+  "family_holdout_rmse_chart": 0.02032242707481723,
+  "family_holdout_rmse_mai": 0.00681960640094538,
+  "source": "https://thinkingmachines.ai/news/inkling-2-small/",
+  "models": {
+    "glm53": {
+      "model": "GLM-5.3",
+      "released_weights": [
+        "zai-org/GLM-5.3",
+        "ba32f8c19c8738e2c57c71798c601d477a7bf844"
+      ],
+      "files": 960,
+      "cpp_bpb": 0.8515738866170305,
+      "python_bpb": 0.5319219121354946,
+      "public_macro_bpb": 0.6917478993762625,
+      "predicted_mai_bpb": null,
+      "predicted_chart": null,
+      "original_chart": 0.8733291894579814,
+      "original_pixel_xy": [
+        1497,
+        638
+      ],
+      "delta": null,
+      "inside_anchor_range": false,
+      "tml_internal_bpb": 0.2358,
+      "tml_version": "base-recovered"
+    },
+    "glm53flash": {
+      "model": "GLM-5.3 Flash",
+      "released_weights": [
+        "zai-org/GLM-5.3-Flash",
+        "46a050bec13002ad29ee795c16e61cf4fa3c4a9c"
+      ],
+      "files": 960,
+      "cpp_bpb": 0.21865046761145365,
+      "python_bpb": 0.3199699198988071,
+      "public_macro_bpb": 0.2693101937551304,
+      "predicted_mai_bpb": 0.23887474005169812,
+      "predicted_chart": 0.8743487253540604,
+      "original_chart": 0.8670636499254105,
+      "original_pixel_xy": [
+        1497,
+        653
+      ],
+      "delta": 0.007285075428649868,
+      "inside_anchor_range": true,
+      "tml_internal_bpb": 0.2327,
+      "tml_version": "base-recovered"
+    },
+    "ds41flash": {
+      "model": "DeepSeek-V4.1-Flash-1017",
+      "released_weights": [
+        "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+        "08c8657f02291e11b6f6b63e0e16014f8e748518"
+      ],
+      "files": 960,
+      "cpp_bpb": 0.20005743997029404,
+      "python_bpb": 0.2788718376115792,
+      "public_macro_bpb": 0.2394646387909366,
+      "predicted_mai_bpb": 0.23133925525902632,
+      "predicted_chart": 0.8518929806718984,
+      "original_chart": 0.8461785181501743,
+      "original_pixel_xy": [
+        1523,
+        703
+      ],
+      "delta": 0.00571446252172414,
+      "inside_anchor_range": true,
+      "tml_internal_bpb": 0.2209,
+      "tml_version": "base-recovered"
+    },
+    "k31pro": {
+      "model": "Kimi K3.1 Pro",
+      "released_weights": [
+        "moonshotai/Kimi-K3.1-Pro",
+        "d9e99b0792a5e93b78ea9bea62a68167e36ddd9e"
+      ],
+      "files": 960,
+      "cpp_bpb": 0.17940780681468066,
+      "python_bpb": 0.26522418097631295,
+      "public_macro_bpb": 0.2223159938954968,
+      "predicted_mai_bpb": 0.2270095199607701,
+      "predicted_chart": 0.8389903694830949,
+      "original_chart": 0.8206986573843862,
+      "original_pixel_xy": [
+        1482,
+        764
+      ],
+      "delta": 0.018291712098708723,
+      "inside_anchor_range": false,
+      "tml_internal_bpb": 0.2068,
+      "tml_version": "base-recovered"
+    },
+    "inksmall": {
+      "model": "Inkling 2 Small",
+      "released_weights": [
+        "thinkingmachines/Inkling-2-Small",
+        "885d78bfca61a7e9a498e33cfa7ad35850533b8c"
+      ],
+      "files": 960,
+      "cpp_bpb": 0.19615500684897,
+      "python_bpb": 0.2601843863100767,
+      "public_macro_bpb": 0.22816969657952335,
+      "predicted_mai_bpb": 0.22848747832372313,
+      "predicted_chart": 0.8433946854046949,
+      "original_chart": 0.8140154152163106,
+      "original_pixel_xy": [
+        1536,
+        780
+      ],
+      "delta": 0.029379270188384266,
+      "inside_anchor_range": false,
+      "tml_internal_bpb": 0.203,
+      "tml_version": "pre-trained"
+    }
+  }
+}

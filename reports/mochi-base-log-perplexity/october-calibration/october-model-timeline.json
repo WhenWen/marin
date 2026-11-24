@@ -1,0 +1,330 @@
+{
+  "files": 960,
+  "model_count": 16,
+  "plotted_count": 15,
+  "excluded": [
+    "glm53"
+  ],
+  "mai_anchors": [
+    "ds4",
+    "kimi",
+    "ds32",
+    "gemma",
+    "ds4post",
+    "mimo",
+    "qwen",
+    "k3"
+  ],
+  "chart_rmse": 0.02032242707481723,
+  "references": [
+    "https://microsoft.ai/pdf/mai-thinking-1.pdf",
+    "https://microsoft.ai/pdf/Frontier-Pre-training-at-Microsoft-AI.pdf",
+    "https://x.com/eliebakouch/status/2124686143165734972"
+  ],
+  "models": {
+    "kimi": {
+      "label": "Kimi K2 Base",
+      "weights": [
+        "moonshotai/Kimi-K2-Base",
+        "ce72df012259dcc55d945e890f815fe7ef69159c"
+      ],
+      "date": {
+        "date": "2025-07-11",
+        "source": "https://huggingface.co/moonshotai/Kimi-K2-Base/commit/51ce4a052be5bfa551a028feb0fe55188359b525",
+        "milestone": "Upload folder using huggingface_hub"
+      },
+      "cpp_bpb": 0.22820146465616975,
+      "python_bpb": 0.358588046779442,
+      "mean_bpb": 0.2933947557178059,
+      "calibration_anchor": true,
+      "estimated_mai_bpb": 0.2449556740676893,
+      "estimated_chart": 0.8924699087217142,
+      "extrapolated": false
+    },
+    "ds32": {
+      "label": "DeepSeek V3.2 Exp Base",
+      "weights": [
+        "deepseek-ai/DeepSeek-V3.2-Exp-Base",
+        "b21ef155036dfbbd6d49013a345d31d5f5e38c89"
+      ],
+      "date": {
+        "date": "2025-09-29",
+        "source": "https://huggingface.co/deepseek-ai/DeepSeek-V3.2-Exp-Base/commit/993925a9cde5313c9e3b6151db134eee8748a04b",
+        "milestone": "initial commit"
+      },
+      "cpp_bpb": 0.23534277905172118,
+      "python_bpb": 0.3807905790127097,
+      "mean_bpb": 0.3080666790322154,
+      "calibration_anchor": true,
+      "estimated_mai_bpb": 0.2486600801391335,
+      "estimated_chart": 0.9035090388146177,
+      "extrapolated": false
+    },
+    "gemma": {
+      "label": "Gemma 4 31B",
+      "weights": [
+        "google/gemma-4-31B",
+        "5bbc2fb1c1b2c611d06e3d9f23c170ba21659d89"
+      ],
+      "date": {
+        "date": "2026-04-02",
+        "source": "https://huggingface.co/google/gemma-4-31B/commit/2d418d1b7ed8c04d732c3359e19a11fbc85b6842",
+        "milestone": "Preparing for release!"
+      },
+      "cpp_bpb": 0.2508108730867203,
+      "python_bpb": 0.3806157947075018,
+      "mean_bpb": 0.31571333389711104,
+      "calibration_anchor": true,
+      "estimated_mai_bpb": 0.25059072781910996,
+      "estimated_chart": 0.9092623689009477,
+      "extrapolated": false
+    },
+    "ds4": {
+      "label": "DeepSeek V4 Pro Base",
+      "weights": [
+        "deepseek-ai/DeepSeek-V4-Pro-Base",
+        "98730c030fbdbaca4950788280a35c4642b208a9"
+      ],
+      "date": {
+        "date": "2026-04-24",
+        "source": "https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro-Base/commit/5a411051f5757068123c5e389e198ec189b61ffa",
+        "milestone": "Release DeepSeek-V4"
+      },
+      "cpp_bpb": 0.2119102393268151,
+      "python_bpb": 0.3385306723755919,
+      "mean_bpb": 0.2752204558512035,
+      "calibration_anchor": true,
+      "estimated_mai_bpb": 0.24036697868485782,
+      "estimated_chart": 0.8787955964808762,
+      "extrapolated": false
+    },
+    "ds4post": {
+      "label": "DeepSeek V4 Pro",
+      "weights": [
+        "deepseek-ai/DeepSeek-V4-Pro",
+        "89d501aed998d33fa4f4702102ec1bb2331e10f6"
+      ],
+      "date": {
+        "date": "2026-04-24",
+        "source": "https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro/commit/0e1a0e5e52aea73055f50fef6f2423db370265b6",
+        "milestone": "Release DeepSeek-V4"
+      },
+      "cpp_bpb": 0.21947004673158832,
+      "python_bpb": 0.3477551376766,
+      "mean_bpb": 0.2836125922040942,
+      "calibration_anchor": true,
+      "estimated_mai_bpb": 0.24248584750606433,
+      "estimated_chart": 0.8851098255680717,
+      "extrapolated": false
+    },
+    "k3": {
+      "label": "Kimi K3",
+      "weights": [
+        "moonshotai/Kimi-K3",
+        "f831ab66814297da540d832a5235f8e904f29d06"
+      ],
+      "date": {
+        "date": "2026-07-27",
+        "source": "https://huggingface.co/moonshotai/Kimi-K3/commit/c5d1dd4c428bd1ce8b88c5044f3b6ccde9e3b721",
+        "milestone": "Initial commit"
+      },
+      "cpp_bpb": 0.18304636043630196,
+      "python_bpb": 0.2740850093137986,
+      "mean_bpb": 0.22856568487505027,
+      "calibration_anchor": true,
+      "estimated_mai_bpb": 0.22858745849774217,
+      "estimated_chart": 0.8436926263232717,
+      "extrapolated": false
+    },
+    "qwen": {
+      "label": "Qwen3.8 2.4T",
+      "weights": [
+        "Qwen/Qwen3.8-2.4T-A95B",
+        "207bd685a7e3696cfaff12ded7c6a7ea0f88c996"
+      ],
+      "date": {
+        "date": "2026-08-12",
+        "source": "https://huggingface.co/Qwen/Qwen3.8-2.4T-A95B/commit/b15b86386175ffa6032ba70a1ed10443187008fb",
+        "milestone": "Update config.json"
+      },
+      "cpp_bpb": 0.21128923742718916,
+      "python_bpb": 0.31821422180401754,
+      "mean_bpb": 0.26475172961560334,
+      "calibration_anchor": true,
+      "estimated_mai_bpb": 0.2377238069481737,
+      "estimated_chart": 0.8709189447055575,
+      "extrapolated": false
+    },
+    "glm53": {
+      "label": "GLM-5.3",
+      "weights": [
+        "zai-org/GLM-5.3",
+        "ba32f8c19c8738e2c57c71798c601d477a7bf844"
+      ],
+      "date": {
+        "date": "2026-08-28",
+        "source": "https://huggingface.co/zai-org/GLM-5.3/commit/30333038ada1f1dacb294a93270305a890b50c14",
+        "milestone": "update"
+      },
+      "cpp_bpb": 0.8515738866170304,
+      "python_bpb": 0.5319219121354946,
+      "mean_bpb": 0.6917478993762625,
+      "calibration_anchor": false,
+      "estimated_mai_bpb": null,
+      "estimated_chart": null,
+      "extrapolated": true
+    },
+    "glm53flash": {
+      "label": "GLM-5.3 Flash",
+      "weights": [
+        "zai-org/GLM-5.3-Flash",
+        "46a050bec13002ad29ee795c16e61cf4fa3c4a9c"
+      ],
+      "date": {
+        "date": "2026-08-26",
+        "source": "https://huggingface.co/zai-org/GLM-5.3-Flash/commit/69032ad82c923115314db825ee12a9b55a8d267b",
+        "milestone": "Update README.md"
+      },
+      "cpp_bpb": 0.21865046761145365,
+      "python_bpb": 0.3199699198988071,
+      "mean_bpb": 0.2693101937551304,
+      "calibration_anchor": false,
+      "estimated_mai_bpb": 0.238874740051698,
+      "estimated_chart": 0.87434872535406,
+      "extrapolated": false
+    },
+    "mimo": {
+      "label": "MiMo V2.6 Pro RL",
+      "weights": [
+        "XiaomiMiMo/MiMo-V2.6-Pro-RL",
+        "73875d00b30a89ef8cc353a0b60b0e9f9561952d"
+      ],
+      "date": {
+        "date": "2026-09-21",
+        "source": "https://huggingface.co/XiaomiMiMo/MiMo-V2.6-Pro-RL/commit/c165b4c7d1936ec55425c029597f414f84bd5d34",
+        "milestone": "Add model card"
+      },
+      "cpp_bpb": 0.21109785688045157,
+      "python_bpb": 0.3081523781106598,
+      "mean_bpb": 0.2596251174955557,
+      "calibration_anchor": true,
+      "estimated_mai_bpb": 0.2364294263372287,
+      "estimated_chart": 0.8670616904849414,
+      "extrapolated": false
+    },
+    "beam": {
+      "label": "Beam 1.0",
+      "weights": [
+        "reflection/Beam-1.0-501B-A23B",
+        "12950ae640b48cbbe9b5bb7735bf197507d6383f"
+      ],
+      "date": {
+        "date": "2026-10-16",
+        "source": "https://huggingface.co/reflection/Beam-1.0-501B-A23B/commit/06641076793dad51b8907f7eb2a14f4e08fd3ec8",
+        "milestone": "Beam is available"
+      },
+      "cpp_bpb": 0.20426715876072768,
+      "python_bpb": 0.2950068529295624,
+      "mean_bpb": 0.24963700584514503,
+      "calibration_anchor": false,
+      "estimated_mai_bpb": 0.2339076014443937,
+      "estimated_chart": 0.8595466523042933,
+      "extrapolated": false
+    },
+    "ds41flash": {
+      "label": "DeepSeek V4.1 Flash 1017",
+      "weights": [
+        "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+        "08c8657f02291e11b6f6b63e0e16014f8e748518"
+      ],
+      "date": {
+        "date": "2026-10-17",
+        "source": "https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/commit/1bae0e1088993b9b82de08f59de5be5a34e42170",
+        "milestone": "Release DeepSeek-V4.1-Flash-1017"
+      },
+      "cpp_bpb": 0.20005743997029402,
+      "python_bpb": 0.27887183761157913,
+      "mean_bpb": 0.23946463879093657,
+      "calibration_anchor": false,
+      "estimated_mai_bpb": 0.23133925525902618,
+      "estimated_chart": 0.851892980671898,
+      "extrapolated": false
+    },
+    "k31pro": {
+      "label": "Kimi K3.1 Pro",
+      "weights": [
+        "moonshotai/Kimi-K3.1-Pro",
+        "d9e99b0792a5e93b78ea9bea62a68167e36ddd9e"
+      ],
+      "date": {
+        "date": "2026-11-02",
+        "source": "https://huggingface.co/moonshotai/Kimi-K3.1-Pro/commit/6d0a0202956796543364d666ab19c6ad1a494ee1",
+        "milestone": "Initial commit"
+      },
+      "cpp_bpb": 0.17940780681468066,
+      "python_bpb": 0.265224180976313,
+      "mean_bpb": 0.22231599389549683,
+      "calibration_anchor": false,
+      "estimated_mai_bpb": 0.22700951996076996,
+      "estimated_chart": 0.8389903694830945,
+      "extrapolated": true
+    },
+    "inksmall": {
+      "label": "Inkling 2 Small",
+      "weights": [
+        "thinkingmachines/Inkling-2-Small",
+        "885d78bfca61a7e9a498e33cfa7ad35850533b8c"
+      ],
+      "date": {
+        "date": "2026-11-12",
+        "source": "https://huggingface.co/thinkingmachines/Inkling-2-Small/commit/78cb6c0ef68e1f089b77e78cfd94783d05b5c41b",
+        "milestone": "upload model"
+      },
+      "cpp_bpb": 0.19615500684896997,
+      "python_bpb": 0.2601843863100767,
+      "mean_bpb": 0.22816969657952332,
+      "calibration_anchor": false,
+      "estimated_mai_bpb": 0.228487478323723,
+      "estimated_chart": 0.8433946854046945,
+      "extrapolated": true
+    },
+    "mochi": {
+      "label": "Mochi \u00b7 393,491",
+      "weights": [
+        "s3://marin-us-east-02a/marin/exports/mochi/step-393491/468c3103dd-cpu-20261110-schema3-a1",
+        null
+      ],
+      "date": {
+        "date": "2026-11-17",
+        "source": "https://openathena.ai/blog/marin-mochi-pretraining-checkpoints/",
+        "milestone": "Release announcement"
+      },
+      "cpp_bpb": 0.22827058579629153,
+      "python_bpb": 0.34565859324256615,
+      "mean_bpb": 0.2869645895194288,
+      "calibration_anchor": false,
+      "estimated_mai_bpb": 0.24333216866930238,
+      "estimated_chart": 0.8876318626345211,
+      "extrapolated": false
+    },
+    "inkmini": {
+      "label": "Inkling 2 Mini",
+      "weights": [
+        "thinkingmachines/Inkling-2-Mini",
+        "7a67ae2314b44ef05c87fd1d4d311c58aaeb18f6"
+      ],
+      "date": {
+        "date": "2026-11-20",
+        "source": "https://huggingface.co/thinkingmachines/Inkling-2-Mini/commit/1fb4134b9a74f9681054f4ef82e4bf1f458a2337",
+        "milestone": "upload model"
+      },
+      "cpp_bpb": 0.24409062445815952,
+      "python_bpb": 0.3136796809954843,
+      "mean_bpb": 0.2788851527268219,
+      "calibration_anchor": false,
+      "estimated_mai_bpb": 0.24129225106156868,
+      "estimated_chart": 0.8815529081634746,
+      "extrapolated": false
+    }
+  }
+}
