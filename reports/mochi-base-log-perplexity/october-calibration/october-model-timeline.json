@@ -1,10 +1,8 @@
 {
   "files": 960,
   "model_count": 16,
-  "plotted_count": 15,
-  "excluded": [
-    "glm53"
-  ],
+  "plotted_count": 16,
+  "excluded": [],
   "mai_anchors": [
     "ds4",
     "kimi",
@@ -166,13 +164,14 @@
         "source": "https://huggingface.co/zai-org/GLM-5.3/commit/30333038ada1f1dacb294a93270305a890b50c14",
         "milestone": "update"
       },
-      "cpp_bpb": 0.8515738866170304,
-      "python_bpb": 0.5319219121354946,
-      "mean_bpb": 0.6917478993762625,
+      "cpp_bpb": 0.22056163488054378,
+      "python_bpb": 0.32634558561825866,
+      "mean_bpb": 0.27345361024940124,
       "calibration_anchor": false,
-      "estimated_mai_bpb": null,
-      "estimated_chart": null,
-      "extrapolated": true
+      "prefix": "[gMASK]<sop>",
+      "estimated_mai_bpb": 0.2399208808260861,
+      "estimated_chart": 0.8774662248617365,
+      "extrapolated": false
     },
     "glm53flash": {
       "label": "GLM-5.3 Flash",

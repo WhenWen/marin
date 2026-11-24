@@ -24,20 +24,21 @@
         "ba32f8c19c8738e2c57c71798c601d477a7bf844"
       ],
       "files": 960,
-      "cpp_bpb": 0.8515738866170305,
-      "python_bpb": 0.5319219121354946,
-      "public_macro_bpb": 0.6917478993762625,
-      "predicted_mai_bpb": null,
-      "predicted_chart": null,
+      "cpp_bpb": 0.22056163488054378,
+      "python_bpb": 0.32634558561825866,
+      "public_macro_bpb": 0.27345361024940124,
+      "predicted_mai_bpb": 0.2399208808260862,
+      "predicted_chart": 0.8774662248617369,
       "original_chart": 0.8733291894579814,
       "original_pixel_xy": [
         1497,
         638
       ],
-      "delta": null,
-      "inside_anchor_range": false,
+      "delta": 0.004137035403755429,
+      "inside_anchor_range": true,
       "tml_internal_bpb": 0.2358,
-      "tml_version": "base-recovered"
+      "tml_version": "base-recovered",
+      "prefix": "[gMASK]<sop>"
     },
     "glm53flash": {
       "model": "GLM-5.3 Flash",

@@ -181,6 +181,15 @@
       },
       "maximum_mean_absolute_duplicate_logprob_difference_nats": 7.642439793743506
     },
+    "glm53single": {
+      "repeated_file_4174": {
+        "min_bpb": 4.810335320420791,
+        "max_bpb": 4.810335320420791,
+        "median_token_logprob_spread": 0.0,
+        "fraction_token_spread_over_one_nat": 0.0
+      },
+      "maximum_mean_absolute_duplicate_logprob_difference_nats": 0.0
+    },
     "glm53-native": {
       "repeated_file_4174": {
         "min_bpb": 0.22135269392119153,
@@ -189,7 +198,17 @@
         "fraction_token_spread_over_one_nat": 0.022770398481973434
       },
       "maximum_mean_absolute_duplicate_logprob_difference_nats": 0.07850961784255484
+    },
+    "glm53single-native": {
+      "repeated_file_4174": {
+        "min_bpb": 0.2182917843044535,
+        "max_bpb": 0.2182917843044535,
+        "median_token_logprob_spread": 0.0,
+        "fraction_token_spread_over_one_nat": 0.0
+      },
+      "maximum_mean_absolute_duplicate_logprob_difference_nats": 0.0
     }
   },
-  "include_primary_chart": false
+  "primary_chart_prefix": "native_start",
+  "include_primary_chart": true
 }
