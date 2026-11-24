@@ -24,5 +24,18 @@
     "mean_bpb": 0.22816969657952335,
     "documents": 960,
     "start_token": 200006
+  },
+  "beam": {
+    "weights": [
+      "reflection/Beam-1.0-501B-A23B",
+      "12950ae640b48cbbe9b5bb7735bf197507d6383f"
+    ],
+    "scores": {
+      "github_cpp": 0.2042671587607277,
+      "github_python": 0.2950068529295624
+    },
+    "mean_bpb": 0.24963700584514506,
+    "documents": 960,
+    "start_token": 151674
   }
 }
