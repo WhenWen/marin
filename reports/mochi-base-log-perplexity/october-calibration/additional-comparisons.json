@@ -1,0 +1,28 @@
+{
+  "inkmini": {
+    "weights": [
+      "thinkingmachines/Inkling-2-Mini",
+      "7a67ae2314b44ef05c87fd1d4d311c58aaeb18f6"
+    ],
+    "scores": {
+      "github_cpp": 0.24409062445815952,
+      "github_python": 0.3136796809954843
+    },
+    "mean_bpb": 0.2788851527268219,
+    "documents": 960,
+    "start_token": 200006
+  },
+  "inksmall": {
+    "weights": [
+      "thinkingmachines/Inkling-2-Small",
+      "885d78bfca61a7e9a498e33cfa7ad35850533b8c"
+    ],
+    "scores": {
+      "github_cpp": 0.19615500684897,
+      "github_python": 0.2601843863100767
+    },
+    "mean_bpb": 0.22816969657952335,
+    "documents": 960,
+    "start_token": 200006
+  }
+}

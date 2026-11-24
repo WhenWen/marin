@@ -1,0 +1,48 @@
+{
+  "inkmini": {
+    "per_language": {
+      "github_cpp": {
+        "delta_bpb": 0.015820038661867975,
+        "paired_file_bootstrap_95pct": [
+          0.011203061468838881,
+          0.02105278088483965
+        ]
+      },
+      "github_python": {
+        "delta_bpb": -0.031978912247081874,
+        "paired_file_bootstrap_95pct": [
+          -0.035983061194010534,
+          -0.027655885788903035
+        ]
+      }
+    },
+    "macro_delta_bpb": -0.00807943679260695,
+    "macro_paired_file_bootstrap_95pct": [
+      -0.01125699903353017,
+      -0.004664478580824244
+    ]
+  },
+  "inksmall": {
+    "per_language": {
+      "github_cpp": {
+        "delta_bpb": -0.03211557894732151,
+        "paired_file_bootstrap_95pct": [
+          -0.03629595000261318,
+          -0.027865754993272783
+        ]
+      },
+      "github_python": {
+        "delta_bpb": -0.08547420693248946,
+        "paired_file_bootstrap_95pct": [
+          -0.08945648877373433,
+          -0.08126486047387434
+        ]
+      }
+    },
+    "macro_delta_bpb": -0.05879489293990549,
+    "macro_paired_file_bootstrap_95pct": [
+      -0.061693711659451936,
+      -0.055704984281332484
+    ]
+  }
+}
